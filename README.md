@@ -1,6 +1,8 @@
-# dns-tool-sovereign
+# Resolution Scope
 
-The sovereign build lane of the DNS Tool family — the verified-substrate future.
+The verified-substrate build of the DNS Tool family — the future of the
+instrument under its own name. Resolution Scope is the family's instrument
+brand (resolutionscope.com); this repository is its new wing.
 
 ## What this is
 
