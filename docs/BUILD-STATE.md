@@ -15,6 +15,37 @@ between a std+tokio crate and a no_std crate is a real hazard).
   sddf_device bounds). The `[[bin]]` (main_native.rs) is bare-metal only:
   `#![no_std]`, custom `#[panic_handler]`, `#[no_mangle] main`.
 
+## First differential result (2026-08-18, scripts/fixture_differential.py)
+
+**Three-way: Rust verdict / Go verdict (frozen in fixture) / fixture reference
++ LIVE protocol as arbiter when they disagree.** The Go parent is a comparand,
+not ground truth — a fixture is a frozen Go measurement and cannot arbitrate
+against itself.
+
+| domain | fixture (chain,state) | RUST | era | disposition |
+|---|---|---|---|---|
+| cloudflare.com | complete,present | Present | recaptured | **PARITY (fixture confirms)** |
+| example.com | complete,present | Present | recaptured | **PARITY** |
+| ietf.org | complete,present | Present | recaptured | **PARITY** |
+| whitehouse.gov | complete,present | Present | recaptured | **PARITY** |
+| cia.gov | complete,present | Present | defect-era | engines agree / fixture stale (recapture) |
+| google.com | none,absent_confirmed | Absent | defect-era | engines agree / fixture stale |
+| red.com | none,absent_confirmed | Absent | defect-era | engines agree / fixture stale |
+| thisdoesnotexist-xz9q.com | None,None | Absent | defect-era | live confirms: NXDOMAIN, Absent honest |
+
+**4/4 parity on the recaptured (post-fix) state space.** The three
+"fixture stale" rows are 2026-07-31 defect-era captures the recapture didn't
+touch — the engines agree with each other and with the live protocol, the
+frozen fixture predates the fix.
+
+**The differential caught a real port defect before it shipped:** the kit's
+original `score_dnssec` gated on "any answer record exists → Present", which
+asserted *unsigned-but-resolves* (google.com) as secure — the exact
+false-secure class the Go engine's DNSSEC arc fought. Fixed by gating on
+hickory's per-record `Proof` (Secure → Present, Insecure/Bogus → Absent,
+Indeterminate → Indet). This is the acquire-the-parent's-defects failure mode
+the three-way design exists to prevent.
+
 ## Corrections applied at adoption
 
 1. License `MIT OR Apache-2.0` → **AGPL-3.0** (repo is AGPL-from-birth).

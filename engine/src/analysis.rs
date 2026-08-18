@@ -82,18 +82,31 @@ pub async fn analyse_domain(
 // The function signatures are final — the TriState return type is load-bearing.
 
 async fn score_dnssec(resolver: &TokioResolver, domain: &str) -> TriState {
-    // A successful DNSSEC-validated lookup for the apex A/AAAA record is the
-    // simplest chain-validation signal.  If hickory returns a validated result
-    // (AD flag set in its internal state), DNSSEC is Present.
+    // DNSSEC is measured by hickory's per-record `Proof`, NOT by "records
+    // exist".  hickory validates with validate=true and attaches one of four
+    // proofs to each answer record:
+    //   Secure        — chain of DNSKEY+DS from a trust anchor validates (SIGNED)
+    //   Insecure      — delegation into an unsigned zone is PROVEN (UNSIGNED, honest)
+    //   Bogus         — ought to validate but does not (BROKEN; possible attack)
+    //   Indeterminate — could not obtain the DNSSEC RRs (couldn't measure)
+    //
+    // The kit's original gate ("any answer record → Present") asserted
+    // "unsigned-but-resolves" as secure — the exact false-secure class the Go
+    // engine's DNSSEC arc fought.  google.com (unsigned) returned Present
+    // under that gate; with Proof it correctly returns Absent.
+    use hickory_proto::dnssec::Proof;
 
     match resolver.lookup_ip(domain).await {
         Ok(resp) => {
-            // hickory sets the AD bit on validated responses when validate=true.
-            // TODO: expose the raw AD flag once hickory 0.26 API is confirmed.
-            if resp.iter().next().is_some() {
-                TriState::Present
-            } else {
-                TriState::Absent
+            // The A/AAAA proof summarises the zone's signing state for our
+            // purposes: Secure → signed, Insecure → proven unsigned, Bogus →
+            // broken, Indeterminate → couldn't measure.
+            match resp.as_lookup().answers().first().map(|r| r.proof) {
+                Some(Proof::Secure) => TriState::Present,
+                Some(Proof::Insecure) => TriState::Absent, // proven unsigned — honest absence
+                Some(Proof::Bogus) => TriState::Absent,    // broken — counts against, never "secure"
+                Some(Proof::Indeterminate) => TriState::Indet,
+                None => TriState::Indet, // no A/AAAA answer — not a DNSSEC verdict
             }
         }
         Err(e) => {
@@ -329,7 +342,7 @@ mod tests {
         // In sandboxed / offline environments, these tests must be run with
         // `--ignored` suppressed or a local resolver mock substituted.
         TokioResolver::builder_with_config(
-            ResolverConfig::tls(&hickory_resolver::config::CLOUDFLARE),
+            ResolverConfig::udp_and_tcp(&hickory_resolver::config::CLOUDFLARE),
             hickory_resolver::net::runtime::TokioRuntimeProvider::default(),
         )
         .with_options(opts)
