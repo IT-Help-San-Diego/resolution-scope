@@ -15,6 +15,48 @@ between a std+tokio crate and a no_std crate is a real hazard).
   sddf_device bounds). The `[[bin]]` (main_native.rs) is bare-metal only:
   `#![no_std]`, custom `#[panic_handler]`, `#[no_mangle] main`.
 
+## First differential result (2026-08-18, scripts/fixture_differential.py)
+
+**Three-way: Rust verdict / Go verdict (frozen in fixture) / fixture reference
++ LIVE protocol as arbiter when they disagree.** The Go parent is a comparand,
+not ground truth — a fixture is a frozen Go measurement and cannot arbitrate
+against itself.
+
+| domain | fixture (chain,state) | RUST | era | disposition |
+|---|---|---|---|---|
+| cloudflare.com | complete,present | Present | recaptured | **PARITY (fixture confirms)** |
+| example.com | complete,present | Present | recaptured | **PARITY** |
+| ietf.org | complete,present | Present | recaptured | **PARITY** |
+| whitehouse.gov | complete,present | Present | recaptured | **PARITY** |
+| cia.gov | complete,present | Present | defect-era | **only genuine stale-fixture** (signed live: 3 DNSKEY/4 DS, AD=true) — recapture |
+| google.com | none,absent_confirmed | Absent | defect-era | fixture **already correct** (unsigned live: 0 DNSKEY/0 DS) — no recapture needed |
+| red.com | none,absent_confirmed | Absent | defect-era | fixture **already correct** (unsigned live) — no recapture needed |
+| thisdoesnotexist-xz9q.com | None,None | **Indet** | defect-era | NXDOMAIN, honest couldn't-measure (zone doesn't exist) |
+
+**4/4 parity on the recaptured (post-fix) state space.** Claude Science's two
+corrections folded in: **cia.gov is the ONLY genuine stale-fixture case** of
+the three defect-era captures (it's signed and validating live; the frozen
+label is wrong) — `google`/`red` are unsigned live with the fixture **already
+correct**, needing no recapture at all. Grouping all three as "fixture stale"
+was wrong.
+
+**Second port defect caught (the domain_exists flatten):** the engine
+originally mapped NXDOMAIN → `Absent`, asserting a measured absence of DNSSEC
+on a zone that doesn't exist. `Absent` is a claim about a zone's
+configuration; there is no zone. Fixed everywhere (DNSSEC, DANE, CAA,
+CDS/CDNSKEY): `e.is_nx_domain()` → `Indet`, only NOERROR/NODATA on an
+existing zone → `Absent`. Same flatten the Go engine's domain_exists arc
+removed — and the denial is unauthenticated (AD=false), so even nonexistence
+isn't proven.
+
+**The differential caught a real port defect before it shipped:** the kit's
+original `score_dnssec` gated on "any answer record exists → Present", which
+asserted *unsigned-but-resolves* (google.com) as secure — the exact
+false-secure class the Go engine's DNSSEC arc fought. Fixed by gating on
+hickory's per-record `Proof` (Secure → Present, Insecure/Bogus → Absent,
+Indeterminate → Indet). This is the acquire-the-parent's-defects failure mode
+the three-way design exists to prevent.
+
 ## Corrections applied at adoption
 
 1. License `MIT OR Apache-2.0` → **AGPL-3.0** (repo is AGPL-from-birth).

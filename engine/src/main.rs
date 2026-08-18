@@ -87,7 +87,12 @@ async fn build_resolver() -> Result<hickory_resolver::TokioResolver> {
     // Do not use the system stub resolver; use a known recursive resolver so
     // DNSSEC validation is not silently bypassed by a non-validating upstream.
     let resolver = TokioResolver::builder_with_config(
-        ResolverConfig::tls(&hickory_resolver::config::CLOUDFLARE),
+        // NOTE: DoT (ResolverConfig::tls) fails at hickory 0.26.1 with
+        // "no connections available" — the TLS connection path never reaches
+        // the handshake (connections die at selection). Reproduced with
+        // RUST_LOG trace 2026-08-18; UDP+TCP works. Transport nicety, not a
+        // verdict-correctness question — file upstream, use udp_and_tcp here.
+        ResolverConfig::udp_and_tcp(&hickory_resolver::config::CLOUDFLARE),
         hickory_resolver::net::runtime::TokioRuntimeProvider::default(),
     )
     .with_options(opts)
