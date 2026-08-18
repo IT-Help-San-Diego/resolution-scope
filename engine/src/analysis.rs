@@ -157,7 +157,17 @@ async fn score_spf(resolver: &TokioResolver, domain: &str) -> TriState {
             });
             if has_spf { TriState::Present } else { TriState::Absent }
         }
-        Err(_) => TriState::Indet,
+        Err(e) => {
+            // NODATA (no TXT on an existing zone) = measured absence; NXDOMAIN
+            // (no zone) = couldn't-measure; transient = couldn't-measure.
+            if e.is_nx_domain() {
+                TriState::Indet
+            } else if e.is_no_records_found() {
+                TriState::Absent
+            } else {
+                TriState::Indet
+            }
+        }
     }
 }
 
@@ -171,7 +181,15 @@ async fn score_dmarc(resolver: &TokioResolver, domain: &str) -> TriState {
             });
             if has_dmarc { TriState::Present } else { TriState::Absent }
         }
-        Err(_) => TriState::Indet,
+        Err(e) => {
+            if e.is_nx_domain() {
+                TriState::Indet
+            } else if e.is_no_records_found() {
+                TriState::Absent
+            } else {
+                TriState::Indet
+            }
+        }
     }
 }
 
@@ -224,7 +242,17 @@ async fn score_mta_sts(resolver: &TokioResolver, domain: &str) -> TriState {
             // fetch will upgrade Indet → Present or Absent in Tier 2.
             if has_mta_sts { TriState::Indet } else { TriState::Absent }
         }
-        Err(_) => TriState::Absent, // missing TXT → definitively absent
+        Err(e) => {
+            // No MTA-STS TXT on an existing zone = measured absence; NXDOMAIN
+            // (no zone) and transient errors = couldn't-measure (never Absent).
+            if e.is_nx_domain() {
+                TriState::Indet
+            } else if e.is_no_records_found() {
+                TriState::Absent
+            } else {
+                TriState::Indet
+            }
+        }
     }
 }
 
