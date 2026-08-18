@@ -98,9 +98,12 @@ pub async fn analyse_domain(
 
 /// Map a record-presence lookup error to a tri-state verdict.
 fn record_absence_verdict(e: &NetError) -> TriState {
-    if e.is_nx_domain() {
-        TriState::Indet
-    } else if e.is_no_records_found() {
+    // NODATA (no record on an existing zone) = measured absence -> Absent.
+    // NXDOMAIN (no zone) and transient errors = couldn't measure -> Indet.
+    // (is_nx_domain() is a subset of is_no_records_found(): NXDOMAIN arrives as
+    //  NoRecordsFound with an NXDomain response code, so the !is_nx_domain()
+    //  guard separates "no zone" from "no record".)
+    if e.is_no_records_found() && !e.is_nx_domain() {
         TriState::Absent
     } else {
         TriState::Indet
@@ -115,11 +118,9 @@ fn record_absence_verdict(e: &NetError) -> TriState {
 fn dnssec_err_verdict(e: &NetError) -> TriState {
     use hickory_resolver::net::DnsError;
     use hickory_proto::op::ResponseCode;
-    if e.is_nx_domain() {
-        TriState::Indet
-    } else if e.is_no_records_found() {
-        TriState::Absent
-    } else if matches!(e, NetError::Dns(DnsError::ResponseCode(ResponseCode::ServFail))) {
+    let nodata = e.is_no_records_found() && !e.is_nx_domain();
+    let servfail = matches!(e, NetError::Dns(DnsError::ResponseCode(ResponseCode::ServFail)));
+    if nodata || servfail {
         TriState::Absent
     } else {
         TriState::Indet
