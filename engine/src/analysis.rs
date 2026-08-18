@@ -4,8 +4,8 @@
 // Results are packed into ScoredAnalysis and sent over the IPC endpoint.
 
 use anyhow::Result;
-use hickory_resolver::{ResolveErrorKind, TokioAsyncResolver};
-use hickory_proto::ProtoErrorKind;
+use hickory_resolver::TokioResolver;
+use hickory_resolver::net::NetError;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
@@ -37,7 +37,7 @@ pub struct ScoredAnalysis {
 // =============================================================================
 
 pub async fn analyse_domain(
-    resolver: &TokioAsyncResolver,
+    resolver: &TokioResolver,
     domain: &str,
 ) -> Result<ScoredAnalysis> {
     debug!(domain, "starting analysis");
@@ -81,7 +81,7 @@ pub async fn analyse_domain(
 // Each stub returns TriState::Indet until the real probe is implemented.
 // The function signatures are final — the TriState return type is load-bearing.
 
-async fn score_dnssec(resolver: &TokioAsyncResolver, domain: &str) -> TriState {
+async fn score_dnssec(resolver: &TokioResolver, domain: &str) -> TriState {
     // A successful DNSSEC-validated lookup for the apex A/AAAA record is the
     // simplest chain-validation signal.  If hickory returns a validated result
     // (AD flag set in its internal state), DNSSEC is Present.
@@ -98,43 +98,44 @@ async fn score_dnssec(resolver: &TokioAsyncResolver, domain: &str) -> TriState {
         }
         Err(e) => {
             warn!(domain, error = %e, "DNSSEC lookup error");
-            match e.kind() {
-                ResolveErrorKind::Proto(e) if matches!(e.kind(), ProtoErrorKind::NoRecordsFound { .. }) => TriState::Absent,
-                _ => TriState::Indet,
+            if e.is_no_records_found() {
+                TriState::Absent
+            } else {
+                TriState::Indet
             }
         }
     }
 }
 
-async fn score_spf(resolver: &TokioAsyncResolver, domain: &str) -> TriState {
+async fn score_spf(resolver: &TokioResolver, domain: &str) -> TriState {
     // SPF is a TXT record at the apex beginning with "v=spf1".
     match resolver.txt_lookup(domain).await {
         Ok(rdata) => {
-            let has_spf = rdata
-                .iter()
-                .flat_map(|r| r.iter())
-                .any(|s| s.starts_with(b"v=spf1"));
+            let has_spf = rdata.answers().iter().any(|rec| {
+                matches!(&rec.data, hickory_proto::rr::RData::TXT(txt)
+                    if txt.txt_data.iter().any(|s| s.starts_with(b"v=spf1")))
+            });
             if has_spf { TriState::Present } else { TriState::Absent }
         }
         Err(_) => TriState::Indet,
     }
 }
 
-async fn score_dmarc(resolver: &TokioAsyncResolver, domain: &str) -> TriState {
+async fn score_dmarc(resolver: &TokioResolver, domain: &str) -> TriState {
     let dmarc_domain = format!("_dmarc.{}", domain);
     match resolver.txt_lookup(dmarc_domain.as_str()).await {
         Ok(rdata) => {
-            let has_dmarc = rdata
-                .iter()
-                .flat_map(|r| r.iter())
-                .any(|s| s.starts_with(b"v=DMARC1"));
+            let has_dmarc = rdata.answers().iter().any(|rec| {
+                matches!(&rec.data, hickory_proto::rr::RData::TXT(txt)
+                    if txt.txt_data.iter().any(|s| s.starts_with(b"v=DMARC1")))
+            });
             if has_dmarc { TriState::Present } else { TriState::Absent }
         }
         Err(_) => TriState::Indet,
     }
 }
 
-async fn score_dane(resolver: &TokioAsyncResolver, domain: &str) -> TriState {
+async fn score_dane(resolver: &TokioResolver, domain: &str) -> TriState {
     // DANE: TLSA record at _443._tcp.<domain> (HTTPS DANE).
     // RecordType::TLSA = 52, confirmed present in hickory 0.26 (hickory_rr_types.md).
     //
@@ -145,24 +146,25 @@ async fn score_dane(resolver: &TokioAsyncResolver, domain: &str) -> TriState {
     let tlsa_name = format!("_443._tcp.{}", domain);
     match resolver.lookup(tlsa_name.as_str(), RecordType::TLSA).await {
         Ok(resp) => {
-            if resp.iter().next().is_some() {
+            if !resp.answers().is_empty() {
                 TriState::Present
             } else {
                 // Empty answer section with NOERROR → treat as absent.
                 TriState::Absent
             }
         }
-        Err(e) => match e.kind() {
-            ResolveErrorKind::Proto(e) if matches!(e.kind(), ProtoErrorKind::NoRecordsFound { .. }) => TriState::Absent,
-            _ => {
+        Err(e) => {
+            if e.is_no_records_found() {
+                TriState::Absent
+            } else {
                 warn!(domain, error = %e, "DANE/TLSA lookup error → Indet");
                 TriState::Indet
             }
-        },
+        }
     }
 }
 
-async fn score_mta_sts(resolver: &TokioAsyncResolver, domain: &str) -> TriState {
+async fn score_mta_sts(resolver: &TokioResolver, domain: &str) -> TriState {
     // T1-1 fix: MTA-STS "warning" (policy found but invalid/expired) MUST map
     // to Absent, not a fourth state.  Any policy parse error → Absent.
     // Successful fetch of /.well-known/mta-sts.txt + valid mode field → Present.
@@ -172,10 +174,10 @@ async fn score_mta_sts(resolver: &TokioAsyncResolver, domain: &str) -> TriState 
     let mta_sts_domain = format!("_mta-sts.{}", domain);
     match resolver.txt_lookup(mta_sts_domain.as_str()).await {
         Ok(rdata) => {
-            let has_mta_sts = rdata
-                .iter()
-                .flat_map(|r| r.iter())
-                .any(|s| s.starts_with(b"v=STSv1"));
+            let has_mta_sts = rdata.answers().iter().any(|rec| {
+                matches!(&rec.data, hickory_proto::rr::RData::TXT(txt)
+                    if txt.txt_data.iter().any(|s| s.starts_with(b"v=STSv1")))
+            });
             // DNS record present is necessary but not sufficient; HTTP policy
             // fetch will upgrade Indet → Present or Absent in Tier 2.
             if has_mta_sts { TriState::Indet } else { TriState::Absent }
@@ -184,7 +186,7 @@ async fn score_mta_sts(resolver: &TokioAsyncResolver, domain: &str) -> TriState 
     }
 }
 
-async fn score_caa(resolver: &TokioAsyncResolver, domain: &str) -> TriState {
+async fn score_caa(resolver: &TokioResolver, domain: &str) -> TriState {
     // CAA record lookup.
     // RecordType::CAA = 257, confirmed present in hickory 0.26 (hickory_rr_types.md).
     //
@@ -194,23 +196,24 @@ async fn score_caa(resolver: &TokioAsyncResolver, domain: &str) -> TriState {
 
     match resolver.lookup(domain, RecordType::CAA).await {
         Ok(resp) => {
-            if resp.iter().next().is_some() {
+            if !resp.answers().is_empty() {
                 TriState::Present
             } else {
                 TriState::Absent
             }
         }
-        Err(e) => match e.kind() {
-            ResolveErrorKind::Proto(e) if matches!(e.kind(), ProtoErrorKind::NoRecordsFound { .. }) => TriState::Absent,
-            _ => {
+        Err(e) => {
+            if e.is_no_records_found() {
+                TriState::Absent
+            } else {
                 warn!(domain, error = %e, "CAA lookup error → Indet");
                 TriState::Indet
             }
-        },
+        }
     }
 }
 
-async fn score_cds_cdnskey(resolver: &TokioAsyncResolver, domain: &str) -> TriState {
+async fn score_cds_cdnskey(resolver: &TokioResolver, domain: &str) -> TriState {
     // CDS (type 59) and CDNSKEY (type 60) are published at the child zone apex
     // to signal an ongoing or pending DS rollover to the parent (RFC 7344).
     // Both types confirmed present in hickory 0.26 (hickory_rr_types.md).
@@ -227,25 +230,26 @@ async fn score_cds_cdnskey(resolver: &TokioAsyncResolver, domain: &str) -> TriSt
     // ── CDS (type 59) ────────────────────────────────────────────────────────
     let cds_absent = match resolver.lookup(domain, RecordType::CDS).await {
         Ok(resp) => {
-            if resp.iter().next().is_some() {
+            if !resp.answers().is_empty() {
                 return TriState::Present; // CDS record found — rollover signalled
             }
             true // empty answer section → absent, check CDNSKEY
         }
-        Err(e) => match e.kind() {
-            ResolveErrorKind::Proto(e) if matches!(e.kind(), ProtoErrorKind::NoRecordsFound { .. }) => true, // definitively absent
-            _ => {
+        Err(e) => {
+            if e.is_no_records_found() {
+                true // definitively absent
+            } else {
                 // Transient/servfail on CDS — still worth checking CDNSKEY
                 warn!(domain, error = %e, "CDS lookup error, falling through to CDNSKEY");
                 false // not definitively absent
             }
-        },
+        }
     };
 
     // ── CDNSKEY (type 60) ────────────────────────────────────────────────────
     match resolver.lookup(domain, RecordType::CDNSKEY).await {
         Ok(resp) => {
-            if resp.iter().next().is_some() {
+            if !resp.answers().is_empty() {
                 TriState::Present
             } else if cds_absent {
                 TriState::Absent // both empty
@@ -253,19 +257,18 @@ async fn score_cds_cdnskey(resolver: &TokioAsyncResolver, domain: &str) -> TriSt
                 TriState::Indet // CDS errored, CDNSKEY empty — not conclusive
             }
         }
-        Err(e) => match e.kind() {
-            ResolveErrorKind::Proto(e) if matches!(e.kind(), ProtoErrorKind::NoRecordsFound { .. }) => {
+        Err(e) => {
+            if e.is_no_records_found() {
                 if cds_absent {
                     TriState::Absent // both definitively absent
                 } else {
                     TriState::Indet // CDS errored, CDNSKEY NXDOMAIN — not conclusive
                 }
-            }
-            _ => {
+            } else {
                 warn!(domain, error = %e, "CDNSKEY lookup error → Indet");
                 TriState::Indet
             }
-        },
+        }
     }
 }
 
@@ -312,25 +315,26 @@ mod tests {
     use super::*;
     use hickory_resolver::{
         config::{ResolverConfig, ResolverOpts},
-        TokioAsyncResolver,
+        TokioResolver,
     };
 
     // -------------------------------------------------------------------------
     // Helper — build a DNSSEC-validating resolver pointing at Cloudflare DoT
     // -------------------------------------------------------------------------
 
-    fn make_test_resolver() -> TokioAsyncResolver {
+    fn make_test_resolver() -> TokioResolver {
         let mut opts = ResolverOpts::default();
         opts.validate = true; // DNSSEC chain validation on
         // Use Cloudflare DoT for deterministic responses in CI.
         // In sandboxed / offline environments, these tests must be run with
         // `--ignored` suppressed or a local resolver mock substituted.
-        TokioAsyncResolver::builder_with_config(
-            ResolverConfig::cloudflare_tls(),
-            hickory_resolver::name_server::TokioConnectionProvider::default(),
+        TokioResolver::builder_with_config(
+            ResolverConfig::tls(&hickory_resolver::config::CLOUDFLARE),
+            hickory_resolver::net::runtime::TokioRuntimeProvider::default(),
         )
         .with_options(opts)
         .build()
+        .expect("test resolver construction")
     }
 
     // -------------------------------------------------------------------------

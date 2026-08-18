@@ -31,13 +31,11 @@ default = ["dnssec-ring"]
 dnssec-ring = [
     "hickory-resolver/dnssec-ring",
     "hickory-proto/dnssec-ring",
-    "hickory-client/dnssec-ring",
 ]
 
 [dependencies]
-hickory-resolver = { version = "0.25", features = ["dnssec-ring", "tls-ring"] }
-hickory-proto     = { version = "0.25", features = ["dnssec-ring"] }
-hickory-client    = { version = "0.25", features = ["dnssec-ring"] }
+hickory-resolver = { version = "0.26", features = ["dnssec-ring", "tls-ring"] }
+hickory-proto     = { version = "0.26", features = ["dnssec-ring"] }
 
 tokio = { version = "1", features = ["full"] }
 

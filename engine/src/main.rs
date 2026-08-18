@@ -73,10 +73,10 @@ async fn main() -> Result<()> {
 // Resolver construction
 // =============================================================================
 
-async fn build_resolver() -> Result<hickory_resolver::TokioAsyncResolver> {
+async fn build_resolver() -> Result<hickory_resolver::TokioResolver> {
     use hickory_resolver::{
         config::{ResolverConfig, ResolverOpts},
-        TokioAsyncResolver,
+        TokioResolver,
     };
 
     let mut opts = ResolverOpts::default();
@@ -86,12 +86,12 @@ async fn build_resolver() -> Result<hickory_resolver::TokioAsyncResolver> {
 
     // Do not use the system stub resolver; use a known recursive resolver so
     // DNSSEC validation is not silently bypassed by a non-validating upstream.
-    let resolver = TokioAsyncResolver::builder_with_config(
-        ResolverConfig::cloudflare_tls(),
-        hickory_resolver::name_server::TokioConnectionProvider::default(),
+    let resolver = TokioResolver::builder_with_config(
+        ResolverConfig::tls(&hickory_resolver::config::CLOUDFLARE),
+        hickory_resolver::net::runtime::TokioRuntimeProvider::default(),
     )
     .with_options(opts)
-    .build();
+    .build()?;
 
     info!("resolver constructed (DNSSEC validate=true, DoT/Cloudflare)");
     Ok(resolver)
