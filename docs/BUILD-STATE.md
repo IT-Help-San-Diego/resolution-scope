@@ -18,28 +18,36 @@ between a std+tokio crate and a no_std crate is a real hazard).
 ## Engine arms — complete (2026-08-18 evening)
 
 All eight controls now score correctly against live protocol, and the full-arm
-differential (`scripts/full_arm_differential.py`) is at **38 parity / 2
-scope-diff / 0 real-diff** (from 32/8/0 at the start of the session). The two
-remaining scope-diffs are a deliberate semantic choice, not a port gap.
+differential (`scripts/full_arm_differential.py`) is at **39 parity / 1
+scope-diff / 0 real-diff** (from 32/8/0 at the start of the session). The one
+remaining scope-diff is a deliberate, correct distinction, not a port gap.
 
 - **DNSSEC** — preserves the full disposition (`DnssecDisposition`, 7 variants)
   instead of collapsing to TriState, so the report explains *why* a domain is
   Indet (island-of-security vs couldn't-measure). Live: resolutionscope.com =
   signed-but-not-delegated; example.com/cloudflare.com = signed-and-delegated.
 - **DANE** — SMTP DANE (MX → `_25._tcp.<mx-host>` TLSA, RFC 7672), not HTTPS
-  DANE (`_443._tcp` was the wrong surface for an email tool). Null MX (RFC 7505
-  "MX 0 .") filtered via `exchange.is_root()`. Live: ietf.org/huque.com PASS,
-  gmail.com FAIL, example.com Indet (null MX).
+  DANE (`_443._tcp` was the wrong surface for an email tool). Four distinct
+  outcomes: Present (MX + TLSA), Absent (mail routable but no DANE — incl. a
+  silent no-MX absence, which is spoofable FROM), NotApplicable (null MX
+  "MX 0 ." = explicit "accepts no mail"), Indet (domain missing). Live:
+  ietf.org/huque.com PASS, gmail.com/whitehouse.gov FAIL, example.com N/A.
 - **MTA-STS** — full two-step RFC 8461 protocol (discovery TXT → HTTPS policy
   fetch via reqwest/rustls → parse version/mode/mx). Live: google.com PASS.
 - **NXDOMAIN SOA disambiguation** — `record_absence_verdict` reads the SOA zone
   from the authority section to distinguish "domain missing" (Indet) from
   "record absent within an existing zone" (Absent). Fixed the subdomain
-  NXDOMAIN flatten for `_dmarc`/`_mta-sts` (cia.gov/red.com were wrongly Indet).
+  NXDOMAIN flatten for `_dmarc`/`_mta-sts` (cia.gov/red.com were wrongly Indet),
+  and generalized to the DANE MX lookup.
+- **`NotApplicable` fourth state** — a null MX is a *measured declaration*, not
+  "couldn't measure". Added as a TriState variant distinct from both Absent and
+  Indet: same denominator exclusion as Indet, but a positive claim ("we know
+  precisely why DANE doesn't apply").
 
 Corollary findings: google.com/gmail.com are genuinely unsigned (no DNSKEY, no
 DS, no AD flag) — the engine correctly reports them unsigned. example.com
-publishes a null MX ("accepts no mail"), so DANE is not applicable.
+publishes a null MX ("accepts no mail") → DANE NotApplicable; whitehouse.gov
+publishes no MX at all (NODATA) → DANE Absent.
 
 ## First differential result (2026-08-18, scripts/fixture_differential.py)
 

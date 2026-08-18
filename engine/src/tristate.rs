@@ -16,6 +16,12 @@ pub enum TriState {
     Absent = 1,
     /// Could not measure — excluded from denominator, shown as "?" in the UI.
     Indet = 2,
+    /// Measured, and the control does not apply to this domain — e.g. a null MX
+    /// (RFC 7505 "MX 0 .") declares "accepts no mail", so SMTP DANE is moot.
+    /// Excluded from the denominator like Indet, but it is a POSITIVE
+    /// measurement ("we know precisely why it doesn't apply"), not
+    /// "couldn't measure". Distinct claim, same arithmetic.
+    NotApplicable = 3,
 }
 
 impl std::fmt::Display for TriState {
@@ -24,6 +30,7 @@ impl std::fmt::Display for TriState {
             TriState::Present => write!(f, "PRESENT"),
             TriState::Absent => write!(f, "ABSENT"),
             TriState::Indet => write!(f, "INDET"),
+            TriState::NotApplicable => write!(f, "NOT-APPLICABLE"),
         }
     }
 }

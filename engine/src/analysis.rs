@@ -308,47 +308,69 @@ async fn score_dane(resolver: &TokioResolver, domain: &str) -> TriState {
     // website at all, so probing HTTPS DANE read "no website" as "no DANE" —
     // the same category error as the DNSSEC address-existence bug.
     //
-    // Semantics:
-    //   Present — MX exists and >=1 MX host publishes a TLSA (DANE configured)
-    //   Absent  — MX exists but no MX host publishes a TLSA (mail, but no DANE)
-    //   Indet   — no MX (not a mail domain, DANE N/A) or couldn't measure
+    // Four distinct outcomes (this is the precise epistemic split):
+    //   Present        — MX exists and >=1 MX host publishes a TLSA (DANE on)
+    //   Absent         — mail is routable but no DANE: either a silent absence
+    //                    of MX (NODATA — a domain with no MX can still be
+    //                    spoofed FROM, a real finding) or MX present with no
+    //                    TLSA on any host.
+    //   NotApplicable  — null MX (RFC 7505 "MX 0 ."): an explicit declaration
+    //                    that the domain accepts no mail. A POSITIVE measurement
+    //                    ("we know why DANE doesn't apply"), not "couldn't
+    //                    measure".
+    //   Indet          — domain missing (NXDOMAIN) or transient lookup error.
     use hickory_proto::rr::{RData, RecordType};
 
     match resolver.lookup(domain, RecordType::MX).await {
         Ok(mx) => {
-            let exchanges: Vec<String> = mx
+            let all_mx: Vec<&hickory_proto::rr::rdata::MX> = mx
                 .answers()
                 .iter()
                 .filter_map(|r| match &r.data {
-                    // Skip null MX (RFC 7505 "MX 0 ." = domain accepts no mail):
-                    // its exchange is the root ".", and `_25._tcp..` is malformed.
-                    RData::MX(m) if !m.exchange.is_root() => Some(m.exchange.to_ascii()),
+                    RData::MX(m) => Some(m),
                     _ => None,
                 })
                 .collect();
-            if exchanges.is_empty() {
-                // MX lookup succeeded but returned no MX records — not a mail
-                // domain, so SMTP DANE is not applicable (Indet, not Absent).
-                return TriState::Indet;
+
+            if all_mx.is_empty() {
+                // Defensive: an Ok with no MX answers is NODATA in disguise.
+                return TriState::Absent; // no mail routing — spoofable FROM
             }
+
+            // RFC 7505 null MX ("MX 0 .") = explicit "accepts no mail" — a
+            // measured declaration, so DANE is NotApplicable, not Absent/Indet.
+            if all_mx.iter().all(|m| m.exchange.is_root()) {
+                return TriState::NotApplicable;
+            }
+
+            let exchanges: Vec<String> = all_mx
+                .iter()
+                .filter(|m| !m.exchange.is_root())
+                .map(|m| m.exchange.to_ascii())
+                .collect();
+
             for host in exchanges {
                 let tlsa_name = format!("_25._tcp.{}", host);
                 match resolver.lookup(tlsa_name.as_str(), RecordType::TLSA).await {
                     Ok(resp) if !resp.answers().is_empty() => return TriState::Present,
-                    Ok(_) => continue, // this MX host has no TLSA — check next
+                    // No TLSA on this host (its zone exists — the MX host is
+                    // already established by the successful MX lookup, so
+                    // NXDOMAIN here means "record absent", not "host missing").
+                    Ok(_) => continue,
                     Err(e) => {
                         warn!(domain, host = %host, error = %e, "SMTP DANE TLSA lookup error");
                         continue;
                     }
                 }
             }
-            TriState::Absent // mail exists but no MX host publishes a TLSA
+            TriState::Absent // mail routable but no MX host publishes a TLSA
         }
         Err(e) => {
-            // No MX (NXDOMAIN = no zone; NODATA = no MX = not a mail domain)
-            // or transient — all mean DANE is not measurable here, never Absent.
+            // NODATA (no MX) -> Absent; NXDOMAIN (domain missing) -> Indet.
+            // record_absence_verdict applies the SOA disambiguation — the same
+            // mechanism _dmarc/_mta-sts use, now generalized to the MX lookup.
             warn!(domain, error = %e, "MX lookup error for DANE");
-            TriState::Indet
+            record_absence_verdict(&e, domain)
         }
     }
 }
@@ -614,6 +636,7 @@ mod tests {
         assert_eq!(TriState::Present.to_string(), "PRESENT");
         assert_eq!(TriState::Absent.to_string(), "ABSENT");
         assert_eq!(TriState::Indet.to_string(), "INDET");
+        assert_eq!(TriState::NotApplicable.to_string(), "NOT-APPLICABLE");
     }
 
     // -------------------------------------------------------------------------
@@ -621,7 +644,12 @@ mod tests {
     // -------------------------------------------------------------------------
     #[test]
     fn tristate_serde_roundtrip() {
-        for ts in [TriState::Present, TriState::Absent, TriState::Indet] {
+        for ts in [
+            TriState::Present,
+            TriState::Absent,
+            TriState::Indet,
+            TriState::NotApplicable,
+        ] {
             let json = serde_json::to_string(&ts).expect("serialize");
             let back: TriState = serde_json::from_str(&json).expect("deserialize");
             assert_eq!(ts, back, "round-trip failed for {:?}", ts);

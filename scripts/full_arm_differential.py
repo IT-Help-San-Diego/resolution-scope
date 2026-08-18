@@ -12,16 +12,15 @@ Mapping (Go `*_state` -> Rust TriState):
   anything else    -> Indet   (indeterminate/unmeasured/unconfirmed/None)
 
 NOTE on scope:
-- DANE now probes SMTP DANE (MX -> _25._tcp.<mx-host> TLSA, RFC 7672) — the
-  same surface as Go. A remaining DANE disagreement is the "no-mail" edge
-  (RFC 7505 null MX, or no MX record): Rust returns Indet (DANE not
-  applicable, excluded from the score denominator), while Go records
-  absent_confirmed. Deliberate: a non-mail domain should not be penalized
-  for lacking mail DANE.
-- MTA-STS uses the DNS TXT proxy (HTTP policy fetch deferred to Tier 2).
-  The Go engine fetches https://mta-sts.<domain>/.well-known/mta-sts.txt, so
-  a TXT-present-but-policy-unverified domain reads Indet here vs Go's
-  present/absent. Genuine deferral, not a port defect.
+- DANE probes SMTP DANE (MX -> _25._tcp.<mx-host> TLSA, RFC 7672) — the same
+  surface as Go. The ONE remaining disagreement is the null-MX case (RFC 7505
+  "MX 0 ." = explicit "accepts no mail"): Rust returns NotApplicable (a
+  measured declaration — DANE is moot, excluded from the denominator), while
+  Go records absent_confirmed. This is a deliberate, correct distinction, not
+  a port gap: a silent absence of MX (no MX record, spoofable FROM) maps to
+  Absent on BOTH engines; only the explicit null-MX declaration is split.
+- MTA-STS is fully ported (discovery TXT -> HTTPS policy fetch -> parse) and
+  in parity with Go.
 """
 import json, glob, os, subprocess
 

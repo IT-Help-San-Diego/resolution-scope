@@ -33,7 +33,7 @@ pub fn render_text(a: &ScoredAnalysis) -> String {
     // the distinction the tri-state collapses (island vs couldn't-measure).
     out.push_str(&format!("\nDNSSEC detail: {}\n", a.dnssec_disposition));
 
-    let (present, absent, indet) = tally(a);
+    let (present, absent, indet, n_a) = tally(a);
     let denominator = present + absent;
     let score = if denominator == 0 {
         0.0
@@ -41,8 +41,8 @@ pub fn render_text(a: &ScoredAnalysis) -> String {
         present as f64 / denominator as f64 * 100.0
     };
     out.push_str(&format!(
-        "\nScore: {}/{} ({:.0}%)  |  unmeasured: {}\n",
-        present, denominator, score, indet
+        "\nScore: {}/{} ({:.0}%)  |  unmeasured: {}  |  not-applicable: {}\n",
+        present, denominator, score, indet, n_a
     ));
     out
 }
@@ -52,11 +52,12 @@ fn row(label: &str, t: TriState) -> String {
         TriState::Present => "PASS",
         TriState::Absent => "FAIL",
         TriState::Indet => "?   ",
+        TriState::NotApplicable => "N/A ",
     };
     format!("{:<16}  {}\n", label, symbol)
 }
 
-fn tally(a: &ScoredAnalysis) -> (usize, usize, usize) {
+fn tally(a: &ScoredAnalysis) -> (usize, usize, usize, usize) {
     let controls = [
         a.dnssec_chain,
         a.spf,
@@ -67,9 +68,12 @@ fn tally(a: &ScoredAnalysis) -> (usize, usize, usize) {
         a.caa,
         a.cds_cdnskey,
     ];
-    controls.iter().fold((0, 0, 0), |(p, ab, i), &t| match t {
-        TriState::Present => (p + 1, ab, i),
-        TriState::Absent => (p, ab + 1, i),
-        TriState::Indet => (p, ab, i + 1),
-    })
+    controls
+        .iter()
+        .fold((0, 0, 0, 0), |(p, ab, i, n), &t| match t {
+            TriState::Present => (p + 1, ab, i, n),
+            TriState::Absent => (p, ab + 1, i, n),
+            TriState::Indet => (p, ab, i + 1, n),
+            TriState::NotApplicable => (p, ab, i, n + 1),
+        })
 }
