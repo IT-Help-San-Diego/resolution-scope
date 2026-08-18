@@ -7,13 +7,39 @@ between a std+tokio crate and a no_std crate is a real hazard).
 ## Layout
 
 - `engine/` — Phase 1: std + tokio + hickory. **Builds on host.**
-  `cargo build` ✅, `cargo test` ✅ (3 pass, 5 ignored live-network).
+  `cargo build` ✅, `cargo test` ✅ (19 pass, 5 ignored live-network).
   `cargo check --no-default-features` **fails as designed** (exit 101) — the
   `dnssec-ring` compile guard fires; negative assertion verified.
 - `native/` — Phase 2: no_std + smoltcp + hickory-proto. **Library builds on
   host** (`cargo build --lib` ✅, `cargo test --lib` ✅ 4 pass: tristate +
   sddf_device bounds). The `[[bin]]` (main_native.rs) is bare-metal only:
   `#![no_std]`, custom `#[panic_handler]`, `#[no_mangle] main`.
+
+## Engine arms — complete (2026-08-18 evening)
+
+All eight controls now score correctly against live protocol, and the full-arm
+differential (`scripts/full_arm_differential.py`) is at **38 parity / 2
+scope-diff / 0 real-diff** (from 32/8/0 at the start of the session). The two
+remaining scope-diffs are a deliberate semantic choice, not a port gap.
+
+- **DNSSEC** — preserves the full disposition (`DnssecDisposition`, 7 variants)
+  instead of collapsing to TriState, so the report explains *why* a domain is
+  Indet (island-of-security vs couldn't-measure). Live: resolutionscope.com =
+  signed-but-not-delegated; example.com/cloudflare.com = signed-and-delegated.
+- **DANE** — SMTP DANE (MX → `_25._tcp.<mx-host>` TLSA, RFC 7672), not HTTPS
+  DANE (`_443._tcp` was the wrong surface for an email tool). Null MX (RFC 7505
+  "MX 0 .") filtered via `exchange.is_root()`. Live: ietf.org/huque.com PASS,
+  gmail.com FAIL, example.com Indet (null MX).
+- **MTA-STS** — full two-step RFC 8461 protocol (discovery TXT → HTTPS policy
+  fetch via reqwest/rustls → parse version/mode/mx). Live: google.com PASS.
+- **NXDOMAIN SOA disambiguation** — `record_absence_verdict` reads the SOA zone
+  from the authority section to distinguish "domain missing" (Indet) from
+  "record absent within an existing zone" (Absent). Fixed the subdomain
+  NXDOMAIN flatten for `_dmarc`/`_mta-sts` (cia.gov/red.com were wrongly Indet).
+
+Corollary findings: google.com/gmail.com are genuinely unsigned (no DNSKEY, no
+DS, no AD flag) — the engine correctly reports them unsigned. example.com
+publishes a null MX ("accepts no mail"), so DANE is not applicable.
 
 ## First differential result (2026-08-18, scripts/fixture_differential.py)
 
