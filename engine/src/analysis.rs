@@ -729,6 +729,20 @@ mod tests {
     async fn island_of_security_vs_broken_chain() {
         let resolver = make_test_resolver();
 
+        // Negative control: google.com has zero DNSKEY → Unsigned.
+        // The answers.is_empty() gate at line 248 is what prevents every
+        // genuinely-unsigned domain from reading as an island. Proof::Insecure
+        // alone cannot distinguish — DNSKEY presence is the discriminator.
+        let unsigned = analyse_domain(&resolver, "google.com")
+            .await
+            .expect("analyse_domain should not error");
+        assert_eq!(
+            unsigned.dnssec_disposition,
+            DnssecDisposition::Unsigned,
+            "google.com: expected Unsigned (no DNSKEY), got {:?}",
+            unsigned.dnssec_disposition
+        );
+
         let island = analyse_domain(&resolver, "resolutionscope.com")
             .await
             .expect("analyse_domain should not error");
