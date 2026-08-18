@@ -48,6 +48,7 @@ pub mod tristate;
 // `resolution_scope_engine::ScoredAnalysis` without a full module path.
 pub use analysis::DkimDisposition;
 pub use analysis::MtaStsDisposition;
+pub use analysis::DaneDisposition;
 pub use analysis::ScoredAnalysis;
 pub use tristate::TriState;
 

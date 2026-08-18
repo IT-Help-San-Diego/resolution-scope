@@ -177,6 +177,50 @@ impl std::fmt::Display for MtaStsDisposition {
 }
 
 
+
+// =============================================================================
+// DaneDisposition — DANE (SMTP TLSA) verification detail
+// =============================================================================
+//
+// The null-MX NotApplicable vs absent distinction is the one remaining
+// scope-diff from the 39/1/0 differential.
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DaneDisposition {
+    Verified,       // TLSA matched
+    Mismatch,       // TLSA found but doesn't match
+    NotConfigured,  // MX exists, no TLSA
+    NoMail,         // null MX (RFC 7505) or no MX
+    TransientError, // SERVFAIL/timeout
+    DnssecRequired, // DANE requires DNSSEC (RFC 7672 §4)
+}
+
+impl DaneDisposition {
+    pub fn chain(self) -> TriState {
+        match self {
+            DaneDisposition::Verified => TriState::Present,
+            DaneDisposition::Mismatch => TriState::Absent,
+            DaneDisposition::NotConfigured => TriState::Absent,
+            DaneDisposition::NoMail => TriState::NotApplicable,
+            DaneDisposition::TransientError => TriState::Indet,
+            DaneDisposition::DnssecRequired => TriState::Indet,
+        }
+    }
+}
+
+impl std::fmt::Display for DaneDisposition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DaneDisposition::Verified => write!(f, "verified"),
+            DaneDisposition::Mismatch => write!(f, "mismatch"),
+            DaneDisposition::NotConfigured => write!(f, "not-configured"),
+            DaneDisposition::NoMail => write!(f, "no-mail"),
+            DaneDisposition::TransientError => write!(f, "transient-error"),
+            DaneDisposition::DnssecRequired => write!(f, "dnssec-required"),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ScoredAnalysis {
     pub domain: String,
@@ -191,6 +235,7 @@ pub struct ScoredAnalysis {
     pub dkim_disposition: DkimDisposition,
     pub dmarc: TriState,
     pub dane: TriState,
+    pub dane_disposition: DaneDisposition,
     pub mta_sts: TriState,
     pub mta_sts_disposition: MtaStsDisposition, // "warning" → Absent (T1-1 fix)
     pub caa: TriState,
@@ -219,7 +264,7 @@ pub async fn analyse_domain(resolver: &TokioResolver, domain: &str) -> Result<Sc
     let dkim = TriState::Indet; // selector unknown at analysis time
     let dkim_disposition = DkimDisposition::NotFoundDefaults; // 81 defaults not probed yet
     let dmarc = score_dmarc(resolver, domain).await;
-    let dane = score_dane(resolver, domain).await;
+    let (dane, dane_disposition) = score_dane(resolver, domain).await;
     let (mta_sts, mta_sts_disposition) = score_mta_sts(resolver, domain).await;
     let caa = score_caa(resolver, domain).await;
     let cds_cdnskey = score_cds_cdnskey(resolver, domain).await;
@@ -235,6 +280,7 @@ pub async fn analyse_domain(resolver: &TokioResolver, domain: &str) -> Result<Sc
         dkim_disposition,
         dmarc,
         dane,
+        dane_disposition,
         mta_sts,
         mta_sts_disposition,
         caa,
@@ -403,7 +449,7 @@ async fn score_dmarc(resolver: &TokioResolver, domain: &str) -> TriState {
     }
 }
 
-async fn score_dane(resolver: &TokioResolver, domain: &str) -> TriState {
+async fn score_dane(resolver: &TokioResolver, domain: &str) -> (TriState, DaneDisposition) {
     // DANE for SMTP (RFC 7672): TLSA at _25._tcp.<mx-host> for each MX target.
     // NOT _443._tcp.<domain> — that is HTTPS DANE (RFC 6698 for browsers), the
     // wrong surface for an email-security instrument. A mail domain may host no
@@ -436,13 +482,13 @@ async fn score_dane(resolver: &TokioResolver, domain: &str) -> TriState {
 
             if all_mx.is_empty() {
                 // Defensive: an Ok with no MX answers is NODATA in disguise.
-                return TriState::Absent; // no mail routing — spoofable FROM
+                return (TriState::Absent, DaneDisposition::NoMail); // no mail routing — spoofable FROM
             }
 
             // RFC 7505 null MX ("MX 0 .") = explicit "accepts no mail" — a
             // measured declaration, so DANE is NotApplicable, not Absent/Indet.
             if all_mx.iter().all(|m| m.exchange.is_root()) {
-                return TriState::NotApplicable;
+                return (TriState::NotApplicable, DaneDisposition::NoMail);
             }
 
             let exchanges: Vec<String> = all_mx
@@ -454,7 +500,7 @@ async fn score_dane(resolver: &TokioResolver, domain: &str) -> TriState {
             for host in exchanges {
                 let tlsa_name = format!("_25._tcp.{}", host);
                 match resolver.lookup(tlsa_name.as_str(), RecordType::TLSA).await {
-                    Ok(resp) if !resp.answers().is_empty() => return TriState::Present,
+                    Ok(resp) if !resp.answers().is_empty() => return (TriState::Present, DaneDisposition::Verified),
                     // No TLSA on this host (its zone exists — the MX host is
                     // already established by the successful MX lookup, so
                     // NXDOMAIN here means "record absent", not "host missing").
@@ -465,14 +511,14 @@ async fn score_dane(resolver: &TokioResolver, domain: &str) -> TriState {
                     }
                 }
             }
-            TriState::Absent // mail routable but no MX host publishes a TLSA
+            (TriState::Absent, DaneDisposition::NotConfigured) // no TLSA on any MX
         }
         Err(e) => {
             // NODATA (no MX) -> Absent; NXDOMAIN (domain missing) -> Indet.
             // record_absence_verdict applies the SOA disambiguation — the same
             // mechanism _dmarc/_mta-sts use, now generalized to the MX lookup.
             warn!(domain, error = %e, "MX lookup error for DANE");
-            record_absence_verdict(&e, domain)
+            record_absence_to_dane(&e, domain)
         }
     }
 }
@@ -1070,4 +1116,16 @@ mod tests {
             "version: STSv1\r\nmode: enforce\r\nmx: smtp.example.com\r\nmax_age: 86400\r\n";
         assert!(mta_sts_enforced(policy));
     }
+}
+
+/// Wraps record_absence_verdict for DANE — converts the TriState to a
+/// (TriState, DaneDisposition) tuple with meaningful disposition labels.
+fn record_absence_to_dane(e: &NetError, domain: &str) -> (TriState, DaneDisposition) {
+    let ts = record_absence_verdict(e, domain);
+    let disp = match ts {
+        TriState::NotApplicable => DaneDisposition::NoMail,
+        TriState::Indet => DaneDisposition::TransientError,
+        _ => DaneDisposition::NotConfigured,
+    };
+    (ts, disp)
 }
