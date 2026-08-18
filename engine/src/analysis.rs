@@ -5,6 +5,7 @@
 
 use anyhow::Result;
 use hickory_resolver::TokioResolver;
+use hickory_resolver::net::NetError;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
@@ -80,6 +81,51 @@ pub async fn analyse_domain(
 // Each stub returns TriState::Indet until the real probe is implemented.
 // The function signatures are final — the TriState return type is load-bearing.
 
+// =============================================================================
+// Verdict mapping — pure, unit-testable
+// =============================================================================
+//
+// Every scored control's Err path reduces to the same three-way decision:
+//   NXDOMAIN       -> Indet   (no zone — domain_exists doctrine: `Absent` is
+//                              a claim about a zone's configuration, and there
+//                              is no zone)
+//   NoRecordsFound -> Absent  (NODATA on an existing zone = measured absence)
+//   else           -> Indet   (transient / couldn't measure)
+//
+// Extracted from the per-arm Err branches so the boundary is a single,
+// unit-tested decision rather than six hand-copied blocks. The DNSSEC arm
+// adds one extra case (SERVFAIL -> Absent = broken chain) below.
+
+/// Map a record-presence lookup error to a tri-state verdict.
+fn record_absence_verdict(e: &NetError) -> TriState {
+    if e.is_nx_domain() {
+        TriState::Indet
+    } else if e.is_no_records_found() {
+        TriState::Absent
+    } else {
+        TriState::Indet
+    }
+}
+
+/// Map a DNSSEC DNSKEY lookup error to a tri-state verdict.
+/// Differs from `record_absence_verdict` in one case: SERVFAIL from a
+/// validating resolver on a DNSSEC query is the RFC 4035 "bogus" signal
+/// (broken chain — wrong DS / expired RRSIG), which maps to Absent (broken
+/// counts against), not Indet. Same class as the Go engine's #336 fix.
+fn dnssec_err_verdict(e: &NetError) -> TriState {
+    use hickory_resolver::net::DnsError;
+    use hickory_proto::op::ResponseCode;
+    if e.is_nx_domain() {
+        TriState::Indet
+    } else if e.is_no_records_found() {
+        TriState::Absent
+    } else if matches!(e, NetError::Dns(DnsError::ResponseCode(ResponseCode::ServFail))) {
+        TriState::Absent
+    } else {
+        TriState::Indet
+    }
+}
+
 async fn score_dnssec(resolver: &TokioResolver, domain: &str) -> TriState {
     // DNSSEC is measured by the zone's DNSKEY material, NOT by A/AAAA address
     // existence. A zone can publish DNSKEY + RRSIG (sign) while hosting no
@@ -120,28 +166,7 @@ async fn score_dnssec(resolver: &TokioResolver, domain: &str) -> TriState {
         }
         Err(e) => {
             warn!(domain, error = %e, "DNSSEC DNSKEY lookup error");
-            // domain_exists doctrine (Carey ruling, 2026-08-18): an
-            // authoritative no-such-name is an absence OF THE DOMAIN, not of
-            // DNSSEC. NXDOMAIN must never flatten to Absent.
-            if e.is_nx_domain() {
-                TriState::Indet
-            } else if e.is_no_records_found() {
-                // NOERROR/NODATA on the DNSKEY query = no keys = unsigned.
-                TriState::Absent
-            } else {
-                // SERVFAIL from a validating resolver on a DNSSEC query is the
-                // RFC 4035 "bogus" signal — the chain broke (wrong DS, expired
-                // RRSIG), so the resolver refused to return the keys. Map it to
-                // Absent (broken counts against), NOT Indet. Same class as the
-                // Go engine's #336 SERVFAIL→bogus fix.
-                use hickory_resolver::net::{DnsError, NetError};
-                use hickory_proto::op::ResponseCode;
-                if matches!(&e, NetError::Dns(DnsError::ResponseCode(ResponseCode::ServFail))) {
-                    TriState::Absent
-                } else {
-                    TriState::Indet
-                }
-            }
+            dnssec_err_verdict(&e)
         }
     }
 }
@@ -159,13 +184,7 @@ async fn score_spf(resolver: &TokioResolver, domain: &str) -> TriState {
         Err(e) => {
             // NODATA (no TXT on an existing zone) = measured absence; NXDOMAIN
             // (no zone) = couldn't-measure; transient = couldn't-measure.
-            if e.is_nx_domain() {
-                TriState::Indet
-            } else if e.is_no_records_found() {
-                TriState::Absent
-            } else {
-                TriState::Indet
-            }
+            record_absence_verdict(&e)
         }
     }
 }
@@ -181,13 +200,7 @@ async fn score_dmarc(resolver: &TokioResolver, domain: &str) -> TriState {
             if has_dmarc { TriState::Present } else { TriState::Absent }
         }
         Err(e) => {
-            if e.is_nx_domain() {
-                TriState::Indet
-            } else if e.is_no_records_found() {
-                TriState::Absent
-            } else {
-                TriState::Indet
-            }
+            record_absence_verdict(&e)
         }
     }
 }
@@ -211,14 +224,8 @@ async fn score_dane(resolver: &TokioResolver, domain: &str) -> TriState {
             }
         }
         Err(e) => {
-            if e.is_nx_domain() {
-                TriState::Indet
-            } else if e.is_no_records_found() {
-                TriState::Absent
-            } else {
-                warn!(domain, error = %e, "DANE/TLSA lookup error → Indet");
-                TriState::Indet
-            }
+            warn!(domain, error = %e, "DANE/TLSA lookup error");
+            record_absence_verdict(&e)
         }
     }
 }
@@ -244,13 +251,7 @@ async fn score_mta_sts(resolver: &TokioResolver, domain: &str) -> TriState {
         Err(e) => {
             // No MTA-STS TXT on an existing zone = measured absence; NXDOMAIN
             // (no zone) and transient errors = couldn't-measure (never Absent).
-            if e.is_nx_domain() {
-                TriState::Indet
-            } else if e.is_no_records_found() {
-                TriState::Absent
-            } else {
-                TriState::Indet
-            }
+            record_absence_verdict(&e)
         }
     }
 }
@@ -272,14 +273,8 @@ async fn score_caa(resolver: &TokioResolver, domain: &str) -> TriState {
             }
         }
         Err(e) => {
-            if e.is_nx_domain() {
-                TriState::Indet
-            } else if e.is_no_records_found() {
-                TriState::Absent
-            } else {
-                warn!(domain, error = %e, "CAA lookup error → Indet");
-                TriState::Indet
-            }
+            warn!(domain, error = %e, "CAA lookup error");
+            record_absence_verdict(&e)
         }
     }
 }
@@ -505,5 +500,66 @@ mod tests {
             "T1-1: example.com has no MTA-STS policy; expected Absent, got {:?}",
             result.mta_sts
         );
+    }
+
+    // -------------------------------------------------------------------------
+    // Verdict-mapping unit tests (pure, no network)
+    //
+    // These pin the tri-state boundary that was hand-copied across six arms
+    // before extraction. Each arm's Err path reduces to: NXDOMAIN -> Indet,
+    // NODATA -> Absent, else -> Indet; DNSSEC additionally maps SERVFAIL ->
+    // Absent (broken chain). Regression protection for the 2026-08-18 fixes.
+    // -------------------------------------------------------------------------
+
+    fn no_records_err(code: hickory_proto::op::ResponseCode) -> NetError {
+        use hickory_proto::op::Query;
+        use hickory_proto::rr::{Name, RecordType};
+        use hickory_resolver::net::{DnsError, NoRecords};
+        let q = Query::query(Name::from_ascii("example.com.").unwrap(), RecordType::DNSKEY);
+        let nr = NoRecords::new(Box::new(q), code);
+        NetError::Dns(DnsError::NoRecordsFound(nr))
+    }
+
+    fn servfail_err() -> NetError {
+        use hickory_proto::op::ResponseCode;
+        use hickory_resolver::net::DnsError;
+        NetError::Dns(DnsError::ResponseCode(ResponseCode::ServFail))
+    }
+
+    #[test]
+    fn record_absence_nxdomain_is_indet() {
+        // no zone -> couldn't measure, NEVER Absent (domain_exists doctrine)
+        assert_eq!(record_absence_verdict(&no_records_err(hickory_proto::op::ResponseCode::NXDomain)), TriState::Indet);
+    }
+
+    #[test]
+    fn record_absence_nodata_is_absent() {
+        // NODATA on an existing zone = measured absence
+        assert_eq!(record_absence_verdict(&no_records_err(hickory_proto::op::ResponseCode::NoError)), TriState::Absent);
+    }
+
+    #[test]
+    fn record_absence_servfail_is_indet() {
+        // transient SERVFAIL = couldn't measure (NOT a DNSSEC verdict here)
+        assert_eq!(record_absence_verdict(&servfail_err()), TriState::Indet);
+    }
+
+    #[test]
+    fn dnssec_nxdomain_is_indet() {
+        assert_eq!(dnssec_err_verdict(&no_records_err(hickory_proto::op::ResponseCode::NXDomain)), TriState::Indet);
+    }
+
+    #[test]
+    fn dnssec_nodata_is_absent() {
+        // no DNSKEY = unsigned
+        assert_eq!(dnssec_err_verdict(&no_records_err(hickory_proto::op::ResponseCode::NoError)), TriState::Absent);
+    }
+
+    #[test]
+    fn dnssec_servfail_is_broken() {
+        // RFC 4035 bogus: validating resolver SERVFAILs on a broken chain.
+        // This is the one case where dnssec_err_verdict differs from
+        // record_absence_verdict — broken counts against (Absent), not Indet.
+        assert_eq!(dnssec_err_verdict(&servfail_err()), TriState::Absent);
     }
 }
