@@ -106,5 +106,36 @@ checkable by anyone on crates.io without a cross-compiler. (The bare-metal
 `cargo check --target aarch64-unknown-none` failure in `percent-encoding` /
 `getrandom` corroborates it but is not the load-bearing evidence.)
 
-The bare-metal bin build is therefore **deferred, not abandoned** — the
+## The bare-metal bin build is therefore **deferred, not abandoned** — the
 host-verified library + this finding is the honest spike state.
+
+## §2 milestone gate state (2026-08-18)
+
+**Question:** can a native service issue 5 concurrent smoltcp UDP queries with
+independent per-query deadlines? Decomposes into:
+
+- **Structural (proven):** smoltcp's `dns::Socket::new(servers, queries)`
+  takes a query-slot array at construction; each `start_query` returns an
+  independent `QueryHandle`. N concurrent queries with distinct handles is the
+  library's own model, not something we build. ✅
+- **Measurable (deferred):** actual query throughput + per-query deadline
+  behavior at DNS rates on real sDDF hardware. This is the seL4 builder's job
+  and is gated behind (a) the hickory no_std question for a full bare-metal
+  binary, and (b) the builder itself (kept cold — no idle capacity).
+
+Native lib host-verified meanwhile: `cargo test --lib` 4/4 green (tristate,
+sddf_device ring bounds).
+
+## Recapture blocker (2026-08-18): Docker embedded-DNS filters DNSSEC records
+
+The cia.gov fixture recapture against the local dev server returned a
+**local-environment measurement artifact**, not a fixture verdict: Docker's
+embedded resolver (127.0.0.11) answers A records but returns **"No answer" for
+DS/DNSKEY** — so the local tool saw `has_ds: false, chain: broken` while the
+live protocol shows cia.gov signed (3 DNSKEY / 4 DS, AD=true). **Do NOT write
+a fixture from this measurement.** The honest recapture path needs a clean
+resolver (production server, or a local server whose DNS isn't Docker's
+embedded stub). The production path is gated on the human-triggered scan
+(botverify); the local path needs the container pointed at a real upstream
+resolver. Recorded so the recapture is never "completed" from a broken
+resolver and called done.
