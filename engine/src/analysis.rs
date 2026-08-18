@@ -111,7 +111,16 @@ async fn score_dnssec(resolver: &TokioResolver, domain: &str) -> TriState {
         }
         Err(e) => {
             warn!(domain, error = %e, "DNSSEC lookup error");
-            if e.is_no_records_found() {
+            // domain_exists doctrine (Carey ruling, 2026-08-18): an
+            // authoritative no-such-name is an absence OF THE DOMAIN, not of
+            // DNSSEC. `Absent` is a claim about a zone's configuration — there
+            // is no zone. NXDOMAIN must never flatten to Absent; it is
+            // couldn't-measure (the zone's signing state is not applicable).
+            // Same flatten the Go engine's domain_exists arc removed.
+            if e.is_nx_domain() {
+                TriState::Indet
+            } else if e.is_no_records_found() {
+                // NOERROR/NODATA on an existing zone — honest measured absence.
                 TriState::Absent
             } else {
                 TriState::Indet
@@ -167,7 +176,9 @@ async fn score_dane(resolver: &TokioResolver, domain: &str) -> TriState {
             }
         }
         Err(e) => {
-            if e.is_no_records_found() {
+            if e.is_nx_domain() {
+                TriState::Indet
+            } else if e.is_no_records_found() {
                 TriState::Absent
             } else {
                 warn!(domain, error = %e, "DANE/TLSA lookup error → Indet");
@@ -216,7 +227,9 @@ async fn score_caa(resolver: &TokioResolver, domain: &str) -> TriState {
             }
         }
         Err(e) => {
-            if e.is_no_records_found() {
+            if e.is_nx_domain() {
+                TriState::Indet
+            } else if e.is_no_records_found() {
                 TriState::Absent
             } else {
                 warn!(domain, error = %e, "CAA lookup error → Indet");
@@ -249,6 +262,9 @@ async fn score_cds_cdnskey(resolver: &TokioResolver, domain: &str) -> TriState {
             true // empty answer section → absent, check CDNSKEY
         }
         Err(e) => {
+            if e.is_nx_domain() {
+                return TriState::Indet; // no zone — CDS state not applicable
+            }
             if e.is_no_records_found() {
                 true // definitively absent
             } else {
@@ -271,11 +287,13 @@ async fn score_cds_cdnskey(resolver: &TokioResolver, domain: &str) -> TriState {
             }
         }
         Err(e) => {
-            if e.is_no_records_found() {
+            if e.is_nx_domain() {
+                TriState::Indet // no zone — CDNSKEY state not applicable
+            } else if e.is_no_records_found() {
                 if cds_absent {
                     TriState::Absent // both definitively absent
                 } else {
-                    TriState::Indet // CDS errored, CDNSKEY NXDOMAIN — not conclusive
+                    TriState::Indet // CDS errored, CDNSKEY NODATA — not conclusive
                 }
             } else {
                 warn!(domain, error = %e, "CDNSKEY lookup error → Indet");

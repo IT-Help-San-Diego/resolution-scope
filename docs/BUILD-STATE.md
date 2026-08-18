@@ -28,15 +28,26 @@ against itself.
 | example.com | complete,present | Present | recaptured | **PARITY** |
 | ietf.org | complete,present | Present | recaptured | **PARITY** |
 | whitehouse.gov | complete,present | Present | recaptured | **PARITY** |
-| cia.gov | complete,present | Present | defect-era | engines agree / fixture stale (recapture) |
-| google.com | none,absent_confirmed | Absent | defect-era | engines agree / fixture stale |
-| red.com | none,absent_confirmed | Absent | defect-era | engines agree / fixture stale |
-| thisdoesnotexist-xz9q.com | None,None | Absent | defect-era | live confirms: NXDOMAIN, Absent honest |
+| cia.gov | complete,present | Present | defect-era | **only genuine stale-fixture** (signed live: 3 DNSKEY/4 DS, AD=true) — recapture |
+| google.com | none,absent_confirmed | Absent | defect-era | fixture **already correct** (unsigned live: 0 DNSKEY/0 DS) — no recapture needed |
+| red.com | none,absent_confirmed | Absent | defect-era | fixture **already correct** (unsigned live) — no recapture needed |
+| thisdoesnotexist-xz9q.com | None,None | **Indet** | defect-era | NXDOMAIN, honest couldn't-measure (zone doesn't exist) |
 
-**4/4 parity on the recaptured (post-fix) state space.** The three
-"fixture stale" rows are 2026-07-31 defect-era captures the recapture didn't
-touch — the engines agree with each other and with the live protocol, the
-frozen fixture predates the fix.
+**4/4 parity on the recaptured (post-fix) state space.** Claude Science's two
+corrections folded in: **cia.gov is the ONLY genuine stale-fixture case** of
+the three defect-era captures (it's signed and validating live; the frozen
+label is wrong) — `google`/`red` are unsigned live with the fixture **already
+correct**, needing no recapture at all. Grouping all three as "fixture stale"
+was wrong.
+
+**Second port defect caught (the domain_exists flatten):** the engine
+originally mapped NXDOMAIN → `Absent`, asserting a measured absence of DNSSEC
+on a zone that doesn't exist. `Absent` is a claim about a zone's
+configuration; there is no zone. Fixed everywhere (DNSSEC, DANE, CAA,
+CDS/CDNSKEY): `e.is_nx_domain()` → `Indet`, only NOERROR/NODATA on an
+existing zone → `Absent`. Same flatten the Go engine's domain_exists arc
+removed — and the denial is unauthenticated (AD=false), so even nonexistence
+isn't proven.
 
 **The differential caught a real port defect before it shipped:** the kit's
 original `score_dnssec` gated on "any answer record exists → Present", which
