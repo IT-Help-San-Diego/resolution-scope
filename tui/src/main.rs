@@ -24,6 +24,7 @@ use ratatui::widgets::{Block, Borders, Paragraph, Tabs, Wrap};
 use ratatui::{Frame, Terminal};
 
 use resolution_scope_engine::analysis::analyse_domain;
+use resolution_scope_engine::analysis::DnssecDisposition;
 use resolution_scope_engine::report::render_text;
 use resolution_scope_engine::ScoredAnalysis;
 use resolution_scope_engine::TriState;
@@ -143,14 +144,22 @@ fn render_dnssec(r: &ScoredAnalysis, pal: Palette) -> Vec<Line<'static>> {
         Line::from(""),
     ];
     let (icon, color) = state_icon(r.dnssec_chain, pal);
+    let (label, detail) = match r.dnssec_disposition {
+        DnssecDisposition::SignedAndDelegated => ("Signed + Delegated", "Chain validates from root — DNSSEC is fully configured and operational."),
+        DnssecDisposition::SignedNotDelegated => ("Island of Security", "Zone is signed (DNSKEY present) but no DS at parent — cannot validate from root. Genuinely signed, not chainable."),
+        DnssecDisposition::BrokenChain => ("Broken Chain", "DS present but chain fails validation — wrong DS, expired RRSIG, or misconfigured. Counts as a finding."),
+        DnssecDisposition::ChainUnverified => ("Could Not Verify", "DNSKEY present but AD flag absent or resolvers disagreed — cannot confirm or deny. Re-run."),
+        DnssecDisposition::Unsigned => ("Unsigned", "No DNSKEY published — the zone is not signed."),
+        DnssecDisposition::NoZone => ("No Zone", "NXDOMAIN — the domain does not exist. DNSSEC is not applicable."),
+        DnssecDisposition::Unreachable => ("Unreachable", "Lookup failed (timeout/refused). Could not measure — re-run."),
+    };
     lines.push(Line::from(vec![
-        Span::styled("  Chain: ", Style::default().fg(pal.fg)),
+        Span::styled("  Verdict:  ", Style::default().fg(pal.fg)),
         Span::styled(icon, Style::default().fg(color).add_modifier(Modifier::BOLD)),
+        Span::styled(format!("  {}", label), Style::default().fg(pal.accent).add_modifier(Modifier::BOLD)),
     ]));
-    lines.push(Line::from(vec![
-        Span::styled("  Detail: ", Style::default().fg(pal.muted)),
-        Span::styled(format!("{:?}", r.dnssec_disposition), Style::default().fg(pal.fg)),
-    ]));
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(format!("  {}", detail), Style::default().fg(pal.muted))));
     lines
 }
 
