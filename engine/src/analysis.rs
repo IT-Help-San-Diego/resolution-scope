@@ -162,16 +162,36 @@ pub async fn analyse_domain(resolver: &TokioResolver, domain: &str) -> Result<Sc
 // adds one extra case (SERVFAIL -> Absent = broken chain) below.
 
 /// Map a record-presence lookup error to a tri-state verdict.
-fn record_absence_verdict(e: &NetError) -> TriState {
-    // NODATA (no record on an existing zone) = measured absence -> Absent.
-    // NXDOMAIN (no zone) and transient errors = couldn't measure -> Indet.
-    // (is_nx_domain() is a subset of is_no_records_found(): NXDOMAIN arrives as
-    //  NoRecordsFound with an NXDomain response code, so the !is_nx_domain()
-    //  guard separates "no zone" from "no record".)
-    if e.is_no_records_found() && !e.is_nx_domain() {
-        TriState::Absent
-    } else {
-        TriState::Indet
+/// `domain` is the apex under analysis (e.g. "cia.gov"); the error may come
+/// from a query for the apex (SPF/CAA) or a subdomain (`_dmarc`, `_mta-sts`).
+///
+/// NODATA (NoError) = the zone exists but has no record of this type -> Absent.
+/// NXDOMAIN = the queried NAME does not exist. Whether that means "domain
+///   missing" (Indet) or "record absent" (Absent) depends on which zone
+///   returned NXDOMAIN, read from the SOA in the authority section:
+///     * SOA is the domain's own zone  -> domain exists, name absent -> Absent
+///     * SOA is a parent/TLD (or none) -> domain itself missing -> Indet
+///   (the domain_exists doctrine: `Absent` is a claim about a zone's
+///    configuration, and there is no zone).
+/// transient -> Indet.
+fn record_absence_verdict(e: &NetError, domain: &str) -> TriState {
+    use hickory_proto::op::ResponseCode;
+    use hickory_resolver::net::DnsError;
+    match e {
+        NetError::Dns(DnsError::NoRecordsFound(nr)) => match nr.response_code {
+            ResponseCode::NoError => TriState::Absent, // NODATA on an existing zone
+            ResponseCode::NXDomain => {
+                let soa_zone = nr.soa.as_ref().map(|s| s.name.to_ascii());
+                match soa_zone {
+                    Some(z) if z.trim_end_matches('.').eq_ignore_ascii_case(domain) => {
+                        TriState::Absent // domain's own zone: name absent, not domain
+                    }
+                    _ => TriState::Indet, // parent/TLD zone (or no SOA): domain missing
+                }
+            }
+            _ => TriState::Indet, // SERVFAIL etc. — transient
+        },
+        _ => TriState::Indet, // transient network error
     }
 }
 
@@ -258,7 +278,7 @@ async fn score_spf(resolver: &TokioResolver, domain: &str) -> TriState {
         Err(e) => {
             // NODATA (no TXT on an existing zone) = measured absence; NXDOMAIN
             // (no zone) = couldn't-measure; transient = couldn't-measure.
-            record_absence_verdict(&e)
+            record_absence_verdict(&e, domain)
         }
     }
 }
@@ -277,7 +297,7 @@ async fn score_dmarc(resolver: &TokioResolver, domain: &str) -> TriState {
                 TriState::Absent
             }
         }
-        Err(e) => record_absence_verdict(&e),
+        Err(e) => record_absence_verdict(&e, domain),
     }
 }
 
@@ -334,33 +354,81 @@ async fn score_dane(resolver: &TokioResolver, domain: &str) -> TriState {
 }
 
 async fn score_mta_sts(resolver: &TokioResolver, domain: &str) -> TriState {
-    // T1-1 fix: MTA-STS "warning" (policy found but invalid/expired) MUST map
-    // to Absent, not a fourth state.  Any policy parse error → Absent.
-    // Successful fetch of /.well-known/mta-sts.txt + valid mode field → Present.
+    // MTA-STS (RFC 8461) is a two-step protocol:
+    //   1. Discovery: _mta-sts.<domain> TXT ("v=STSv1; id=...") signals that a
+    //      policy MAY be published.
+    //   2. Policy: fetch https://mta-sts.<domain>/.well-known/mta-sts.txt and
+    //      parse version/mode/mx/max_age.
     //
-    // Full HTTP fetch is deferred to Tier 2 (requires reqwest dependency).
-    // For now, check the DNS TXT record at _mta-sts.<domain> as a proxy.
+    // The TXT alone is necessary but not sufficient — a domain can publish the
+    // hint and serve no (or an invalid) policy. The tri-state verdict needs the
+    // policy. Per T1-1, an invalid/unfetchable policy maps to Absent (the old
+    // "warning" state), never a fourth value.
     let mta_sts_domain = format!("_mta-sts.{}", domain);
-    match resolver.txt_lookup(mta_sts_domain.as_str()).await {
-        Ok(rdata) => {
-            let has_mta_sts = rdata.answers().iter().any(|rec| {
-                matches!(&rec.data, hickory_proto::rr::RData::TXT(txt)
-                    if txt.txt_data.iter().any(|s| s.starts_with(b"v=STSv1")))
-            });
-            // DNS record present is necessary but not sufficient; HTTP policy
-            // fetch will upgrade Indet → Present or Absent in Tier 2.
-            if has_mta_sts {
-                TriState::Indet
-            } else {
-                TriState::Absent
-            }
-        }
+
+    // ── Step 1: discovery TXT ────────────────────────────────────────────────
+    let has_hint = match resolver.txt_lookup(mta_sts_domain.as_str()).await {
+        Ok(rdata) => rdata.answers().iter().any(|rec| {
+            matches!(&rec.data, hickory_proto::rr::RData::TXT(txt)
+                if txt.txt_data.iter().any(|s| s.starts_with(b"v=STSv1")))
+        }),
         Err(e) => {
-            // No MTA-STS TXT on an existing zone = measured absence; NXDOMAIN
-            // (no zone) and transient errors = couldn't-measure (never Absent).
-            record_absence_verdict(&e)
+            // NODATA (no hint) = measured absence; NXDOMAIN/transient = Indet.
+            return record_absence_verdict(&e, domain);
+        }
+    };
+
+    if !has_hint {
+        return TriState::Absent; // no discovery record = no MTA-STS
+    }
+
+    // ── Step 2: fetch + parse the policy ─────────────────────────────────────
+    let policy_url = format!("https://mta-sts.{}/.well-known/mta-sts.txt", domain);
+    match fetch_mta_sts_policy(&policy_url).await {
+        Ok(policy) if mta_sts_enforced(&policy) => TriState::Present,
+        Ok(_) => TriState::Absent, // policy present but not enforced (testing/none/invalid)
+        Err(e) => {
+            warn!(domain, error = %e, "MTA-STS policy fetch failed");
+            TriState::Absent // hint present but policy unfetchable — not enforced
         }
     }
+}
+
+/// Fetch an MTA-STS policy over HTTPS (RFC 8461). The TLS cert must validate
+/// against the public trust store — a policy served over broken TLS is not a
+/// valid MTA-STS policy (reqwest/rustls enforces this).
+async fn fetch_mta_sts_policy(url: &str) -> anyhow::Result<String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()?;
+    let resp = client.get(url).send().await?;
+    let status = resp.status();
+    if !status.is_success() {
+        anyhow::bail!("HTTP {}", status);
+    }
+    Ok(resp.text().await?)
+}
+
+/// Decide whether an MTA-STS policy text is "enforced": version STSv1, mode
+/// enforce, and at least one mx record. `mode: none` and `mode: testing` are
+/// explicit non-enforcement; a policy missing any of the three is invalid.
+/// (Full RFC 8461 validation — max_age range, strict CRLF line endings — is a
+/// refinement; this captures the enforce/no-enforce signal.)
+fn mta_sts_enforced(policy: &str) -> bool {
+    let mut version_ok = false;
+    let mut mode_enforce = false;
+    let mut has_mx = false;
+    for raw in policy.lines() {
+        let line = raw.trim();
+        if let Some(v) = line.strip_prefix("version:") {
+            version_ok = v.trim() == "STSv1";
+        } else if let Some(m) = line.strip_prefix("mode:") {
+            mode_enforce = m.trim() == "enforce";
+        } else if line.starts_with("mx:") {
+            has_mx = true;
+        }
+    }
+    version_ok && mode_enforce && has_mx
 }
 
 async fn score_caa(resolver: &TokioResolver, domain: &str) -> TriState {
@@ -381,7 +449,7 @@ async fn score_caa(resolver: &TokioResolver, domain: &str) -> TriState {
         }
         Err(e) => {
             warn!(domain, error = %e, "CAA lookup error");
-            record_absence_verdict(&e)
+            record_absence_verdict(&e, domain)
         }
     }
 }
@@ -644,9 +712,13 @@ mod tests {
 
     #[test]
     fn record_absence_nxdomain_is_indet() {
-        // no zone -> couldn't measure, NEVER Absent (domain_exists doctrine)
+        // NXDOMAIN with no SOA in the error -> can't prove the domain exists
+        // -> Indet (the conservative default; domain_exists doctrine).
         assert_eq!(
-            record_absence_verdict(&no_records_err(hickory_proto::op::ResponseCode::NXDomain)),
+            record_absence_verdict(
+                &no_records_err(hickory_proto::op::ResponseCode::NXDomain),
+                "example.com"
+            ),
             TriState::Indet
         );
     }
@@ -655,7 +727,10 @@ mod tests {
     fn record_absence_nodata_is_absent() {
         // NODATA on an existing zone = measured absence
         assert_eq!(
-            record_absence_verdict(&no_records_err(hickory_proto::op::ResponseCode::NoError)),
+            record_absence_verdict(
+                &no_records_err(hickory_proto::op::ResponseCode::NoError),
+                "example.com"
+            ),
             TriState::Absent
         );
     }
@@ -663,7 +738,53 @@ mod tests {
     #[test]
     fn record_absence_servfail_is_indet() {
         // transient SERVFAIL = couldn't measure (NOT a DNSSEC verdict here)
-        assert_eq!(record_absence_verdict(&servfail_err()), TriState::Indet);
+        assert_eq!(
+            record_absence_verdict(&servfail_err(), "example.com"),
+            TriState::Indet
+        );
+    }
+
+    // --- NXDOMAIN SOA disambiguation ------------------------------------------
+    // A signed zone that lacks a name returns NXDOMAIN with its OWN SOA in the
+    // authority section (proving the zone exists). A nonexistent domain returns
+    // NXDOMAIN with the parent/TLD SOA. The SOA name is the discriminator.
+
+    fn nxdomain_err_with_soa(soa_zone: &str) -> NetError {
+        use hickory_proto::op::{Query, ResponseCode};
+        use hickory_proto::rr::{rdata::SOA, Name, Record, RecordType};
+        use hickory_resolver::net::{DnsError, NoRecords};
+        let q = Query::query(
+            Name::from_ascii("_mta-sts.example.com.").unwrap(),
+            RecordType::TXT,
+        );
+        let soa = SOA::new(
+            Name::from_ascii("ns1.example.com.").unwrap(),
+            Name::from_ascii("hostmaster.example.com.").unwrap(),
+            1,
+            3600,
+            600,
+            86400,
+            3600,
+        );
+        let rec: Record<SOA> = Record::from_rdata(Name::from_ascii(soa_zone).unwrap(), 3600, soa);
+        let mut nr = NoRecords::new(Box::new(q), ResponseCode::NXDomain);
+        nr.soa = Some(Box::new(rec));
+        NetError::Dns(DnsError::NoRecordsFound(nr))
+    }
+
+    #[test]
+    fn record_absence_nxdomain_own_zone_is_absent() {
+        // NXDOMAIN with the domain's OWN SOA -> the domain exists, only the
+        // queried subdomain name is absent -> Absent (not "domain missing").
+        let e = nxdomain_err_with_soa("example.com.");
+        assert_eq!(record_absence_verdict(&e, "example.com"), TriState::Absent);
+    }
+
+    #[test]
+    fn record_absence_nxdomain_parent_zone_is_indet() {
+        // NXDOMAIN with the TLD's SOA -> the domain itself is missing -> Indet.
+        let e = nxdomain_err_with_soa("com.");
+        assert_eq!(record_absence_verdict(&e, "example.com"), TriState::Indet);
     }
 
     #[test]
@@ -726,5 +847,44 @@ mod tests {
             let back: DnssecDisposition = serde_json::from_str(&json).expect("deserialize");
             assert_eq!(d, back, "round-trip failed for {:?}", d);
         }
+    }
+
+    #[test]
+    fn mta_sts_enforced_accepts_valid_policy() {
+        let policy = "version: STSv1\nmode: enforce\nmx: smtp.example.com\nmax_age: 86400\n";
+        assert!(mta_sts_enforced(policy));
+    }
+
+    #[test]
+    fn mta_sts_enforced_rejects_testing_mode() {
+        let policy = "version: STSv1\nmode: testing\nmx: smtp.example.com\nmax_age: 86400\n";
+        assert!(!mta_sts_enforced(policy));
+    }
+
+    #[test]
+    fn mta_sts_enforced_rejects_none_mode() {
+        let policy = "version: STSv1\nmode: none\nmax_age: 86400\n";
+        assert!(!mta_sts_enforced(policy));
+    }
+
+    #[test]
+    fn mta_sts_enforced_rejects_missing_version() {
+        let policy = "mode: enforce\nmx: smtp.example.com\nmax_age: 86400\n";
+        assert!(!mta_sts_enforced(policy));
+    }
+
+    #[test]
+    fn mta_sts_enforced_rejects_missing_mx() {
+        let policy = "version: STSv1\nmode: enforce\nmax_age: 86400\n";
+        assert!(!mta_sts_enforced(policy));
+    }
+
+    #[test]
+    fn mta_sts_enforced_handles_crlf() {
+        // Real policies use CRLF (the RFC 8461 wire format) — trim() must
+        // tolerate the trailing \r.
+        let policy =
+            "version: STSv1\r\nmode: enforce\r\nmx: smtp.example.com\r\nmax_age: 86400\r\n";
+        assert!(mta_sts_enforced(policy));
     }
 }
