@@ -272,6 +272,9 @@ fn render_caa_cds(r: &ScoredAnalysis, pal: Palette) -> Vec<Line<'static>> {
 
 // ── app state ──────────────────────────────────────────────────────
 
+#[derive(Clone, Copy, PartialEq)]
+enum InputMode { Normal, Domain }
+
 struct App {
     mode: Mode,
     pal: Palette,
@@ -282,6 +285,8 @@ struct App {
     scroll: u16,
     selected_tab: usize,
     last_scan: Option<Instant>,
+    input_mode: InputMode,
+    input_buf: String,
 }
 
 impl App {
@@ -289,7 +294,8 @@ impl App {
         let mode = if covert { Mode::Covert } else { Mode::Blue };
         let pal = if covert { Palette::COVERT } else { Palette::BLUE };
         Self { mode, pal, resolver, domains, current_domain: 0,
-            results: Vec::new(), scroll: 0, selected_tab: 0, last_scan: None }
+            results: Vec::new(), scroll: 0, selected_tab: 0, last_scan: None,
+            input_mode: InputMode::Normal, input_buf: String::new() }
     }
     fn toggle_mode(&mut self) {
         self.mode = match self.mode { Mode::Blue => Mode::Covert, Mode::Covert => Mode::Blue };
@@ -372,10 +378,15 @@ fn render_content(f: &mut Frame, area: Rect, app: &App) {
 
 fn render_footer(f: &mut Frame, area: Rect, app: &App) {
     let p = app.pal;
+    if app.input_mode == InputMode::Domain {
+        let prompt = format!(" Domain: {}█", app.input_buf);
+        f.render_widget(Paragraph::new(Line::from(Span::styled(prompt, Style::default().fg(p.accent).add_modifier(Modifier::BOLD)))).style(Style::default().bg(p.header_bg)), area);
+        return;
+    }
     let status = match app.last_scan {
-        Some(t) => format!("last scan: {:.0}s ago  │  domain {}/{}  │  tab: {}",
+        Some(t) => format!("last scan: {:.0}s ago  │  domain {}/{}  │  tab: {}  │  d:add domain",
             t.elapsed().as_secs(), app.current_domain + 1, app.domains.len(), TAB_LABELS[app.selected_tab]),
-        None => "no scan yet — press 'r'".into(),
+        None => "no scan yet — press 'r'  |  d:add domain".into(),
     };
     f.render_widget(Paragraph::new(Line::from(Span::styled(status, Style::default().fg(p.muted)))).style(Style::default().bg(p.header_bg)), area);
 }
@@ -393,6 +404,7 @@ fn handle_input(app: &mut App, code: KeyCode, modifiers: KeyModifiers) -> Result
             if modifiers.contains(KeyModifiers::SHIFT) { app.prev_domain(); }
             else { app.next_domain(); }
         }
+        KeyCode::Char('d') => { app.input_mode = InputMode::Domain; app.input_buf.clear(); }
         KeyCode::Char(c) if c.is_ascii_digit() => {
             if let Some(n) = c.to_digit(10) {
                 if n >= 1 && n <= 6 { app.selected_tab = n as usize - 1; }
@@ -401,6 +413,27 @@ fn handle_input(app: &mut App, code: KeyCode, modifiers: KeyModifiers) -> Result
         _ => {}
     }
     Ok(true)
+}
+
+fn handle_input_mode(app: &mut App, code: KeyCode) {
+    match code {
+        KeyCode::Enter => {
+            let new_domain = app.input_buf.trim().to_string();
+            if !new_domain.is_empty() {
+                app.domains.push(new_domain);
+                app.current_domain = app.domains.len() - 1;
+            }
+            app.input_mode = InputMode::Normal;
+            app.input_buf.clear();
+        }
+        KeyCode::Esc => {
+            app.input_mode = InputMode::Normal;
+            app.input_buf.clear();
+        }
+        KeyCode::Backspace => { app.input_buf.pop(); }
+        KeyCode::Char(c) => { app.input_buf.push(c); }
+        _ => {}
+    }
 }
 
 // ── main ───────────────────────────────────────────────────────────
@@ -439,6 +472,13 @@ async fn main() -> Result<()> {
         terminal.draw(|f| render_ui(f, &app))?;
         if let Event::Key(key) = event::read()? {
             if key.kind == KeyEventKind::Press {
+                if app.input_mode != InputMode::Normal {
+                    handle_input_mode(&mut app, key.code);
+                    if app.input_mode == InputMode::Normal {
+                        app.scan().await?;
+                    }
+                    continue;
+                }
                 if !handle_input(&mut app, key.code, key.modifiers)? { break Ok(()); }
                 if key.code == KeyCode::Char('r') { app.scan().await?; }
             }
