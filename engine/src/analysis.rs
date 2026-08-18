@@ -128,6 +128,55 @@ impl std::fmt::Display for DkimDisposition {
 }
 
 
+// =============================================================================
+// MtaStsDisposition — MTA-STS policy detail
+// =============================================================================
+//
+// The SOA disambiguation (record_absence_verdict) computes which zone answered
+// an NXDOMAIN and then throws it away at the TriState boundary. This enum
+// preserves that distinction — following the DnssecDisposition/DkimDisposition
+// pattern.
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MtaStsDisposition {
+    /// Policy fetched and valid — MTA-STS is configured and enforced.
+    Enforced,
+    /// Zone exists but no MTA-STS record — the domain could configure it but
+    /// has not. Distinguished from NoZone by the SOA disambiguation.
+    RecordAbsent,
+    /// NXDOMAIN on _mta-sts — the domain does not exist (SOA is parent/TLD).
+    NoZone,
+    /// Lookup error (SERVFAIL/timeout) — could not measure.
+    TransientError,
+    /// Policy URL fetched but mode is "none" or "testing" — not enforced.
+    NotEnforced,
+}
+
+impl MtaStsDisposition {
+    pub fn chain(self) -> TriState {
+        match self {
+            MtaStsDisposition::Enforced => TriState::Present,
+            MtaStsDisposition::RecordAbsent => TriState::Absent,
+            MtaStsDisposition::NoZone => TriState::Indet,
+            MtaStsDisposition::TransientError => TriState::Indet,
+            MtaStsDisposition::NotEnforced => TriState::Absent,
+        }
+    }
+}
+
+impl std::fmt::Display for MtaStsDisposition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MtaStsDisposition::Enforced => write!(f, "enforced"),
+            MtaStsDisposition::RecordAbsent => write!(f, "record-absent"),
+            MtaStsDisposition::NoZone => write!(f, "no-zone"),
+            MtaStsDisposition::TransientError => write!(f, "transient-error"),
+            MtaStsDisposition::NotEnforced => write!(f, "not-enforced"),
+        }
+    }
+}
+
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ScoredAnalysis {
     pub domain: String,
@@ -142,7 +191,8 @@ pub struct ScoredAnalysis {
     pub dkim_disposition: DkimDisposition,
     pub dmarc: TriState,
     pub dane: TriState,
-    pub mta_sts: TriState, // "warning" → Absent (T1-1 fix)
+    pub mta_sts: TriState,
+    pub mta_sts_disposition: MtaStsDisposition, // "warning" → Absent (T1-1 fix)
     pub caa: TriState,
     pub cds_cdnskey: TriState,
 }
@@ -170,7 +220,7 @@ pub async fn analyse_domain(resolver: &TokioResolver, domain: &str) -> Result<Sc
     let dkim_disposition = DkimDisposition::NotFoundDefaults; // 81 defaults not probed yet
     let dmarc = score_dmarc(resolver, domain).await;
     let dane = score_dane(resolver, domain).await;
-    let mta_sts = score_mta_sts(resolver, domain).await;
+    let (mta_sts, mta_sts_disposition) = score_mta_sts(resolver, domain).await;
     let caa = score_caa(resolver, domain).await;
     let cds_cdnskey = score_cds_cdnskey(resolver, domain).await;
 
@@ -186,6 +236,7 @@ pub async fn analyse_domain(resolver: &TokioResolver, domain: &str) -> Result<Sc
         dmarc,
         dane,
         mta_sts,
+        mta_sts_disposition,
         caa,
         cds_cdnskey,
     })
@@ -426,7 +477,7 @@ async fn score_dane(resolver: &TokioResolver, domain: &str) -> TriState {
     }
 }
 
-async fn score_mta_sts(resolver: &TokioResolver, domain: &str) -> TriState {
+async fn score_mta_sts(resolver: &TokioResolver, domain: &str) -> (TriState, MtaStsDisposition) {
     // MTA-STS (RFC 8461) is a two-step protocol:
     //   1. Discovery: _mta-sts.<domain> TXT ("v=STSv1; id=...") signals that a
     //      policy MAY be published.
@@ -447,22 +498,22 @@ async fn score_mta_sts(resolver: &TokioResolver, domain: &str) -> TriState {
         }),
         Err(e) => {
             // NODATA (no hint) = measured absence; NXDOMAIN/transient = Indet.
-            return record_absence_verdict(&e, domain);
+            let ts = record_absence_verdict(&e, domain); return (ts, if ts == TriState::Indet { MtaStsDisposition::TransientError } else { MtaStsDisposition::RecordAbsent });
         }
     };
 
     if !has_hint {
-        return TriState::Absent; // no discovery record = no MTA-STS
+        return (TriState::Absent, MtaStsDisposition::RecordAbsent); // no discovery record
     }
 
     // ── Step 2: fetch + parse the policy ─────────────────────────────────────
     let policy_url = format!("https://mta-sts.{}/.well-known/mta-sts.txt", domain);
     match fetch_mta_sts_policy(&policy_url).await {
-        Ok(policy) if mta_sts_enforced(&policy) => TriState::Present,
-        Ok(_) => TriState::Absent, // policy present but not enforced (testing/none/invalid)
+        Ok(policy) if mta_sts_enforced(&policy) => (TriState::Present, MtaStsDisposition::Enforced),
+        Ok(_) => (TriState::Absent, MtaStsDisposition::NotEnforced), // policy present but not enforced
         Err(e) => {
             warn!(domain, error = %e, "MTA-STS policy fetch failed");
-            TriState::Absent // hint present but policy unfetchable — not enforced
+            (TriState::Absent, MtaStsDisposition::TransientError) // hint present but policy unfetchable
         }
     }
 }

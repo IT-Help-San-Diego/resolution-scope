@@ -47,6 +47,7 @@ pub mod tristate;
 // Re-export the most-used surface types so callers can write
 // `resolution_scope_engine::ScoredAnalysis` without a full module path.
 pub use analysis::DkimDisposition;
+pub use analysis::MtaStsDisposition;
 pub use analysis::ScoredAnalysis;
 pub use tristate::TriState;
 
