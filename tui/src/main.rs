@@ -188,40 +188,43 @@ fn render_dnssec(r: &ScoredAnalysis, pal: Palette) -> Vec<Line<'static>> {
 
 fn render_dane(r: &ScoredAnalysis, pal: Palette) -> Vec<Line<'static>> {
     let mut lines = vec![
-        Line::from(Span::styled("══ DANE ══", Style::default().fg(pal.accent).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled("══ DANE (SMTP TLSA) ══", Style::default().fg(pal.accent).add_modifier(Modifier::BOLD))),
         Line::from(""),
     ];
     let (icon, color) = state_icon(r.dane, pal);
+    let detail = match r.dane {
+        TriState::Present => "TLSA record verified for the mail server — DANE requires DNSSEC (RFC 7672 §4).",
+        TriState::Absent => "No valid TLSA record found. Without DANE, STARTTLS is vulnerable to downgrade attacks.",
+        TriState::Indet => "Could not measure — check that the MX host resolves and publishes a TLSA record at _25._tcp.<mx>.",
+        TriState::NotApplicable => "No mail server (null MX or no MX) — DANE requires an MX to target.",
+    };
     lines.push(Line::from(vec![
         Span::styled("  Status: ", Style::default().fg(pal.fg)),
         Span::styled(icon, Style::default().fg(color).add_modifier(Modifier::BOLD)),
     ]));
-    let note = match r.dane {
-        TriState::NotApplicable => "DANE requires a mail server (MX record) — none found.",
-        TriState::Indet => "Could not measure — check TLSA record at _25._tcp.<mx>.",
-        TriState::Absent => "No valid TLSA record found for the mail server.",
-        TriState::Present => "DANE TLSA record verified for the mail server.",
-    };
-    lines.push(Line::from(Span::styled(format!("  Note: {}", note), Style::default().fg(pal.muted))));
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(format!("  {}", detail), Style::default().fg(pal.muted))));
     lines
 }
 
 fn render_email_auth(r: &ScoredAnalysis, pal: Palette) -> Vec<Line<'static>> {
     let mut lines = vec![
-        Line::from(Span::styled("══ SPF / DMARC / DKIM ══", Style::default().fg(pal.accent).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled("══ Email Authentication ══", Style::default().fg(pal.accent).add_modifier(Modifier::BOLD))),
         Line::from(""),
     ];
-    for (name, state, detail) in &[
-        ("SPF", r.spf, "Sender Policy Framework — authorizes sending IPs."),
-        ("DKIM", r.dkim, "DomainKeys Identified Mail — cryptographic email signing."),
-        ("DMARC", r.dmarc, "Domain-based Message Authentication — policy for SPF/DKIM."),
-    ] {
+    let controls = [
+        ("SPF", r.spf, "Sender Policy Framework (RFC 7208) — authorizes sending IPs. Absent = any IP can spoof."),
+        ("DKIM", r.dkim, "DomainKeys Identified Mail (RFC 6376) — cryptographic signing. 81 default selectors probed; provide yours if absent."),
+        ("DMARC", r.dmarc, "Domain-based Message Authentication (RFC 7489) — policy for SPF/DKIM. p=reject blocks spoofing; p=none is monitoring-only."),
+    ];
+    for (name, state, detail) in &controls {
         let (icon, color) = state_icon(*state, pal);
         lines.push(Line::from(vec![
-            Span::styled(format!("  {:>6}: ", name), Style::default().fg(pal.fg)),
+            Span::styled(format!("  {:>5} ", name), Style::default().fg(pal.fg)),
             Span::styled(icon, Style::default().fg(color).add_modifier(Modifier::BOLD)),
-            Span::styled(format!("  {}", detail), Style::default().fg(pal.muted)),
         ]));
+        lines.push(Line::from(Span::styled(format!("      {}", detail), Style::default().fg(pal.muted))));
+        lines.push(Line::from(""));
     }
     lines
 }
@@ -232,35 +235,37 @@ fn render_mta_sts(r: &ScoredAnalysis, pal: Palette) -> Vec<Line<'static>> {
         Line::from(""),
     ];
     let (icon, color) = state_icon(r.mta_sts, pal);
+    let detail = match r.mta_sts {
+        TriState::Present => "MTA-STS policy enforced — TLS required for inbound mail (RFC 8461). Prevents downgrade and MITM.",
+        TriState::Absent => "No MTA-STS policy. Mail transport may fall back to plaintext — vulnerable to STARTTLS stripping.",
+        TriState::Indet => "Could not fetch or validate the MTA-STS policy. Check _mta-sts.<domain> TXT discovery and policy URL.",
+        TriState::NotApplicable => "No mail server (MX) — MTA-STS governs inbound mail transport and does not apply.",
+    };
     lines.push(Line::from(vec![
         Span::styled("  Status: ", Style::default().fg(pal.fg)),
         Span::styled(icon, Style::default().fg(color).add_modifier(Modifier::BOLD)),
     ]));
-    let note = match r.mta_sts {
-        TriState::Present => "MTA-STS policy enforced — TLS required for inbound mail.",
-        TriState::Absent => "No MTA-STS policy — mail transport may fall back to plaintext.",
-        TriState::Indet => "Could not fetch or validate the MTA-STS policy.",
-        TriState::NotApplicable => "No mail server (MX) — MTA-STS does not apply.",
-    };
-    lines.push(Line::from(Span::styled(format!("  Note: {}", note), Style::default().fg(pal.muted))));
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(format!("  {}", detail), Style::default().fg(pal.muted))));
     lines
 }
 
 fn render_caa_cds(r: &ScoredAnalysis, pal: Palette) -> Vec<Line<'static>> {
     let mut lines = vec![
-        Line::from(Span::styled("══ CAA / CDS / CDNSKEY ══", Style::default().fg(pal.accent).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled("══ CAA / CDS ══", Style::default().fg(pal.accent).add_modifier(Modifier::BOLD))),
         Line::from(""),
     ];
     for (name, state, detail) in &[
-        ("CAA", r.caa, "Certification Authority Authorization — restricts TLS issuers."),
-        ("CDS/CDNSKEY", r.cds_cdnskey, "Child DS / CDNSKEY — automates DNSSEC DS updates."),
+        ("CAA", r.caa, "Certification Authority Authorization (RFC 6844) — restricts which CAs can issue TLS certificates. Absent = any CA can issue."),
+        ("CDS", r.cds_cdnskey, "Child DS / CDNSKEY (RFC 7344) — automates DNSSEC DS updates at the parent. Absent = manual DS rotation."),
     ] {
         let (icon, color) = state_icon(*state, pal);
         lines.push(Line::from(vec![
-            Span::styled(format!("  {:>11}: ", name), Style::default().fg(pal.fg)),
+            Span::styled(format!("  {:>3} ", name), Style::default().fg(pal.fg)),
             Span::styled(icon, Style::default().fg(color).add_modifier(Modifier::BOLD)),
-            Span::styled(format!("  {}", detail), Style::default().fg(pal.muted)),
         ]));
+        lines.push(Line::from(Span::styled(format!("      {}", detail), Style::default().fg(pal.muted))));
+        lines.push(Line::from(""));
     }
     lines
 }
