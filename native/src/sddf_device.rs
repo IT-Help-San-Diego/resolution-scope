@@ -37,10 +37,12 @@
 //! # TODO markers indicate integration work required before Phase 2 milestone
 //! Search for `TODO(sddf)` to find every gap.
 
-#![cfg_attr(not(test), no_std)]
+// NOTE: this module does not declare #![no_std] — the crate root (lib.rs)
+// owns that decision. The native lib is currently std (host-testable); the
+// no_std transition is gated on the hickory __dnssec fix
+// (docs/UPSTREAM-NOSTD-DNSSEC-SCOPE.md).
 extern crate alloc;
 
-use alloc::boxed::Box;
 use smoltcp::phy::{self, DeviceCapabilities, Medium};
 use smoltcp::time::Instant;
 
