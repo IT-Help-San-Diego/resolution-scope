@@ -57,12 +57,13 @@ parent: the server process reads 20 distinct secrets from its environment
 probe client in one process — one compromised handler currently has all of
 it.
 
-**Action, ahead of the demo:** enumerate which of the 20 secrets each
+**Action, ahead of the demo:** enumerate which of the secrets each
 future compartment needs (scanner: network + `PROBE_*`; filter:
-network+storage; store: `DATABASE_URL` only, no network). That list IS the
-capability manifest, and splitting the probe credential out of the web
-process buys real isolation today, on ordinary Linux — the prerequisite
-that makes a compartment boundary meaningful later.
+network+storage; store: `DATABASE_URL` only, no network). The generated
+manifest with its producing grep lives at
+[CAPABILITY-MANIFEST.md](CAPABILITY-MANIFEST.md); its first measured finding
+is that `internal/config` reads all 34 env vars, so `config` itself is the
+boundary violation to split — fixable today on ordinary Linux.
 
 ## 5. Hypervisor honesty (public copy, verbatim)
 
@@ -78,3 +79,31 @@ seL4 builder (proves §3) → local compartment tier → cloud box provisioned
 seL4-native from birth (fixed-size, separate). Named, unmeasured risks:
 sDDF throughput at DNS query rates; LionsOS v0.3 maturity. Neither is
 asserted without a benchmark.
+
+## 7. The no_std DNSSEC decision (2026-08-17, measured)
+
+**Decided: verdicts cross the compartment boundary, not the validation.**
+hickory's DNSSEC requires `std` (BUILD-STATE.md — declared in the published
+feature graph), and `std` does not exist on bare-metal seL4. The seL4
+compartment's purpose is **storage isolation, not validation isolation**: the
+theorem §3 actually proves — the store holds no network capability and cannot
+be drained — holds regardless of where validation runs. What crosses the
+boundary is a verdict: a small, enumerated, non-secret value the compartment
+does not need to re-derive to be isolated.
+
+- **B (adopted, unblocks the demo):** DNSSEC validation runs in the std
+  Phase-1 engine; only sealed verdicts cross into the compartment.
+- **A (long-term, no deadline):** upstream no_std DNSSEC in hickory. The
+  maintainers are actively merging no_std PRs (#2104, #2821, #2806);
+  `__dnssec` is the last std-gated feature and is unclaimed.
+- **C (argued-against):** hand-rolling RRSIG verification on bare `ring` is
+  exactly the surface where a subtle implementation error produces confident
+  wrong verdicts — the failure class this project exists to detect in others.
+  hickory's DNSSEC layer is valuable precisely because it is not ours to get
+  wrong.
+
+**Accepted trust boundary (documented, not implicit):** under B, the seL4
+compartment trusts the IPC channel delivering verdicts — a compromised std
+engine could store a false verdict. That is a real trust boundary, accepted
+by design; it is NOT the trust boundary the §3 theorem addresses, and it is
+recorded here so it is never left implicit.
