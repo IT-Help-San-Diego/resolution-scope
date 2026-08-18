@@ -24,6 +24,7 @@ use ratatui::widgets::{Block, Borders, Paragraph, Tabs, Wrap};
 use ratatui::{Frame, Terminal};
 
 use resolution_scope_engine::analysis::analyse_domain;
+use resolution_scope_engine::analysis::DkimDisposition;
 use resolution_scope_engine::analysis::DnssecDisposition;
 use resolution_scope_engine::report::render_text;
 use resolution_scope_engine::ScoredAnalysis;
@@ -123,6 +124,16 @@ fn dnssec_label(d: DnssecDisposition) -> &'static str {
     }
 }
 
+fn dkim_label(d: DkimDisposition) -> &'static str {
+    match d {
+        DkimDisposition::Verified => "verified",
+        DkimDisposition::NotFoundDefaults => "not-found-with-81-defaults",
+        DkimDisposition::NoMailDomain => "no-mail",
+        DkimDisposition::TransientError => "lookup-error",
+        DkimDisposition::KeyMismatch => "key-mismatch",
+    }
+}
+
 fn render_summary(r: &ScoredAnalysis, pal: Palette) -> Vec<Line<'static>> {
     let mut lines = vec![
         Line::from(Span::styled("══ Summary ══", Style::default().fg(pal.accent).add_modifier(Modifier::BOLD))),
@@ -142,6 +153,8 @@ fn render_summary(r: &ScoredAnalysis, pal: Palette) -> Vec<Line<'static>> {
         let (icon, color) = state_icon(*state, pal);
         let extra = if *name == "DNSSEC" {
             format!("  {}", dnssec_label(r.dnssec_disposition))
+        } else if *name == "DKIM" {
+            format!("  {}", dkim_label(r.dkim_disposition))
         } else {
             String::new()
         };

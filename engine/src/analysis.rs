@@ -79,6 +79,54 @@ impl std::fmt::Display for DnssecDisposition {
         }
     }
 }
+// =============================================================================
+// DkimDisposition — DKIM verification detail
+// =============================================================================
+//
+// Carey's rule: "not found with the 81 defaults" and "absent" must never be
+// the same value. The Go engine defaults to DKIMInconclusive (zero value). This
+// enum makes that distinction structural — following the DnssecDisposition
+// pattern (one enum per control, chain() to TriState at presentation).
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DkimDisposition {
+    /// Selector resolved, key verified — DKIM is configured and operational.
+    Verified,
+    /// 81 default selectors probed, none matched — NOT evidence of absence.
+    /// Provide a selector (s= tag in DKIM-Signature header) to verify.
+    NotFoundDefaults,
+    /// No mail server — DKIM is not applicable.
+    NoMailDomain,
+    /// Lookup failed (SERVFAIL/timeout) — could not measure.
+    TransientError,
+    /// Selector resolved but key validation failed.
+    KeyMismatch,
+}
+
+impl DkimDisposition {
+    pub fn chain(self) -> TriState {
+        match self {
+            DkimDisposition::Verified => TriState::Present,
+            DkimDisposition::NotFoundDefaults => TriState::Indet,
+            DkimDisposition::NoMailDomain => TriState::NotApplicable,
+            DkimDisposition::TransientError => TriState::Indet,
+            DkimDisposition::KeyMismatch => TriState::Absent,
+        }
+    }
+}
+
+impl std::fmt::Display for DkimDisposition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DkimDisposition::Verified => write!(f, "verified"),
+            DkimDisposition::NotFoundDefaults => write!(f, "not-found-with-81-defaults"),
+            DkimDisposition::NoMailDomain => write!(f, "no-mail-domain"),
+            DkimDisposition::TransientError => write!(f, "transient-error"),
+            DkimDisposition::KeyMismatch => write!(f, "key-mismatch"),
+        }
+    }
+}
+
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ScoredAnalysis {
@@ -91,6 +139,7 @@ pub struct ScoredAnalysis {
     pub dnssec_disposition: DnssecDisposition,
     pub spf: TriState,
     pub dkim: TriState,
+    pub dkim_disposition: DkimDisposition,
     pub dmarc: TriState,
     pub dane: TriState,
     pub mta_sts: TriState, // "warning" → Absent (T1-1 fix)
@@ -118,6 +167,7 @@ pub async fn analyse_domain(resolver: &TokioResolver, domain: &str) -> Result<Sc
     // ── Email controls (stub — wire up full probes in Tier 2) ───────────────
     let spf = score_spf(resolver, domain).await;
     let dkim = TriState::Indet; // selector unknown at analysis time
+    let dkim_disposition = DkimDisposition::NotFoundDefaults; // 81 defaults not probed yet
     let dmarc = score_dmarc(resolver, domain).await;
     let dane = score_dane(resolver, domain).await;
     let mta_sts = score_mta_sts(resolver, domain).await;
@@ -132,6 +182,7 @@ pub async fn analyse_domain(resolver: &TokioResolver, domain: &str) -> Result<Sc
         dnssec_disposition,
         spf,
         dkim,
+        dkim_disposition,
         dmarc,
         dane,
         mta_sts,
