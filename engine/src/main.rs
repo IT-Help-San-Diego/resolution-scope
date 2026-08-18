@@ -19,7 +19,7 @@ use anyhow::Result;
 use tracing::info;
 
 // Pull in the library crate (same Cargo package, different compilation unit).
-use resolution_scope_engine::{ScoredAnalysis, TriState};
+// (analyse_domain is reached via resolution_scope_engine::analysis::analyse_domain.)
 
 // =============================================================================
 // Async runtime — OUTSIDE seL4 compartment (see architecture note above)

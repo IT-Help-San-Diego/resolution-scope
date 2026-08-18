@@ -5,7 +5,6 @@
 
 use anyhow::Result;
 use hickory_resolver::TokioResolver;
-use hickory_resolver::net::NetError;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 

@@ -13,7 +13,7 @@ use crate::tristate::TriState;
 /// Render a human-readable text report.
 pub fn render_text(a: &ScoredAnalysis) -> String {
     let mut out = String::new();
-    out.push_str(&format!("resolutionscope.com — DNS Analysis Report\n"));
+    out.push_str("resolutionscope.com — DNS Analysis Report\n");
     out.push_str(&format!("Domain    : {}\n", a.domain));
     out.push_str(&format!("Timestamp : {}\n", a.timestamp_local));
     out.push_str(&format!("Session   : {:016x}\n\n", a.session_id));

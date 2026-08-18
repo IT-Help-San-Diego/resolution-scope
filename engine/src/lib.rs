@@ -31,41 +31,21 @@ compile_error!(
 // =============================================================================
 // Module structure
 // =============================================================================
+//
+// The engine crate is Phase 1 ONLY. Phase 2 (no_std + smoltcp + sddf_device)
+// lives in the sibling `native/` crate; it does not gate on a `phase2-native`
+// feature here. The SciSpace kit's shared-lib.rs carried `#[cfg(feature =
+// "phase2-native")]` gates from when both phases shared one lib; the split into
+// two crates made them dead (the engine never enables that feature, and
+// sddf_device.rs exists only in native/). Removed.
 
-// Phase 1 modules depend on hickory-resolver and tokio, which are absent from
-// the Phase 2 (native/Cargo.toml) dependency tree.
-// Gate them so Phase 2 builds compile cleanly without modification.
-#[cfg(not(feature = "phase2-native"))]
 pub mod analysis;
-#[cfg(not(feature = "phase2-native"))]
 pub mod ipc;
-#[cfg(not(feature = "phase2-native"))]
 pub mod report;
 pub mod tristate;
 
-/// Phase 2 native path: sDDF-to-smoltcp `Device` trait adapter.
-///
-/// Gated on the `phase2-native` feature so Phase 1 builds (which have no
-/// smoltcp dependency) compile cleanly without modification.
-///
-/// **How to activate for Phase 2**:
-/// 1. Add `phase2-native = []` under `[features]` in
-///    `native/Cargo.toml`.
-/// 2. Add `phase2-native` to the `default` feature list in that manifest.
-/// 3. Add `smoltcp` to `[dependencies]` (already present in the native
-///    Cargo.toml; not needed in Phase 1's Cargo.toml).
-///
-/// Phase 2 `[[bin]]` targets (`src/main_native.rs`) may also declare
-/// `mod sddf_device;` directly without going through this lib — both paths
-/// are valid during the spike.  Once Phase 2 is promoted, the standalone
-/// declaration in `main_native.rs` should be removed in favour of this
-/// re-export.
-#[cfg(feature = "phase2-native")]
-pub mod sddf_device;
-
 // Re-export the most-used surface types so callers can write
 // `resolution_scope_engine::ScoredAnalysis` without a full module path.
-#[cfg(not(feature = "phase2-native"))]
 pub use analysis::ScoredAnalysis;
 pub use tristate::TriState;
 
