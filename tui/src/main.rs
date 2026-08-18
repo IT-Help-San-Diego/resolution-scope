@@ -68,12 +68,17 @@ impl Palette {
         header_fg: Color::Rgb(180, 200, 220),
     };
     const COVERT: Self = Self {
-        bg: Color::Rgb(8, 6, 4), fg: Color::Rgb(200, 140, 80),
-        accent: Color::Rgb(220, 60, 30), warn: Color::Rgb(200, 120, 20),
-        fail: Color::Rgb(240, 40, 20), pass: Color::Rgb(40, 160, 60),
-        muted: Color::Rgb(60, 40, 20), border: Color::Rgb(40, 25, 15),
-        highlight: Color::Rgb(30, 18, 10), header_bg: Color::Rgb(20, 12, 8),
-        header_fg: Color::Rgb(200, 140, 80),
+        bg: Color::Rgb(6, 4, 2),
+        fg: Color::Rgb(210, 150, 70),
+        accent: Color::Rgb(230, 60, 20),
+        warn: Color::Rgb(210, 130, 30),
+        fail: Color::Rgb(250, 50, 30),
+        pass: Color::Rgb(30, 170, 50),
+        muted: Color::Rgb(70, 45, 25),
+        border: Color::Rgb(50, 30, 15),
+        highlight: Color::Rgb(25, 15, 8),
+        header_bg: Color::Rgb(18, 10, 6),
+        header_fg: Color::Rgb(210, 150, 70),
     };
 }
 
@@ -106,6 +111,18 @@ fn state_icon(s: TriState, pal: Palette) -> (&'static str, Color) {
     }
 }
 
+fn dnssec_label(d: DnssecDisposition) -> &'static str {
+    match d {
+        DnssecDisposition::SignedAndDelegated => "signed + delegated",
+        DnssecDisposition::SignedNotDelegated => "island of security",
+        DnssecDisposition::BrokenChain => "broken chain",
+        DnssecDisposition::ChainUnverified => "could not verify",
+        DnssecDisposition::Unsigned => "unsigned",
+        DnssecDisposition::NoZone => "no zone",
+        DnssecDisposition::Unreachable => "unreachable",
+    }
+}
+
 fn render_summary(r: &ScoredAnalysis, pal: Palette) -> Vec<Line<'static>> {
     let mut lines = vec![
         Line::from(Span::styled("══ Summary ══", Style::default().fg(pal.accent).add_modifier(Modifier::BOLD))),
@@ -123,9 +140,15 @@ fn render_summary(r: &ScoredAnalysis, pal: Palette) -> Vec<Line<'static>> {
     ];
     for (name, state) in &controls {
         let (icon, color) = state_icon(*state, pal);
+        let extra = if *name == "DNSSEC" {
+            format!("  {}", dnssec_label(r.dnssec_disposition))
+        } else {
+            String::new()
+        };
         lines.push(Line::from(vec![
             Span::styled(format!("  {:>12}  ", name), Style::default().fg(pal.fg)),
             Span::styled(icon, Style::default().fg(color).add_modifier(Modifier::BOLD)),
+            Span::styled(extra, Style::default().fg(pal.muted)),
         ]));
     }
     lines.push(Line::from(""));
@@ -303,7 +326,8 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
         Line::from(vec![
             Span::styled("⚡ RESOLUTION SCOPE ", Style::default().fg(p.accent).add_modifier(Modifier::BOLD)),
             Span::styled(mode_label, Style::default().fg(p.warn)),
-            Span::styled("  │  ", Style::default().fg(p.muted)),
+            Span::styled(format!(" [{}/{}] ", app.current_domain + 1, app.domains.len()), Style::default().fg(p.muted)),
+            Span::styled("│  ", Style::default().fg(p.muted)),
             Span::styled(domain, Style::default().fg(p.fg).add_modifier(Modifier::BOLD)),
         ]),
         Line::from(vec![Span::styled(
