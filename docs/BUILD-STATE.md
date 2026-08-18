@@ -53,12 +53,16 @@ re-measurement). `cargo check --target aarch64-unknown-none` fails in
 also pulls `futures` (std).
 
 **There is no no_std DNSSEC path in hickory today — now robust across the
-current stable.** Options for the seL4 lane, unresolved: (a) upstream-hickory
-no_std DNSSEC feature request/fork, (b) DNSSEC validation stays in the std
-Phase 1 engine and the native crate only carries verdicts across the
-compartment boundary, (c) hand-rolled RRSIG verify against `ring` directly.
-This is exactly the class of premise the spike exists to falsify *before* the
-seL4 builder starts.
+current stable.** The strongest form of this claim is the published manifest,
+not the compile error: `hickory-proto` 0.26.1 declares
+`__dnssec = ["dep:bitflags", "dep:rustls-pki-types", "dep:time", "std"]` with
+**`std` as a literal member**, and `dnssec-ring = ["dep:ring", "__dnssec"]` —
+so ring DNSSEC enables `std` **by declaration**, not by accident of a
+transitive dep. A build error can be a toolchain artifact; a feature
+declaration in the published manifest is the crate's own stated contract,
+checkable by anyone on crates.io without a cross-compiler. (The bare-metal
+`cargo check --target aarch64-unknown-none` failure in `percent-encoding` /
+`getrandom` corroborates it but is not the load-bearing evidence.)
 
 The bare-metal bin build is therefore **deferred, not abandoned** — the
 host-verified library + this finding is the honest spike state.
