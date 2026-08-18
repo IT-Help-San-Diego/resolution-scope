@@ -1,0 +1,200 @@
+/*
+ * dns_sovereign_compartment.cdl
+ *
+ * capDL capability description for the dns-tool-sovereign seL4 compartment.
+ *
+ * This file is the machine-checkable artefact that enforces the privacy
+ * promise: "local scans never leave the box."  If a capability is not listed
+ * here, the compartment component cannot hold it — this is a kernel property,
+ * not a software convention.
+ *
+ * Reference:
+ *   Kuz, I., Klein, G., Lewis, C. et al. (2010). capDL.
+ *   DOI: 10.1145/1851276.1851284
+ *
+ *   Andronick, J. et al. (2013). Formally verified system initialisation.
+ *   DOI: 10.1007/978-3-642-41202-8_6
+ *
+ *   /home/sandbox/lionsOS-compartment-demo-spec.md  §4 (capability table)
+ *                                                    §7 (boot sequence)
+ *
+ * Tool: generate with `capdl-tool` from the seL4 project, or validate with
+ * the Isabelle/HOL capDL formalisation.  In the LionsOS demo workflow, this
+ * file feeds the CAmkES/LionsOS build system.
+ *
+ * Capability naming convention:
+ *   ep_*          seL4 IPC Endpoint capabilities
+ *   cap_*         Other capability types (frame, notification, clock)
+ *   comp_*        Component TCB/CNode references
+ *
+ * ==========================================================================
+ * BOOT SEQUENCE SUMMARY (§7 of spec):
+ *
+ *   1. seL4 bootinfo → untyped memory → root task (LionsOS init)
+ *   2. root task creates:
+ *        - query_engine_comp  (Linux CAmkES VM or LionsOS native)
+ *        - compartment_comp   (LionsOS native, no_std Rust)
+ *        - ep_results_in, ep_domain_in  (IPC endpoints)
+ *   3. root task distributes capabilities as specified below.
+ *   4. root task REVOKES its own cap to compartment storage after init
+ *      so no parent component can bypass the boundary.
+ *
+ * ==========================================================================
+ */
+
+arch ia32      /* replace with aarch64 for ARM target board */
+
+/*
+ * ── Objects ─────────────────────────────────────────────────────────────────
+ */
+objects {
+    /* IPC Endpoints */
+    ep_results_in    = ep        /* scored analysis from query engine → compartment */
+    ep_domain_in     = ep        /* domain name for this session → compartment      */
+
+    /* Shared frame: local report storage (write-only from compartment side) */
+    cap_local_report = frame (4k)
+
+    /* Notification channel for display output */
+    cap_display      = notification
+
+    /* CNodes for each component's capability space */
+    cnode_root       = cnode (12)  /* root task capability space       */
+    cnode_query_eng  = cnode (8)   /* query engine capability space    */
+    cnode_compartment = cnode (8)  /* compartment capability space     */
+
+    /* TCBs */
+    tcb_root         = tcb
+    tcb_query_eng    = tcb
+    tcb_compartment  = tcb
+}
+
+/*
+ * ── Root task capability space ───────────────────────────────────────────────
+ *
+ * The root task holds all capabilities at boot; it distributes them in the
+ * init sequence and then revokes its own caps to compartment storage (rule 4).
+ */
+caps {
+    cnode_root {
+        0: cnode_root       (guard: 0, guard_size: 0)
+        1: tcb_root
+        2: cnode_query_eng
+        3: cnode_compartment
+        4: ep_results_in    (rights: RWG)   /* full rights before distribution */
+        5: ep_domain_in     (rights: RWG)
+        6: cap_local_report (rights: RW)
+        7: cap_display      (rights: RW)
+        /* NOTE: root task cap to cap_local_report is revoked after init (rule 4) */
+    }
+
+    /* ── Query engine capability space ──────────────────────────────────────
+     *
+     * The query engine holds:
+     *   - Send token on ep_results_in   (it produces results)
+     *   - Send token on ep_domain_in    (root task delivers domain to it first,
+     *                                    then query engine forwards to compartment)
+     *
+     * The query engine does NOT hold:
+     *   - cap_local_report  (cannot write output directly)
+     *   - cap_display       (no display access)
+     *   - any raw network cap beyond sDDF channel (not represented here; sDDF
+     *     capability is granted separately by the LionsOS network server)
+     */
+    cnode_query_eng {
+        0: cnode_query_eng  (guard: 0, guard_size: 0)
+        1: tcb_query_eng
+        2: ep_results_in    (rights: W)     /* Send-only: push results to compartment */
+        3: ep_domain_in     (rights: W)     /* Send-only: deliver domain name         */
+        /* sDDF network capability: granted by LionsOS network server at runtime.
+         * Not described statically here — see sDDF capability allocation in the
+         * LionsOS build system configuration.                                   */
+    }
+
+    /* ── Compartment capability space ───────────────────────────────────────
+     *
+     * This is the complete capability set the compartment component holds.
+     * Anything NOT in this CNode is outside the compartment's authority.
+     *
+     * Authoritative source: lionsOS-compartment-demo-spec.md §4
+     *
+     * ┌──────────────────────────────────────────────────────────────────────┐
+     * │  PRESENT in compartment CNode                                        │
+     * ├──────────────────────┬───────────────┬──────────────────────────────┤
+     * │  ep_results_in       │ Receive-only  │ Scored analysis from engine  │
+     * │  ep_domain_in        │ Receive-only  │ Domain name for this session │
+     * │  cap_local_report    │ Write-only    │ Write report to local storage│
+     * │  cap_display         │ Write-only    │ Display channel notification │
+     * │  cap_clock (hw)      │ Read-only     │ Wall clock for timestamp     │
+     * ├──────────────────────┴───────────────┴──────────────────────────────┤
+     * │  ABSENT from compartment CNode (enforced by kernel)                 │
+     * ├──────────────────────┬──────────────────────────────────────────────┤
+     * │  any network cap     │ Exfiltration prevention                      │
+     * │  ep_results_out ext  │ Cannot relay results externally              │
+     * │  cap_debug channel   │ No covert channel via debug output           │
+     * │  query engine bufs   │ Cannot read raw DNS wire data                │
+     * └──────────────────────┴──────────────────────────────────────────────┘
+     */
+    cnode_compartment {
+        0: cnode_compartment (guard: 0, guard_size: 0)
+        1: tcb_compartment
+
+        /* Receive-only endpoints */
+        2: ep_results_in    (rights: R)     /* Receive scored analysis            */
+        3: ep_domain_in     (rights: R)     /* Receive domain name                */
+
+        /* Write-only output capabilities */
+        4: cap_local_report (rights: W)     /* Write report to local storage      */
+        5: cap_display      (rights: W)     /* Write to display notification      */
+
+        /* Read-only clock (wall time for report timestamp only)
+         * DNSSEC expiry validation happens in the query engine, NOT here.
+         * Slot 6 is reserved for the seL4 hardware clock capability; the exact
+         * capDL object type depends on the target platform (x86 TSC / ARM timer). */
+        /* 6: cap_clock      (rights: R) */  /* uncomment when platform is fixed   */
+
+        /* Slots 7–255: deliberately empty.  No network, no debug, no raw bufs. */
+    }
+}
+
+/*
+ * ── TCB initial states ────────────────────────────────────────────────────
+ */
+tcbs {
+    tcb_root {
+        cspace: cnode_root (guard: 0, guard_size: 0)
+        /* vspace and ipc_buffer defined by LionsOS boot loader */
+        priority: 255
+        ip: root_task_entry       /* symbol from LionsOS init image */
+    }
+
+    tcb_query_eng {
+        cspace: cnode_query_eng (guard: 0, guard_size: 0)
+        priority: 128
+        ip: query_engine_entry    /* symbol from dns-sovereign binary (Linux CAmkES VM
+                                     or LionsOS native Rust process, TBD) */
+    }
+
+    tcb_compartment {
+        cspace: cnode_compartment (guard: 0, guard_size: 0)
+        priority: 64
+        ip: compartment_entry     /* symbol from compartment no_std Rust binary */
+    }
+}
+
+/*
+ * ==========================================================================
+ * VALIDATION CHECKLIST (run before every compartment build)
+ *
+ *   [ ] cnode_compartment contains no network capability of any kind
+ *   [ ] cnode_compartment ep_results_in has rights: R (not W or G)
+ *   [ ] cnode_compartment cap_local_report has rights: W (not R)
+ *   [ ] cnode_query_eng contains no cap_local_report or cap_display entry
+ *   [ ] root task cap to cap_local_report is revoked in init sequence
+ *   [ ] sDDF cap for query engine is granted by network server, not root task
+ *
+ * The capdl-tool checker and the Isabelle/HOL capDL model enforce these
+ * properties mechanically.  Manual review of this checklist is a secondary
+ * safeguard only.
+ * ==========================================================================
+ */

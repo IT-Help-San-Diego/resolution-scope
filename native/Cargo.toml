@@ -1,0 +1,103 @@
+# =============================================================================
+# resolution-scope-native — Phase 2 Cargo.toml
+# =============================================================================
+#
+# Phase 2 target: run inside a LionsOS native service (seL4 + sDDF).
+# No Linux, no tokio, no hickory-resolver.
+# TCP/UDP is provided by smoltcp; DMA buffers are capability-granted via sDDF.
+#
+# INVARIANT: `dnssec-ring` must remain in [features] default.
+#   Never remove without a recorded architectural decision.
+#   The compile_error! guard in src/lib.rs enforces this at build time.
+#
+# This crate is a SIBLING of engine/ (Phase 1), NOT a replacement.
+# Both phases coexist during migration. There is intentionally NO Cargo
+# workspace: workspace feature-unification between a std+tokio crate and a
+# no_std crate is a genuine hazard, so each crate builds independently.
+# =============================================================================
+
+[package]
+name        = "resolution-scope-native"
+version     = "0.1.0"
+edition     = "2021"
+description = "Resolution Scope DNS analyser — Phase 2 LionsOS native (no_std)"
+license     = "AGPL-3.0"
+repository  = "https://github.com/IT-Help-San-Diego/resolution-scope"
+
+[lib]
+name = "resolution_scope_native"
+path = "src/lib.rs"
+
+[[bin]]
+name              = "resolution-scope-native"
+path              = "src/main_native.rs"
+required-features = ["dnssec-ring", "phase2-native"]
+# This binary is bare-metal only (no_std, custom panic handler, #[no_mangle] main).
+# It cannot link on a host OS. Build it with:
+#   cargo build --target aarch64-unknown-none --release
+# Host-side verification runs against the LIBRARY (tristate + sddf_device) via
+# `cargo build --lib` and `cargo test --lib`. The doc comment in main_native.rs
+# already states this; the target gate below makes the host build honest.
+test              = false
+
+[features]
+# dnssec-ring MUST stay in default. See INVARIANT above.
+# phase2-native activates the sddf_device module and gates out Phase 1 deps
+# (hickory-resolver, tokio) that are absent from this manifest.
+default    = ["dnssec-ring", "phase2-native"]
+dnssec-ring = [
+    "hickory-proto/dnssec-ring",
+    "ring/alloc",
+]
+phase2-native = []
+
+[dependencies]
+# DNS proto (no_std + alloc, no async runtime). hickory-resolver (tokio-backed)
+# is intentionally absent; hickory-proto is used directly.
+# Pinned to the same minor as Phase 1 (0.25.x — 0.26 does not exist on crates.io, only 0.26.0-alpha.1; verified by cargo) so wire formats stay identical.
+hickory-proto = { version = "0.25", default-features = false, features = [
+    "dnssec-ring",
+] }
+
+# TCP/UDP/DNS socket stack (no_std). The sDDF Device trait adapter
+# (src/sddf_device.rs) bridges sDDF rings to smoltcp.
+smoltcp = { version = "0.11", default-features = false, features = [
+    "alloc",
+    "medium-ethernet",
+    "proto-ipv4",
+    "proto-ipv6",
+    "socket-tcp",
+    "socket-dns",
+    "socket-udp",
+] }
+
+# Cryptography (alloc-only, no std).
+# Acceptance gate: `cargo build` with std disabled must compile; failure here
+# means ring has regressed to requiring std.
+ring = { version = "0.17", default-features = false, features = ["alloc"] }
+
+serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
+serde_json = { version = "1", default-features = false, features = ["alloc"] }
+
+anyhow    = { version = "1", default-features = false }
+thiserror = { version = "1" }  # proc-macro; works in no_std targets
+
+# tracing core is no_std when std feature is off.
+# Structured log records are emitted over the IPC endpoint instead of files.
+tracing = { version = "0.1", default-features = false, features = ["attributes"] }
+
+# no_std runtime prerequisites: an allocator is required. In the LionsOS
+# environment it is provided by the seL4 runtime crate (or a linked liballoc
+# shim). Uncomment once the LionsOS Rust support package is chosen:
+#
+# sel4-runtime = { git = "https://github.com/seL4/rust-sel4", features = ["alloc"] }
+
+[profile.release]
+opt-level     = "z"    # minimise binary footprint inside the seL4 compartment
+lto           = true
+codegen-units = 1
+panic         = "abort" # required for no_std; no unwinding runtime available
+strip         = true
+
+[profile.dev]
+panic = "abort"         # keep consistent with release; no unwinding in either phase

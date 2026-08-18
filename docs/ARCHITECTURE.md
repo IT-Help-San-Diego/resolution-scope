@@ -57,12 +57,13 @@ parent: the server process reads 20 distinct secrets from its environment
 probe client in one process — one compromised handler currently has all of
 it.
 
-**Action, ahead of the demo:** enumerate which of the 20 secrets each
+**Action, ahead of the demo:** enumerate which of the secrets each
 future compartment needs (scanner: network + `PROBE_*`; filter:
-network+storage; store: `DATABASE_URL` only, no network). That list IS the
-capability manifest, and splitting the probe credential out of the web
-process buys real isolation today, on ordinary Linux — the prerequisite
-that makes a compartment boundary meaningful later.
+network+storage; store: `DATABASE_URL` only, no network). The generated
+manifest with its producing grep lives at
+[CAPABILITY-MANIFEST.md](CAPABILITY-MANIFEST.md); its first measured finding
+is that `internal/config` reads all 34 env vars, so `config` itself is the
+boundary violation to split — fixable today on ordinary Linux.
 
 ## 5. Hypervisor honesty (public copy, verbatim)
 
