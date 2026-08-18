@@ -282,26 +282,53 @@ async fn score_dmarc(resolver: &TokioResolver, domain: &str) -> TriState {
 }
 
 async fn score_dane(resolver: &TokioResolver, domain: &str) -> TriState {
-    // DANE: TLSA record at _443._tcp.<domain> (HTTPS DANE).
-    // RecordType::TLSA = 52, confirmed present in hickory 0.26 (hickory_rr_types.md).
+    // DANE for SMTP (RFC 7672): TLSA at _25._tcp.<mx-host> for each MX target.
+    // NOT _443._tcp.<domain> — that is HTTPS DANE (RFC 6698 for browsers), the
+    // wrong surface for an email-security instrument. A mail domain may host no
+    // website at all, so probing HTTPS DANE read "no website" as "no DANE" —
+    // the same category error as the DNSSEC address-existence bug.
     //
-    // SMTP DANE (_25._tcp.<domain>) is a future extension — tracked in
-    // docs/TEST-PLAN.md Section E.
-    use hickory_proto::rr::RecordType;
+    // Semantics:
+    //   Present — MX exists and >=1 MX host publishes a TLSA (DANE configured)
+    //   Absent  — MX exists but no MX host publishes a TLSA (mail, but no DANE)
+    //   Indet   — no MX (not a mail domain, DANE N/A) or couldn't measure
+    use hickory_proto::rr::{RData, RecordType};
 
-    let tlsa_name = format!("_443._tcp.{}", domain);
-    match resolver.lookup(tlsa_name.as_str(), RecordType::TLSA).await {
-        Ok(resp) => {
-            if !resp.answers().is_empty() {
-                TriState::Present
-            } else {
-                // Empty answer section with NOERROR → treat as absent.
-                TriState::Absent
+    match resolver.lookup(domain, RecordType::MX).await {
+        Ok(mx) => {
+            let exchanges: Vec<String> = mx
+                .answers()
+                .iter()
+                .filter_map(|r| match &r.data {
+                    // Skip null MX (RFC 7505 "MX 0 ." = domain accepts no mail):
+                    // its exchange is the root ".", and `_25._tcp..` is malformed.
+                    RData::MX(m) if !m.exchange.is_root() => Some(m.exchange.to_ascii()),
+                    _ => None,
+                })
+                .collect();
+            if exchanges.is_empty() {
+                // MX lookup succeeded but returned no MX records — not a mail
+                // domain, so SMTP DANE is not applicable (Indet, not Absent).
+                return TriState::Indet;
             }
+            for host in exchanges {
+                let tlsa_name = format!("_25._tcp.{}", host);
+                match resolver.lookup(tlsa_name.as_str(), RecordType::TLSA).await {
+                    Ok(resp) if !resp.answers().is_empty() => return TriState::Present,
+                    Ok(_) => continue, // this MX host has no TLSA — check next
+                    Err(e) => {
+                        warn!(domain, host = %host, error = %e, "SMTP DANE TLSA lookup error");
+                        continue;
+                    }
+                }
+            }
+            TriState::Absent // mail exists but no MX host publishes a TLSA
         }
         Err(e) => {
-            warn!(domain, error = %e, "DANE/TLSA lookup error");
-            record_absence_verdict(&e)
+            // No MX (NXDOMAIN = no zone; NODATA = no MX = not a mail domain)
+            // or transient — all mean DANE is not measurable here, never Absent.
+            warn!(domain, error = %e, "MX lookup error for DANE");
+            TriState::Indet
         }
     }
 }
