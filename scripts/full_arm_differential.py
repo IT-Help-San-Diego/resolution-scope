@@ -11,14 +11,19 @@ Mapping (Go `*_state` -> Rust TriState):
   absent_confirmed -> Absent
   anything else    -> Indet   (indeterminate/unmeasured/unconfirmed/None)
 
-NOTE on scope: the Rust engine's DANE arm probes _443._tcp TLSA (HTTPS DANE)
-and MTA-STS uses the DNS TXT proxy (HTTP fetch deferred to Tier 2). The Go
-engine's dane_analysis/mta_sts_analysis may measure different surfaces. A
-disagreement on those arms is flagged as 'SCOPE-DIFF' (not-yet-ported
-surface), NOT a port defect, unless live protocol shows the Rust answer is
-simply wrong.
+NOTE on scope:
+- DANE now probes SMTP DANE (MX -> _25._tcp.<mx-host> TLSA, RFC 7672) — the
+  same surface as Go. A remaining DANE disagreement is the "no-mail" edge
+  (RFC 7505 null MX, or no MX record): Rust returns Indet (DANE not
+  applicable, excluded from the score denominator), while Go records
+  absent_confirmed. Deliberate: a non-mail domain should not be penalized
+  for lacking mail DANE.
+- MTA-STS uses the DNS TXT proxy (HTTP policy fetch deferred to Tier 2).
+  The Go engine fetches https://mta-sts.<domain>/.well-known/mta-sts.txt, so
+  a TXT-present-but-policy-unverified domain reads Indet here vs Go's
+  present/absent. Genuine deferral, not a port defect.
 """
-import json, glob, os, subprocess, re
+import json, glob, os, subprocess
 
 FIX = '/Users/careybalboa/Documents/GitHub/dns-tool-intel/tests/golden_fixtures'
 BIN = os.path.expanduser('~/Documents/GitHub/resolution-scope/engine/target/debug/resolution-scope-engine')
@@ -39,21 +44,17 @@ def go_to_tri(state):
     return 'Indet'
 
 def rust_run(domain):
-    r = subprocess.run([BIN, domain], capture_output=True, text=True, timeout=90)
-    clean = re.sub(r'\x1b\[[0-9;]*m', '', r.stdout)
-    # find the LAST pretty-printed JSON object (starts at col-0 '{')
-    i = clean.rfind('\n{\n')
-    if i == -1:
-        i = clean.find('{')
-    if i == -1:
-        return None
-    # cut at the closing '}' at col 0
-    j = clean.find('\n}', i)
-    cand = clean[i:j+2] if j != -1 else clean[i:]
-    try:
-        return json.loads(cand)
-    except json.JSONDecodeError:
-        return None
+    r = subprocess.run([BIN, '--json', domain], capture_output=True, text=True, timeout=90)
+    # tracing (INFO/WARN) goes to stderr now; stdout carries one compact JSON
+    # object per domain. Find the line that parses and carries our fields.
+    for line in r.stdout.splitlines():
+        line = line.strip()
+        if line.startswith('{') and 'dnssec_chain' in line:
+            try:
+                return json.loads(line)
+            except json.JSONDecodeError:
+                continue
+    return None
 
 def main():
     domains = {}
