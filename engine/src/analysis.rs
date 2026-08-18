@@ -4,8 +4,8 @@
 // Results are packed into ScoredAnalysis and sent over the IPC endpoint.
 
 use anyhow::Result;
-use hickory_resolver::TokioResolver;
 use hickory_resolver::net::NetError;
+use hickory_resolver::TokioResolver;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
@@ -15,6 +15,71 @@ use crate::TriState;
 // ScoredAnalysis — the IPC payload (mirrors lionsOS-compartment-demo-spec.md §5)
 // =============================================================================
 
+// =============================================================================
+// DnssecDisposition — the full DNSSEC decision, richer than the TriState
+// =============================================================================
+//
+// score_dnssec collapses DNSSEC to a TriState for the tally, but the *reason*
+// matters: "signed but not delegated" (island of security) is a different fact
+// from "couldn't measure" or "broken chain". Claude Science's 2026-08-18
+// ruling requires the engine to preserve this so a report can explain WHY a
+// domain is Indet — e.g. .dev (Insecure proof = proven signed-but-not-delegated)
+// vs a domain whose DNSSEC RRs couldn't be fetched (Indeterminate proof).
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DnssecDisposition {
+    /// DNSKEY present + Secure proof — signed AND delegated, chain validates.
+    SignedAndDelegated,
+    /// DNSKEY present + Insecure proof — resolver KNOWS there is no chain
+    /// (proven signed-but-not-delegated; the island-of-security case).
+    SignedNotDelegated,
+    /// DNSKEY present + Bogus proof — ought to validate but does not
+    /// (wrong DS / expired RRSIG). Broken — counts against.
+    BrokenChain,
+    /// DNSKEY present + Indeterminate proof — could not obtain the DNSSEC RRs
+    /// (unauthenticated). Couldn't-measure, not "absent".
+    ChainUnverified,
+    /// No DNSKEY published at the apex — genuinely unsigned.
+    Unsigned,
+    /// NXDOMAIN — no zone, so DNSSEC is not applicable (domain_exists doctrine).
+    NoZone,
+    /// Transient lookup error (timeout/refused) — couldn't measure.
+    Unreachable,
+}
+
+impl DnssecDisposition {
+    /// Collapse to the tri-state used by the tally and score denominator.
+    pub fn chain(self) -> TriState {
+        match self {
+            DnssecDisposition::SignedAndDelegated => TriState::Present,
+            DnssecDisposition::SignedNotDelegated => TriState::Indet,
+            DnssecDisposition::BrokenChain => TriState::Absent,
+            DnssecDisposition::ChainUnverified => TriState::Indet,
+            DnssecDisposition::Unsigned => TriState::Absent,
+            DnssecDisposition::NoZone => TriState::Indet,
+            DnssecDisposition::Unreachable => TriState::Indet,
+        }
+    }
+}
+
+impl std::fmt::Display for DnssecDisposition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DnssecDisposition::SignedAndDelegated => write!(f, "signed-and-delegated"),
+            DnssecDisposition::SignedNotDelegated => {
+                write!(f, "signed-but-not-delegated (island of security)")
+            }
+            DnssecDisposition::BrokenChain => write!(f, "broken-chain (bogus)"),
+            DnssecDisposition::ChainUnverified => {
+                write!(f, "chain-unverified (couldn't obtain DNSSEC RRs)")
+            }
+            DnssecDisposition::Unsigned => write!(f, "unsigned (no DNSKEY)"),
+            DnssecDisposition::NoZone => write!(f, "no-zone (NXDOMAIN)"),
+            DnssecDisposition::Unreachable => write!(f, "unreachable (transient lookup error)"),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ScoredAnalysis {
     pub domain: String,
@@ -22,24 +87,22 @@ pub struct ScoredAnalysis {
     pub timestamp_local: u64,
 
     // Per-control tri-state scores
-    pub dnssec_chain:  TriState,
-    pub spf:           TriState,
-    pub dkim:          TriState,
-    pub dmarc:         TriState,
-    pub dane:          TriState,
-    pub mta_sts:       TriState, // "warning" → Absent (T1-1 fix)
-    pub caa:           TriState,
-    pub cds_cdnskey:   TriState,
+    pub dnssec_chain: TriState,
+    pub dnssec_disposition: DnssecDisposition,
+    pub spf: TriState,
+    pub dkim: TriState,
+    pub dmarc: TriState,
+    pub dane: TriState,
+    pub mta_sts: TriState, // "warning" → Absent (T1-1 fix)
+    pub caa: TriState,
+    pub cds_cdnskey: TriState,
 }
 
 // =============================================================================
 // analyse_domain — top-level entry point
 // =============================================================================
 
-pub async fn analyse_domain(
-    resolver: &TokioResolver,
-    domain: &str,
-) -> Result<ScoredAnalysis> {
+pub async fn analyse_domain(resolver: &TokioResolver, domain: &str) -> Result<ScoredAnalysis> {
     debug!(domain, "starting analysis");
 
     let session_id: u64 = rand_session_id();
@@ -49,15 +112,16 @@ pub async fn analyse_domain(
     // hickory-resolver with validate=true performs AD-bit + RRSIG chain check.
     // The dnssec-ring feature (enforced by compile_error! in lib.rs) is what
     // makes this verification real rather than a no-op.
-    let dnssec_chain = score_dnssec(resolver, domain).await;
+    let dnssec_disposition = score_dnssec(resolver, domain).await;
+    let dnssec_chain = dnssec_disposition.chain();
 
     // ── Email controls (stub — wire up full probes in Tier 2) ───────────────
-    let spf         = score_spf(resolver, domain).await;
-    let dkim        = TriState::Indet; // selector unknown at analysis time
-    let dmarc       = score_dmarc(resolver, domain).await;
-    let dane        = score_dane(resolver, domain).await;
-    let mta_sts     = score_mta_sts(resolver, domain).await;
-    let caa         = score_caa(resolver, domain).await;
+    let spf = score_spf(resolver, domain).await;
+    let dkim = TriState::Indet; // selector unknown at analysis time
+    let dmarc = score_dmarc(resolver, domain).await;
+    let dane = score_dane(resolver, domain).await;
+    let mta_sts = score_mta_sts(resolver, domain).await;
+    let caa = score_caa(resolver, domain).await;
     let cds_cdnskey = score_cds_cdnskey(resolver, domain).await;
 
     Ok(ScoredAnalysis {
@@ -65,6 +129,7 @@ pub async fn analyse_domain(
         session_id,
         timestamp_local,
         dnssec_chain,
+        dnssec_disposition,
         spf,
         dkim,
         dmarc,
@@ -110,24 +175,30 @@ fn record_absence_verdict(e: &NetError) -> TriState {
     }
 }
 
-/// Map a DNSSEC DNSKEY lookup error to a tri-state verdict.
-/// Differs from `record_absence_verdict` in one case: SERVFAIL from a
-/// validating resolver on a DNSSEC query is the RFC 4035 "bogus" signal
-/// (broken chain — wrong DS / expired RRSIG), which maps to Absent (broken
-/// counts against), not Indet. Same class as the Go engine's #336 fix.
-fn dnssec_err_verdict(e: &NetError) -> TriState {
-    use hickory_resolver::net::DnsError;
+/// Map a DNSSEC DNSKEY lookup error to its full disposition.
+/// Rich sibling of `record_absence_verdict`: instead of collapsing to the
+/// tri-state it preserves WHY — NXDOMAIN is NoZone, NODATA is Unsigned,
+/// SERVFAIL is BrokenChain (RFC 4035 "bogus"), anything else is Unreachable.
+/// Same class as the Go engine's #336 fix (broken chain must not read as
+/// "couldn't measure").
+fn dnssec_disposition_err(e: &NetError) -> DnssecDisposition {
     use hickory_proto::op::ResponseCode;
-    let nodata = e.is_no_records_found() && !e.is_nx_domain();
-    let servfail = matches!(e, NetError::Dns(DnsError::ResponseCode(ResponseCode::ServFail)));
-    if nodata || servfail {
-        TriState::Absent
+    use hickory_resolver::net::DnsError;
+    if e.is_nx_domain() {
+        DnssecDisposition::NoZone
+    } else if e.is_no_records_found() {
+        DnssecDisposition::Unsigned
+    } else if matches!(
+        e,
+        NetError::Dns(DnsError::ResponseCode(ResponseCode::ServFail))
+    ) {
+        DnssecDisposition::BrokenChain
     } else {
-        TriState::Indet
+        DnssecDisposition::Unreachable
     }
 }
 
-async fn score_dnssec(resolver: &TokioResolver, domain: &str) -> TriState {
+async fn score_dnssec(resolver: &TokioResolver, domain: &str) -> DnssecDisposition {
     // DNSSEC is measured by the zone's DNSKEY material, NOT by A/AAAA address
     // existence. A zone can publish DNSKEY + RRSIG (sign) while hosting no
     // web content yet — the island-of-security case (resolutionscope.com/.dev:
@@ -142,32 +213,30 @@ async fn score_dnssec(resolver: &TokioResolver, domain: &str) -> TriState {
     //   Bogus         — ought to validate but does not (BROKEN; possible attack)
     //   Indeterminate — could not obtain the DNSSEC RRs (couldn't measure)
     //
-    // Mapping (aligned with Claude Science's 2026-08-18 ruling that Insecure
+    // We return the full DnssecDisposition (not just the TriState) so the
+    // report can explain WHY — the collapse to Present/Absent/Indet happens in
+    // `chain()`. Aligned with Claude Science's 2026-08-18 ruling: Insecure
     // counts as "proven unsigned" only from a validating resolver with a trust
-    // anchor, else it collapses to couldn't-measure):
-    //   DNSKEY present + Secure         -> Present   (signed AND delegated)
-    //   DNSKEY present + Insecure/Bogus -> Indet     (island/broken — NOT "absent")
-    //   DNSKEY absent                  -> Absent    (genuinely unsigned)
-    //   NXDOMAIN                       -> Indet     (no zone — domain_exists doctrine)
-    use hickory_proto::rr::RecordType;
+    // anchor; Indeterminate is genuinely "couldn't measure", never "absent".
     use hickory_proto::dnssec::Proof;
+    use hickory_proto::rr::RecordType;
 
     match resolver.lookup(domain, RecordType::DNSKEY).await {
         Ok(resp) => {
             let answers = resp.answers();
             if answers.is_empty() {
-                return TriState::Absent; // no DNSKEY published = unsigned
+                return DnssecDisposition::Unsigned; // no DNSKEY published = unsigned
             }
             match answers.first().map(|r| r.proof) {
-                Some(Proof::Secure) => TriState::Present, // signed + delegated + validates
-                Some(Proof::Insecure) => TriState::Indet, // keys present, no trusted chain (island)
-                Some(Proof::Bogus) => TriState::Absent,   // broken chain — counts against
-                _ => TriState::Indet,                     // keys present, chain unmeasurable
+                Some(Proof::Secure) => DnssecDisposition::SignedAndDelegated,
+                Some(Proof::Insecure) => DnssecDisposition::SignedNotDelegated, // island
+                Some(Proof::Bogus) => DnssecDisposition::BrokenChain, // broken — counts against
+                _ => DnssecDisposition::ChainUnverified, // keys present, chain unmeasurable
             }
         }
         Err(e) => {
             warn!(domain, error = %e, "DNSSEC DNSKEY lookup error");
-            dnssec_err_verdict(&e)
+            dnssec_disposition_err(&e)
         }
     }
 }
@@ -180,7 +249,11 @@ async fn score_spf(resolver: &TokioResolver, domain: &str) -> TriState {
                 matches!(&rec.data, hickory_proto::rr::RData::TXT(txt)
                     if txt.txt_data.iter().any(|s| s.starts_with(b"v=spf1")))
             });
-            if has_spf { TriState::Present } else { TriState::Absent }
+            if has_spf {
+                TriState::Present
+            } else {
+                TriState::Absent
+            }
         }
         Err(e) => {
             // NODATA (no TXT on an existing zone) = measured absence; NXDOMAIN
@@ -198,11 +271,13 @@ async fn score_dmarc(resolver: &TokioResolver, domain: &str) -> TriState {
                 matches!(&rec.data, hickory_proto::rr::RData::TXT(txt)
                     if txt.txt_data.iter().any(|s| s.starts_with(b"v=DMARC1")))
             });
-            if has_dmarc { TriState::Present } else { TriState::Absent }
+            if has_dmarc {
+                TriState::Present
+            } else {
+                TriState::Absent
+            }
         }
-        Err(e) => {
-            record_absence_verdict(&e)
-        }
+        Err(e) => record_absence_verdict(&e),
     }
 }
 
@@ -247,7 +322,11 @@ async fn score_mta_sts(resolver: &TokioResolver, domain: &str) -> TriState {
             });
             // DNS record present is necessary but not sufficient; HTTP policy
             // fetch will upgrade Indet → Present or Absent in Tier 2.
-            if has_mta_sts { TriState::Indet } else { TriState::Absent }
+            if has_mta_sts {
+                TriState::Indet
+            } else {
+                TriState::Absent
+            }
         }
         Err(e) => {
             // No MTA-STS TXT on an existing zone = measured absence; NXDOMAIN
@@ -397,9 +476,9 @@ mod tests {
     fn make_test_resolver() -> TokioResolver {
         let mut opts = ResolverOpts::default();
         opts.validate = true; // DNSSEC chain validation on
-        // Use Cloudflare DoT for deterministic responses in CI.
-        // In sandboxed / offline environments, these tests must be run with
-        // `--ignored` suppressed or a local resolver mock substituted.
+                              // Use Cloudflare DoT for deterministic responses in CI.
+                              // In sandboxed / offline environments, these tests must be run with
+                              // `--ignored` suppressed or a local resolver mock substituted.
         TokioResolver::builder_with_config(
             ResolverConfig::udp_and_tcp(&hickory_resolver::config::CLOUDFLARE),
             hickory_resolver::net::runtime::TokioRuntimeProvider::default(),
@@ -419,11 +498,17 @@ mod tests {
     fn resolver_options_validate_is_set() {
         // Default opts have validate=false; our helper must flip it.
         let default_opts = ResolverOpts::default();
-        assert!(!default_opts.validate, "sanity: default validate should be false");
+        assert!(
+            !default_opts.validate,
+            "sanity: default validate should be false"
+        );
 
         let mut patched = ResolverOpts::default();
         patched.validate = true;
-        assert!(patched.validate, "validate must be true for DNSSEC fixture tests");
+        assert!(
+            patched.validate,
+            "validate must be true for DNSSEC fixture tests"
+        );
     }
 
     // -------------------------------------------------------------------------
@@ -432,8 +517,8 @@ mod tests {
     #[test]
     fn tristate_display() {
         assert_eq!(TriState::Present.to_string(), "PRESENT");
-        assert_eq!(TriState::Absent.to_string(),  "ABSENT");
-        assert_eq!(TriState::Indet.to_string(),   "INDET");
+        assert_eq!(TriState::Absent.to_string(), "ABSENT");
+        assert_eq!(TriState::Indet.to_string(), "INDET");
     }
 
     // -------------------------------------------------------------------------
@@ -476,10 +561,10 @@ mod tests {
         };
     }
 
-    golden_fixture_test!(golden_cloudflare_com,  "cloudflare.com",  TriState::Present);
-    golden_fixture_test!(golden_example_com,     "example.com",     TriState::Present);
-    golden_fixture_test!(golden_ietf_org,        "ietf.org",        TriState::Present);
-    golden_fixture_test!(golden_whitehouse_gov,  "whitehouse.gov",  TriState::Present);
+    golden_fixture_test!(golden_cloudflare_com, "cloudflare.com", TriState::Present);
+    golden_fixture_test!(golden_example_com, "example.com", TriState::Present);
+    golden_fixture_test!(golden_ietf_org, "ietf.org", TriState::Present);
+    golden_fixture_test!(golden_whitehouse_gov, "whitehouse.gov", TriState::Present);
 
     // -------------------------------------------------------------------------
     // T1-1 integration: MTA-STS absent for unsigned/no-policy domain
@@ -516,7 +601,10 @@ mod tests {
         use hickory_proto::op::Query;
         use hickory_proto::rr::{Name, RecordType};
         use hickory_resolver::net::{DnsError, NoRecords};
-        let q = Query::query(Name::from_ascii("example.com.").unwrap(), RecordType::DNSKEY);
+        let q = Query::query(
+            Name::from_ascii("example.com.").unwrap(),
+            RecordType::DNSKEY,
+        );
         let nr = NoRecords::new(Box::new(q), code);
         NetError::Dns(DnsError::NoRecordsFound(nr))
     }
@@ -530,13 +618,19 @@ mod tests {
     #[test]
     fn record_absence_nxdomain_is_indet() {
         // no zone -> couldn't measure, NEVER Absent (domain_exists doctrine)
-        assert_eq!(record_absence_verdict(&no_records_err(hickory_proto::op::ResponseCode::NXDomain)), TriState::Indet);
+        assert_eq!(
+            record_absence_verdict(&no_records_err(hickory_proto::op::ResponseCode::NXDomain)),
+            TriState::Indet
+        );
     }
 
     #[test]
     fn record_absence_nodata_is_absent() {
         // NODATA on an existing zone = measured absence
-        assert_eq!(record_absence_verdict(&no_records_err(hickory_proto::op::ResponseCode::NoError)), TriState::Absent);
+        assert_eq!(
+            record_absence_verdict(&no_records_err(hickory_proto::op::ResponseCode::NoError)),
+            TriState::Absent
+        );
     }
 
     #[test]
@@ -546,21 +640,64 @@ mod tests {
     }
 
     #[test]
-    fn dnssec_nxdomain_is_indet() {
-        assert_eq!(dnssec_err_verdict(&no_records_err(hickory_proto::op::ResponseCode::NXDomain)), TriState::Indet);
+    fn dnssec_nxdomain_is_nozone() {
+        // no zone -> DNSSEC not applicable; collapses to Indet (never Absent).
+        let d = dnssec_disposition_err(&no_records_err(hickory_proto::op::ResponseCode::NXDomain));
+        assert_eq!(d, DnssecDisposition::NoZone);
+        assert_eq!(d.chain(), TriState::Indet);
     }
 
     #[test]
-    fn dnssec_nodata_is_absent() {
-        // no DNSKEY = unsigned
-        assert_eq!(dnssec_err_verdict(&no_records_err(hickory_proto::op::ResponseCode::NoError)), TriState::Absent);
+    fn dnssec_nodata_is_unsigned() {
+        // no DNSKEY = unsigned; collapses to Absent (counts in denominator).
+        let d = dnssec_disposition_err(&no_records_err(hickory_proto::op::ResponseCode::NoError));
+        assert_eq!(d, DnssecDisposition::Unsigned);
+        assert_eq!(d.chain(), TriState::Absent);
     }
 
     #[test]
     fn dnssec_servfail_is_broken() {
         // RFC 4035 bogus: validating resolver SERVFAILs on a broken chain.
-        // This is the one case where dnssec_err_verdict differs from
+        // This is the one case where the DNSSEC err mapping differs from
         // record_absence_verdict — broken counts against (Absent), not Indet.
-        assert_eq!(dnssec_err_verdict(&servfail_err()), TriState::Absent);
+        let d = dnssec_disposition_err(&servfail_err());
+        assert_eq!(d, DnssecDisposition::BrokenChain);
+        assert_eq!(d.chain(), TriState::Absent);
+    }
+
+    #[test]
+    fn disposition_chain_mapping() {
+        // The full disposition collapses to the tri-state the tally uses.
+        assert_eq!(
+            DnssecDisposition::SignedAndDelegated.chain(),
+            TriState::Present
+        );
+        assert_eq!(
+            DnssecDisposition::SignedNotDelegated.chain(),
+            TriState::Indet
+        );
+        assert_eq!(DnssecDisposition::BrokenChain.chain(), TriState::Absent);
+        assert_eq!(DnssecDisposition::ChainUnverified.chain(), TriState::Indet);
+        assert_eq!(DnssecDisposition::Unsigned.chain(), TriState::Absent);
+        assert_eq!(DnssecDisposition::NoZone.chain(), TriState::Indet);
+        assert_eq!(DnssecDisposition::Unreachable.chain(), TriState::Indet);
+    }
+
+    #[test]
+    fn dnssec_disposition_serde_roundtrip() {
+        // The disposition crosses the IPC boundary as JSON — it must round-trip.
+        for d in [
+            DnssecDisposition::SignedAndDelegated,
+            DnssecDisposition::SignedNotDelegated,
+            DnssecDisposition::BrokenChain,
+            DnssecDisposition::ChainUnverified,
+            DnssecDisposition::Unsigned,
+            DnssecDisposition::NoZone,
+            DnssecDisposition::Unreachable,
+        ] {
+            let json = serde_json::to_string(&d).expect("serialize");
+            let back: DnssecDisposition = serde_json::from_str(&json).expect("deserialize");
+            assert_eq!(d, back, "round-trip failed for {:?}", d);
+        }
     }
 }

@@ -53,17 +53,29 @@ async fn main() -> Result<()> {
     //
     let resolver = build_resolver().await?;
 
-    // ── Placeholder: single domain probe (replace with CLI arg / batch) ───
-    let domain = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "example.com".to_string());
+    // ── CLI: one or more domains, optional --json for machine output ────────
+    //   resolution-scope-engine example.com cloudflare.com
+    //   resolution-scope-engine --json example.com
+    // Default (no --json) prints the human report (report::render_text).
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let json = args.iter().any(|a| a == "--json");
+    let domains: Vec<String> = args.into_iter().filter(|a| a != "--json").collect();
+    let domains = if domains.is_empty() {
+        vec!["example.com".to_string()]
+    } else {
+        domains
+    };
 
-    info!(domain = %domain, "running analysis");
-
-    let result = resolution_scope_engine::analysis::analyse_domain(&resolver, &domain).await?;
-
-    // Print a simple human-readable summary to stdout.
-    println!("{}", serde_json::to_string_pretty(&result)?);
+    for domain in &domains {
+        info!(domain = %domain, "running analysis");
+        let result = resolution_scope_engine::analysis::analyse_domain(&resolver, domain).await?;
+        if json {
+            // One JSON object per line — machine-consumable, no trailing newline noise.
+            println!("{}", serde_json::to_string(&result)?);
+        } else {
+            print!("{}", resolution_scope_engine::report::render_text(&result));
+        }
+    }
 
     info!("done");
     Ok(())
