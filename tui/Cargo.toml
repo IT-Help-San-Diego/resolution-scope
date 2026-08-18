@@ -1,0 +1,34 @@
+[package]
+name        = "resolution-scope-tui"
+version     = "0.1.0"
+edition     = "2021"
+description = "Resolution Scope terminal UI — covert/blue-team DNS analysis dashboard"
+license     = "AGPL-3.0"
+repository  = "https://github.com/IT-Help-San-Diego/resolution-scope"
+
+[dependencies]
+# Engine — local path, same repo
+resolution-scope-engine = { path = "../engine" }
+
+# Terminal UI framework
+ratatui = "0.29"
+crossterm = "0.28"
+
+# Async runtime (shared with engine)
+tokio = { version = "1", features = ["full"] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+hickory-resolver = { version = "0.26.1", features = ["dnssec-ring"] }
+
+[[bin]]
+name = "rs"
+path = "src/main.rs"
