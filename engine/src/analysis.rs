@@ -712,6 +712,45 @@ mod tests {
     }
 
     // -------------------------------------------------------------------------
+    // Island-of-security vs broken-chain split
+    //
+    // resolutionscope.com  publishes DNSKEY but has no DS at the parent
+    //   → SignedNotDelegated (island of security — genuinely signed, not
+    //     chainable from root, AD=false on the DS denial).
+    // dns-evil-flicker.com publishes DNSKEY AND has a deliberately wrong DS
+    //   → BrokenChain (bogus — DS present but chain fails, SERVFAIL).
+    //
+    // Claude Science 2026-08-18: write this while both specimens still
+    // publish DNSKEY with zero DS — the island case expires and it's the
+    // only test for the authenticated-denial split.
+    // -------------------------------------------------------------------------
+    #[tokio::test]
+    #[ignore = "requires network + DNSSEC-validating resolver"]
+    async fn island_of_security_vs_broken_chain() {
+        let resolver = make_test_resolver();
+
+        let island = analyse_domain(&resolver, "resolutionscope.com")
+            .await
+            .expect("analyse_domain should not error");
+        assert_eq!(
+            island.dnssec_disposition,
+            DnssecDisposition::SignedNotDelegated,
+            "resolutionscope.com: expected SignedNotDelegated (island of security), got {:?}",
+            island.dnssec_disposition
+        );
+
+        let broken = analyse_domain(&resolver, "dns-evil-flicker.com")
+            .await
+            .expect("analyse_domain should not error");
+        assert_eq!(
+            broken.dnssec_disposition,
+            DnssecDisposition::BrokenChain,
+            "dns-evil-flicker.com: expected BrokenChain (bogus), got {:?}",
+            broken.dnssec_disposition
+        );
+    }
+
+    // -------------------------------------------------------------------------
     // Verdict-mapping unit tests (pure, no network)
     //
     // These pin the tri-state boundary that was hand-copied across six arms
