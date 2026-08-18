@@ -82,48 +82,66 @@ pub async fn analyse_domain(
 // The function signatures are final — the TriState return type is load-bearing.
 
 async fn score_dnssec(resolver: &TokioResolver, domain: &str) -> TriState {
-    // DNSSEC is measured by hickory's per-record `Proof`, NOT by "records
-    // exist".  hickory validates with validate=true and attaches one of four
-    // proofs to each answer record:
+    // DNSSEC is measured by the zone's DNSKEY material, NOT by A/AAAA address
+    // existence. A zone can publish DNSKEY + RRSIG (sign) while hosting no
+    // web content yet — the island-of-security case (resolutionscope.com/.dev:
+    // 2 DNSKEY, 0 DS, 0 A/AAAA). Probing via lookup_ip and mapping
+    // "no address record" -> Absent was a category error: it read "no website"
+    // as "no DNSSEC".
+    //
+    // hickory validates with validate=true and attaches one of four proofs to
+    // each answer record:
     //   Secure        — chain of DNSKEY+DS from a trust anchor validates (SIGNED)
-    //   Insecure      — delegation into an unsigned zone is PROVEN (UNSIGNED, honest)
+    //   Insecure      — resolver KNOWS there is no chain (proven unsigned delegation)
     //   Bogus         — ought to validate but does not (BROKEN; possible attack)
     //   Indeterminate — could not obtain the DNSSEC RRs (couldn't measure)
     //
-    // The kit's original gate ("any answer record → Present") asserted
-    // "unsigned-but-resolves" as secure — the exact false-secure class the Go
-    // engine's DNSSEC arc fought.  google.com (unsigned) returned Present
-    // under that gate; with Proof it correctly returns Absent.
+    // Mapping (aligned with Claude Science's 2026-08-18 ruling that Insecure
+    // counts as "proven unsigned" only from a validating resolver with a trust
+    // anchor, else it collapses to couldn't-measure):
+    //   DNSKEY present + Secure         -> Present   (signed AND delegated)
+    //   DNSKEY present + Insecure/Bogus -> Indet     (island/broken — NOT "absent")
+    //   DNSKEY absent                  -> Absent    (genuinely unsigned)
+    //   NXDOMAIN                       -> Indet     (no zone — domain_exists doctrine)
+    use hickory_proto::rr::RecordType;
     use hickory_proto::dnssec::Proof;
 
-    match resolver.lookup_ip(domain).await {
+    match resolver.lookup(domain, RecordType::DNSKEY).await {
         Ok(resp) => {
-            // The A/AAAA proof summarises the zone's signing state for our
-            // purposes: Secure → signed, Insecure → proven unsigned, Bogus →
-            // broken, Indeterminate → couldn't measure.
-            match resp.as_lookup().answers().first().map(|r| r.proof) {
-                Some(Proof::Secure) => TriState::Present,
-                Some(Proof::Insecure) => TriState::Absent, // proven unsigned — honest absence
-                Some(Proof::Bogus) => TriState::Absent,    // broken — counts against, never "secure"
-                Some(Proof::Indeterminate) => TriState::Indet,
-                None => TriState::Indet, // no A/AAAA answer — not a DNSSEC verdict
+            let answers = resp.answers();
+            if answers.is_empty() {
+                return TriState::Absent; // no DNSKEY published = unsigned
+            }
+            match answers.first().map(|r| r.proof) {
+                Some(Proof::Secure) => TriState::Present, // signed + delegated + validates
+                Some(Proof::Insecure) => TriState::Indet, // keys present, no trusted chain (island)
+                Some(Proof::Bogus) => TriState::Absent,   // broken chain — counts against
+                _ => TriState::Indet,                     // keys present, chain unmeasurable
             }
         }
         Err(e) => {
-            warn!(domain, error = %e, "DNSSEC lookup error");
+            warn!(domain, error = %e, "DNSSEC DNSKEY lookup error");
             // domain_exists doctrine (Carey ruling, 2026-08-18): an
             // authoritative no-such-name is an absence OF THE DOMAIN, not of
-            // DNSSEC. `Absent` is a claim about a zone's configuration — there
-            // is no zone. NXDOMAIN must never flatten to Absent; it is
-            // couldn't-measure (the zone's signing state is not applicable).
-            // Same flatten the Go engine's domain_exists arc removed.
+            // DNSSEC. NXDOMAIN must never flatten to Absent.
             if e.is_nx_domain() {
                 TriState::Indet
             } else if e.is_no_records_found() {
-                // NOERROR/NODATA on an existing zone — honest measured absence.
+                // NOERROR/NODATA on the DNSKEY query = no keys = unsigned.
                 TriState::Absent
             } else {
-                TriState::Indet
+                // SERVFAIL from a validating resolver on a DNSSEC query is the
+                // RFC 4035 "bogus" signal — the chain broke (wrong DS, expired
+                // RRSIG), so the resolver refused to return the keys. Map it to
+                // Absent (broken counts against), NOT Indet. Same class as the
+                // Go engine's #336 SERVFAIL→bogus fix.
+                use hickory_resolver::net::{DnsError, NetError};
+                use hickory_proto::op::ResponseCode;
+                if matches!(&e, NetError::Dns(DnsError::ResponseCode(ResponseCode::ServFail))) {
+                    TriState::Absent
+                } else {
+                    TriState::Indet
+                }
             }
         }
     }
