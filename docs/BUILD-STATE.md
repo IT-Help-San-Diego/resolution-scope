@@ -57,6 +57,39 @@ hickory's per-record `Proof` (Secure → Present, Insecure/Bogus → Absent,
 Indeterminate → Indet). This is the acquire-the-parent's-defects failure mode
 the three-way design exists to prevent.
 
+## FINDING — engine DNSSEC arm probes via address existence (2026-08-18)
+
+The live-specimen test caught a category error in `score_dnssec`. The arm
+probes DNSSEC state through `resolver.lookup_ip()` (A/AAAA **address**
+existence), then its `Err` branch maps `is_no_records_found()` → `Absent`
+("unsigned"). But a domain that SIGNS DNSSEC (2 DNSKEY, valid RRSIGs) while
+publishing no web content yet (0 A/AAAA — our two newly-registered domains
+resolutionscope.com/.dev) returns `NoRecordsFound` on the address lookup, and
+the engine reports **Absent** — falsely "unsigned" for a zone that
+demonstrably signs.
+
+- Live protocol (dig @1.1.1.1): resolutionscope.com/.dev each publish **2
+  DNSKEY, 0 DS, 0 A, 0 AAAA**. Signed, island-of-security, no web content.
+- hickory `lookup_ip` → `Err(NoRecordsFound)` (no A/AAAA), SOA proof =
+  **Indeterminate** — the *correct* "couldn't measure the chain" signal.
+- Engine Err branch → `is_no_records_found() → Absent` — the category error:
+  "no address record" read as "no DNSSEC".
+
+**Also**: `lookup_ip`'s per-record `Proof` does NOT surface the
+authenticated-denial distinction Claude Science measured at the DS query
+(.dev = AD=true denial → Insecure; .com = AD=false → Indeterminate). That
+lives at the DS query, not the address lookup. Both arms point the same way:
+`score_dnssec` must query **DS/DNSKEY directly** (with CD/AD flags, mirroring
+the Go engine's dnssec.go), not infer DNSSEC from address-record existence.
+"Presence answers does-X-exist; proof answers did-validation-succeed" — and
+address presence answers neither.
+
+Fix direction (next task): rewrite `score_dnssec` to query DNSKEY + DS with
+checking-disabled + read the authenticated-denial / AD state, mapping:
+Secure→Present, authenticated-unsigned (Insecure)→Absent, broken (Bogus)→Absent,
+unauthenticated/couldn't-measure→Indet. Never map address-record absence to a
+DNSSEC verdict.
+
 ## Corrections applied at adoption
 
 1. License `MIT OR Apache-2.0` → **AGPL-3.0** (repo is AGPL-from-birth).
