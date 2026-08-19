@@ -107,3 +107,37 @@ compartment trusts the IPC channel delivering verdicts — a compromised std
 engine could store a false verdict. That is a real trust boundary, accepted
 by design; it is NOT the trust boundary the §3 theorem addresses, and it is
 recorded here so it is never left implicit.
+
+## 8. The truth-chain contract (2026-08-18, governs every renderer)
+
+Every control's verdict is a three-layer chain, and the instrument keeps all
+three layers or it degrades into a badge printer:
+
+1. **RFC requirement** — what the standard actually demands, including
+   optionality. SPF is optional; if present it must terminate in `-all` or
+   `~all`. DMARC `p=none` is a legitimate but inert policy. MTA-STS
+   `mode: testing` is a published policy that enforces nothing.
+2. **Measured state** — what is actually in DNS, captured precisely by the
+   disposition enum (`SpfDisposition::SoftFail`, `DmarcDisposition::Monitor`,
+   `MtaStsDisposition::NotEnforced`, …). The disposition is the truth of the
+   measurement and nothing else; it collapses to `TriState` only at
+   presentation, never inside the engine.
+3. **Real-world consequence** — what breaks if the control is absent or
+   inert, stated as a measurable exposure: spoofing surface, STARTTLS
+   stripping, no CA restriction.
+
+Other scanners collapse this chain into one boolean ("SPF: PASS") and throw
+away layers 1 and 3. Here the contract is: **the disposition carries layer 2;
+the renderer carries layers 1 and 3.** A renderer that prints a disposition
+without its RFC context and consequence is out of contract, for all eight
+controls (DNSSEC, DKIM, MTA-STS, DANE, SPF, DMARC, CAA, CDS).
+
+**The enforcement collapse ruling (attached reasoning, do not re-derive):**
+the three non-enforcing-but-published states — `SpfDisposition::SoftFail`,
+`DmarcDisposition::Monitor`, `MtaStsDisposition::NotEnforced` — all collapse
+to `Present`. Before the ruling, states of identical epistemic type collapsed
+to opposite `TriState` answers inside one struct. `Present` asserts exactly
+what was measured: the control is published. Non-enforcement is a layer-1/3
+fact the renderer must state in words; it is not a fact the score is allowed
+to erase or to invert into absence. The score never claims more than the
+measurement, and the renderer never says less than the truth.
