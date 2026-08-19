@@ -478,10 +478,11 @@ pub async fn analyse_domain(resolver: &TokioResolver, domain: &str) -> Result<Sc
     // panel found three live divergences that way. Derived means impossible.
     let spf_disposition = score_spf(resolver, domain).await;
     let spf = spf_disposition.chain();
-    // The selector sweep is not wired in yet, so the ONLY honest disposition
-    // is NotProbed. NotFoundDefaults asserts "81 selectors probed, none
-    // matched" — emitting it here would fabricate a measurement.
-    let dkim_disposition = DkimDisposition::NotProbed;
+    // The selector sweep is now wired: probe the 81 defaults (plus any
+    // caller-supplied selector via analyse_domain_with_selectors). The honest
+    // dispositions are Verified / KeyMismatch / NotFoundDefaults — no longer
+    // a hardcoded NotProbed stub.
+    let dkim_disposition = score_dkim(resolver, domain, &[]).await;
     let dkim = dkim_disposition.chain();
     let dmarc_disposition = score_dmarc(resolver, domain).await;
     let dmarc = dmarc_disposition.chain();
@@ -726,6 +727,232 @@ async fn score_dmarc(resolver: &TokioResolver, domain: &str) -> DmarcDisposition
             _ => DmarcDisposition::NotConfigured,
         },
     }
+}
+
+// =============================================================================
+// DKIM scoring — probe the 81 default selectors (plus caller-supplied ones)
+// =============================================================================
+//
+// RFC 6376 §3.6.2.2: a DKIM key is published at <selector>._domainkey.
+// <domain>. The selector is an ARBITRARY label advertised only in the s= tag
+// of an outbound DKIM-Signature header — it is not enumerable from the
+// zone. Probing these 81 common provider selectors is a SWEEP, not a proof of
+// absence: a custom selector means the key exists under a name we didn't
+// guess. That is exactly why "not found with 81 defaults" (NotFoundDefaults)
+// must never read as "absent" — the enum enforces it structurally, and
+// only the prober may emit it (it is a claim that the sweep RAN).
+
+/// The 81 common DKIM selectors, ported from dns-tool-intel
+/// (analyzer/dkim.go defaultDKIMSelectors). Each is the full
+/// <selector>._domainkey suffix; the queried name is {suffix}.{domain}.
+pub(crate) const DEFAULT_DKIM_SELECTORS: [&str; 81] = [
+    "default._domainkey",
+    "dkim._domainkey",
+    "mail._domainkey",
+    "email._domainkey",
+    "k1._domainkey",
+    "k2._domainkey",
+    "k3._domainkey",
+    "s1._domainkey",
+    "s2._domainkey",
+    "s3._domainkey",
+    "sig1._domainkey",
+    "sig2._domainkey",
+    "selector1._domainkey",
+    "selector2._domainkey",
+    "selector3._domainkey",
+    "google._domainkey",
+    "google2048._domainkey",
+    "mailjet._domainkey",
+    "mandrill._domainkey",
+    "mandrill2._domainkey",
+    "amazonses._domainkey",
+    "sendgrid._domainkey",
+    "sendgrid2._domainkey",
+    "smtpapi._domainkey",
+    "em._domainkey",
+    "mailchimp._domainkey",
+    "mc._domainkey",
+    "postmark._domainkey",
+    "sparkpost._domainkey",
+    "mailgun._domainkey",
+    "sendinblue._domainkey",
+    "brevo._domainkey",
+    "mimecast._domainkey",
+    "proofpoint._domainkey",
+    "everlytickey1._domainkey",
+    "everlytickey2._domainkey",
+    "zendesk1._domainkey",
+    "zendesk2._domainkey",
+    "cm._domainkey",
+    "mx._domainkey",
+    "smtp._domainkey",
+    "mailer._domainkey",
+    "mta._domainkey",
+    "mta1._domainkey",
+    "mta2._domainkey",
+    "protonmail._domainkey",
+    "protonmail2._domainkey",
+    "protonmail3._domainkey",
+    "fm1._domainkey",
+    "fm2._domainkey",
+    "fm3._domainkey",
+    "zoho._domainkey",
+    "zohomail._domainkey",
+    "zmail._domainkey",
+    "square._domainkey",
+    "squareup._domainkey",
+    "sq._domainkey",
+    "dkim1._domainkey",
+    "dkim2._domainkey",
+    "dkim3._domainkey",
+    "key1._domainkey",
+    "key2._domainkey",
+    "barracuda._domainkey",
+    "hornet._domainkey",
+    "cisco._domainkey",
+    "turbo-smtp._domainkey",
+    "freshdesk._domainkey",
+    "hubspot._domainkey",
+    "hs1._domainkey",
+    "hs2._domainkey",
+    "salesforce._domainkey",
+    "sf1._domainkey",
+    "sf2._domainkey",
+    "klaviyo._domainkey",
+    "intercom._domainkey",
+    "customerio._domainkey",
+    "ctct1._domainkey",
+    "ctct2._domainkey",
+    "dk._domainkey",
+    "ml._domainkey",
+    "drip._domainkey",
+];
+
+/// Pure DKIM key-record extractor: returns the `p=` value if `record` is a
+/// `v=DKIM1` key (case-insensitive per RFC 5234 ABNF literals), else None.
+/// The public key lives in the `p=` tag (RFC 6376 §3.6.1); an EMPTY `p=`
+/// is a revocation — the key is present but deliberately unusable.
+fn dkim_p_value(record: &str) -> Option<&str> {
+    let lower = record.to_ascii_lowercase();
+    if !lower.starts_with("v=dkim1") {
+        return None;
+    }
+    record.split(';').find_map(|part| {
+        let part = part.trim();
+        if part.to_ascii_lowercase().starts_with("p=") {
+            Some(part[2..].trim())
+        } else {
+            None
+        }
+    })
+}
+
+/// Pure DKIM disposition classifier: from the sweep counts, decide the verdict.
+/// Extracted so the emission decision is unit-pinned without network — the
+/// same discipline as spf_disposition_from_records (a scorer that emits
+/// Verified from an unverified path must fail a test, not silently ship).
+///
+///   found_valid     — selectors whose key resolved AND carried a non-empty p=
+///   found_revoked   — selectors whose key resolved but p= was empty (revoked)
+///   definitive_miss — selectors that answered NODATA / own-zone NXDOMAIN
+///   transient       — selectors that SERVFAILed / timed out
+///
+/// Precedence: revoked beats valid (a revoked key on ANY selector means mail
+/// cannot verify through it — deployed-but-wrong, Critical); a valid key
+/// beats "not found"; a definitive miss beats transient (we DID probe, nothing
+/// matched — NotFoundDefaults, NOT evidence of absence); only when every
+/// selector failed transiently do we say we couldn't measure at all.
+fn dkim_disposition_from_counts(
+    found_valid: usize,
+    found_revoked: usize,
+    definitive_miss: usize,
+    transient: usize,
+) -> DkimDisposition {
+    if found_revoked > 0 {
+        DkimDisposition::KeyMismatch
+    } else if found_valid > 0 {
+        DkimDisposition::Verified
+    } else if definitive_miss > 0 {
+        DkimDisposition::NotFoundDefaults
+    } else if transient > 0 {
+        DkimDisposition::TransientError
+    } else {
+        // No selectors at all — unreachable (81 defaults always present),
+        // but fail honest rather than fabricate a measurement.
+        DkimDisposition::NotProbed
+    }
+}
+
+/// Score DKIM by probing the 81 default selectors (plus any caller-supplied
+/// selector). This replaces the NotProbed stub: the engine can now honestly
+/// report Verified / KeyMismatch / NotFoundDefaults instead of "not measured".
+async fn score_dkim(
+    resolver: &TokioResolver,
+    domain: &str,
+    extra_selectors: &[String],
+) -> DkimDisposition {
+    // Build the probe list: caller selectors first (normalized to
+    // <selector>._domainkey), then the 81 defaults, deduped.
+    let mut selectors: Vec<String> =
+        Vec::with_capacity(DEFAULT_DKIM_SELECTORS.len() + extra_selectors.len());
+    for s in extra_selectors {
+        let norm = if s.ends_with("._domainkey") {
+            s.clone()
+        } else {
+            format!("{}._domainkey", s)
+        };
+        if !selectors.contains(&norm) {
+            selectors.push(norm);
+        }
+    }
+    for s in DEFAULT_DKIM_SELECTORS {
+        let s = s.to_string();
+        if !selectors.contains(&s) {
+            selectors.push(s);
+        }
+    }
+
+    let mut found_valid = 0usize;
+    let mut found_revoked = 0usize;
+    let mut definitive_miss = 0usize;
+    let mut transient = 0usize;
+
+    for sel in &selectors {
+        let fqdn = format!("{}.{}", sel, domain);
+        match resolver.txt_lookup(fqdn.as_str()).await {
+            Ok(rdata) => {
+                let mut key_found = false;
+                let mut revoked = false;
+                for rec in rdata.answers() {
+                    if let hickory_proto::rr::RData::TXT(txt) = &rec.data {
+                        for chunk in &txt.txt_data {
+                            let s = String::from_utf8_lossy(chunk);
+                            if let Some(p) = dkim_p_value(&s) {
+                                key_found = true;
+                                if p.is_empty() {
+                                    revoked = true;
+                                }
+                            }
+                        }
+                    }
+                }
+                if revoked {
+                    found_revoked += 1;
+                } else if key_found {
+                    found_valid += 1;
+                } else {
+                    definitive_miss += 1;
+                }
+            }
+            Err(e) => match record_absence_verdict(&e, domain) {
+                TriState::Absent => definitive_miss += 1,
+                _ => transient += 1,
+            },
+        }
+    }
+
+    dkim_disposition_from_counts(found_valid, found_revoked, definitive_miss, transient)
 }
 
 /// Pure DMARC policy classifier, extracted so the 2026-08-19 panel fix
@@ -1418,6 +1645,62 @@ mod tests {
         assert_eq!(DnssecDisposition::Unsigned.chain(), TriState::Absent);
         assert_eq!(DnssecDisposition::NoZone.chain(), TriState::Indet);
         assert_eq!(DnssecDisposition::Unreachable.chain(), TriState::Indet);
+    }
+
+    /// The DKIM default selector list is 81 entries — the count the report
+    /// copy cites ("81 selectors probed"). If this shrinks, the copy lies.
+    #[test]
+    fn dkim_default_selectors_is_81() {
+        assert_eq!(DEFAULT_DKIM_SELECTORS.len(), 81);
+    }
+
+    /// dkim_p_value extracts the p= tag only from v=DKIM1 records, and the
+    /// ABNF literals are case-insensitive (RFC 5234).
+    #[test]
+    fn dkim_p_value_extracts_case_insensitively() {
+        assert_eq!(
+            dkim_p_value("v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3"),
+            Some("MIGfMA0GCSqGSIb3")
+        );
+        assert_eq!(dkim_p_value("v=dkim1; p=abc; s=email"), Some("abc"));
+        // Not a DKIM key record.
+        assert_eq!(dkim_p_value("v=spf1 -all"), None);
+        assert_eq!(dkim_p_value("hello world"), None);
+        // Missing p= tag entirely.
+        assert_eq!(dkim_p_value("v=DKIM1; k=rsa"), None);
+        // Empty p= is a revocation — the extractor still returns Some("").
+        assert_eq!(dkim_p_value("v=DKIM1; p="), Some(""));
+    }
+
+    /// The disposition classifier's precedence, pinned without network:
+    /// revoked > valid > definitive-miss > transient > empty.
+    #[test]
+    fn dkim_disposition_precedence() {
+        // Revoked key beats a valid key (deployed-but-wrong, Critical).
+        assert_eq!(
+            dkim_disposition_from_counts(1, 1, 0, 0),
+            DkimDisposition::KeyMismatch
+        );
+        // A valid key beats "not found".
+        assert_eq!(
+            dkim_disposition_from_counts(1, 0, 80, 0),
+            DkimDisposition::Verified
+        );
+        // Nothing matched but we probed (definitive misses) → NotFoundDefaults.
+        assert_eq!(
+            dkim_disposition_from_counts(0, 0, 81, 0),
+            DkimDisposition::NotFoundDefaults
+        );
+        // Every selector failed transiently → TransientError.
+        assert_eq!(
+            dkim_disposition_from_counts(0, 0, 0, 81),
+            DkimDisposition::TransientError
+        );
+        // No selectors at all (unreachable, but honest) → NotProbed.
+        assert_eq!(
+            dkim_disposition_from_counts(0, 0, 0, 0),
+            DkimDisposition::NotProbed
+        );
     }
 
     #[test]

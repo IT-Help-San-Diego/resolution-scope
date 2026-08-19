@@ -339,9 +339,9 @@ fn dkim_report(d: DkimDisposition) -> ControlReport {
             "Default-selector sweep came back empty; a custom selector may exist. Absence of DKIM is unconfirmed from the zone alone.",
         ),
         DkimDisposition::NotProbed => (
-            "not probed — selector unknown, default sweep not yet run",
+            "not probed — no selector was available to probe",
             Severity::Unmeasured,
-            "DKIM was not measured on this pass (the selector sweep is not wired in yet). No claim is made either way.",
+            "DKIM was not measured on this pass (no selector was available to probe). No claim is made either way.",
             "Not measured on this pass; no claim either way.",
         ),
         DkimDisposition::NoMailDomain => (
