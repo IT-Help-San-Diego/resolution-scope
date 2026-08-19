@@ -615,26 +615,43 @@ async fn score_dnssec(resolver: &TokioResolver, domain: &str) -> DnssecDispositi
     // `chain()`. Aligned with Claude Science's 2026-08-18 ruling: Insecure
     // counts as "proven unsigned" only from a validating resolver with a trust
     // anchor; Indeterminate is genuinely "couldn't measure", never "absent".
-    use hickory_proto::dnssec::Proof;
     use hickory_proto::rr::RecordType;
 
     match resolver.lookup(domain, RecordType::DNSKEY).await {
         Ok(resp) => {
             let answers = resp.answers();
-            if answers.is_empty() {
-                return DnssecDisposition::Unsigned; // no DNSKEY published = unsigned
-            }
-            match answers.first().map(|r| r.proof) {
-                Some(Proof::Secure) => DnssecDisposition::SignedAndDelegated,
-                Some(Proof::Insecure) => DnssecDisposition::SignedNotDelegated, // island
-                Some(Proof::Bogus) => DnssecDisposition::BrokenChain, // broken — counts against
-                _ => DnssecDisposition::ChainUnverified, // keys present, chain unmeasurable
-            }
+            dnssec_disposition_from_answer(!answers.is_empty(), answers.first().map(|r| r.proof))
         }
         Err(e) => {
             warn!(domain, error = %e, "DNSSEC DNSKEY lookup error");
             dnssec_disposition_err(&e)
         }
+    }
+}
+
+/// Pure discriminator: DNSKEY presence × validation proof → disposition.
+///
+/// Extracted so the island-vs-broken split is pinned WITHOUT the live
+/// specimens. The `#[ignore]`d live test (island_of_security_vs_broken_chain)
+/// depends on resolutionscope.com still being an island — a window that
+/// CLOSES the day its DS lands at the parent. This function is what survives
+/// that: every (presence, proof) combination is unit-pinned below, network
+/// never involved. DNSKEY presence is the discriminator Proof alone cannot
+/// supply — without the presence gate, every genuinely-unsigned domain would
+/// read as an island.
+fn dnssec_disposition_from_answer(
+    keys_present: bool,
+    proof: Option<hickory_proto::dnssec::Proof>,
+) -> DnssecDisposition {
+    use hickory_proto::dnssec::Proof;
+    if !keys_present {
+        return DnssecDisposition::Unsigned; // no DNSKEY published = unsigned
+    }
+    match proof {
+        Some(Proof::Secure) => DnssecDisposition::SignedAndDelegated,
+        Some(Proof::Insecure) => DnssecDisposition::SignedNotDelegated, // island
+        Some(Proof::Bogus) => DnssecDisposition::BrokenChain,           // broken — counts against
+        _ => DnssecDisposition::ChainUnverified, // keys present, chain unmeasurable
     }
 }
 
@@ -655,23 +672,28 @@ async fn score_spf(resolver: &TokioResolver, domain: &str) -> SpfDisposition {
                     }
                 }
             }
-            if spf_records.is_empty() {
-                SpfDisposition::NotConfigured
-            } else if spf_records.iter().any(|r| r.contains("-all")) {
-                SpfDisposition::HardFail
-            } else if spf_records.iter().any(|r| r.contains("~all")) {
-                SpfDisposition::SoftFail
-            } else {
-                // Neither -all nor ~all was measured. The old fallback claimed
-                // HardFail here — reporting an enforcement that was measured
-                // to be absent (adversarial-panel finding, 2026-08-19).
-                SpfDisposition::OtherPolicy
-            }
+            spf_disposition_from_records(&spf_records)
         }
         Err(e) => match record_absence_verdict(&e, domain) {
             TriState::Indet => SpfDisposition::TransientError,
             _ => SpfDisposition::NotConfigured,
         },
+    }
+}
+
+/// Pure SPF terminal-qualifier classifier, extracted so the 2026-08-19
+/// panel fix (?all/+all/no-all must NEVER read as HardFail — that reported
+/// an enforcement measured to be absent) is regression-pinned without
+/// network. The emission decision lives here and only here.
+fn spf_disposition_from_records(spf_records: &[String]) -> SpfDisposition {
+    if spf_records.is_empty() {
+        SpfDisposition::NotConfigured
+    } else if spf_records.iter().any(|r| r.contains("-all")) {
+        SpfDisposition::HardFail
+    } else if spf_records.iter().any(|r| r.contains("~all")) {
+        SpfDisposition::SoftFail
+    } else {
+        SpfDisposition::OtherPolicy
     }
 }
 
@@ -696,27 +718,36 @@ async fn score_dmarc(resolver: &TokioResolver, domain: &str) -> DmarcDisposition
             if dmarc_records.is_empty() {
                 DmarcDisposition::NotConfigured
             } else {
-                let p = dmarc_records[0]
-                    .split(';')
-                    .map(|t| t.trim())
-                    .find(|t| t.starts_with("p="))
-                    .map(|t| t[2..].to_string())
-                    .unwrap_or_default();
-                match p.as_str() {
-                    "reject" => DmarcDisposition::Reject,
-                    "quarantine" => DmarcDisposition::Quarantine,
-                    "none" => DmarcDisposition::Monitor,
-                    // A missing or unrecognized p= is measured invalidity. The
-                    // old wildcard claimed Reject here — reporting p=reject
-                    // enforcement that was never observed (panel, 2026-08-19).
-                    _ => DmarcDisposition::InvalidPolicy,
-                }
+                dmarc_disposition_from_record(&dmarc_records[0])
             }
         }
         Err(e) => match record_absence_verdict(&e, domain) {
             TriState::Indet => DmarcDisposition::TransientError,
             _ => DmarcDisposition::NotConfigured,
         },
+    }
+}
+
+/// Pure DMARC policy classifier, extracted so the 2026-08-19 panel fix
+/// (missing/unrecognized p= must NEVER read as Reject — that reported a
+/// policy never observed) is regression-pinned without network.
+///
+/// Tag VALUES compare case-insensitively: RFC 5234 §2.3 makes ABNF string
+/// literals case-insensitive, so `p=REJECT` satisfies RFC 9989's grammar —
+/// treating it as invalid would manufacture a finding out of a valid record.
+fn dmarc_disposition_from_record(record: &str) -> DmarcDisposition {
+    let p = record
+        .split(';')
+        .map(|t| t.trim())
+        .find(|t| t.starts_with("p="))
+        .map(|t| t[2..].trim().to_ascii_lowercase())
+        .unwrap_or_default();
+    match p.as_str() {
+        "reject" => DmarcDisposition::Reject,
+        "quarantine" => DmarcDisposition::Quarantine,
+        "none" => DmarcDisposition::Monitor,
+        // Missing or unrecognized p= is measured invalidity, never a policy.
+        _ => DmarcDisposition::InvalidPolicy,
     }
 }
 
@@ -1444,5 +1475,117 @@ mod tests {
         let policy =
             "version: STSv1\r\nmode: enforce\r\nmx: smtp.example.com\r\nmax_age: 86400\r\n";
         assert!(mta_sts_enforced(policy));
+    }
+
+    // -------------------------------------------------------------------------
+    // Specimen-independent pins (2026-08-19).
+    //
+    // The #[ignore]d live island test above DIES the day resolutionscope.com's
+    // DS lands at the parent (the specimen window closes, deliberately, for
+    // the site deploy). These pins are the insurance that survives it: the
+    // emission decisions are pure functions now, and every combination is
+    // pinned without network or specimens.
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn dnssec_discriminator_pinned_without_specimens() {
+        use hickory_proto::dnssec::Proof;
+        // No DNSKEY → Unsigned regardless of proof: presence is the gate that
+        // stops every genuinely-unsigned domain from reading as an island.
+        assert_eq!(
+            dnssec_disposition_from_answer(false, None),
+            DnssecDisposition::Unsigned
+        );
+        assert_eq!(
+            dnssec_disposition_from_answer(false, Some(Proof::Insecure)),
+            DnssecDisposition::Unsigned
+        );
+        assert_eq!(
+            dnssec_disposition_from_answer(true, Some(Proof::Secure)),
+            DnssecDisposition::SignedAndDelegated
+        );
+        // Keys + Insecure = ISLAND (the resolutionscope.com state, preserved
+        // here after the live specimen expires).
+        assert_eq!(
+            dnssec_disposition_from_answer(true, Some(Proof::Insecure)),
+            DnssecDisposition::SignedNotDelegated
+        );
+        // Keys + Bogus = BROKEN (the dns-evil-flicker.com state) — never island.
+        assert_eq!(
+            dnssec_disposition_from_answer(true, Some(Proof::Bogus)),
+            DnssecDisposition::BrokenChain
+        );
+        // Keys + Indeterminate/None = couldn't measure, never absent.
+        assert_eq!(
+            dnssec_disposition_from_answer(true, Some(Proof::Indeterminate)),
+            DnssecDisposition::ChainUnverified
+        );
+        assert_eq!(
+            dnssec_disposition_from_answer(true, None),
+            DnssecDisposition::ChainUnverified
+        );
+    }
+
+    #[test]
+    fn spf_terminal_never_fabricates_hardfail() {
+        let rec = |s: &str| vec![s.to_string()];
+        assert_eq!(
+            spf_disposition_from_records(&[]),
+            SpfDisposition::NotConfigured
+        );
+        assert_eq!(
+            spf_disposition_from_records(&rec("v=spf1 ip4:1.2.3.4 -all")),
+            SpfDisposition::HardFail
+        );
+        assert_eq!(
+            spf_disposition_from_records(&rec("v=spf1 include:x ~all")),
+            SpfDisposition::SoftFail
+        );
+        // The 2026-08-19 panel case: ?all / +all / bare redirect MUST read
+        // OtherPolicy — the old fallback fabricated HardFail here.
+        assert_eq!(
+            spf_disposition_from_records(&rec("v=spf1 mx ?all")),
+            SpfDisposition::OtherPolicy
+        );
+        assert_eq!(
+            spf_disposition_from_records(&rec("v=spf1 +all")),
+            SpfDisposition::OtherPolicy
+        );
+        assert_eq!(
+            spf_disposition_from_records(&rec("v=spf1 redirect=_spf.example.com")),
+            SpfDisposition::OtherPolicy
+        );
+    }
+
+    #[test]
+    fn dmarc_policy_never_fabricates_reject() {
+        assert_eq!(
+            dmarc_disposition_from_record("v=DMARC1; p=reject"),
+            DmarcDisposition::Reject
+        );
+        assert_eq!(
+            dmarc_disposition_from_record("v=DMARC1; p=quarantine; rua=mailto:x@y"),
+            DmarcDisposition::Quarantine
+        );
+        assert_eq!(
+            dmarc_disposition_from_record("v=DMARC1; p=none"),
+            DmarcDisposition::Monitor
+        );
+        // Panel case: no p= tag at all — the old wildcard fabricated Reject.
+        assert_eq!(
+            dmarc_disposition_from_record("v=DMARC1; sp=none"),
+            DmarcDisposition::InvalidPolicy
+        );
+        assert_eq!(
+            dmarc_disposition_from_record("v=DMARC1; p=bogusvalue"),
+            DmarcDisposition::InvalidPolicy
+        );
+        // ABNF string literals are case-insensitive (RFC 5234 §2.3): p=REJECT
+        // satisfies the grammar — reading it as invalid would manufacture a
+        // finding out of a valid record.
+        assert_eq!(
+            dmarc_disposition_from_record("v=DMARC1; p=REJECT"),
+            DmarcDisposition::Reject
+        );
     }
 }
