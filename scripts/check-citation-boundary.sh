@@ -23,13 +23,23 @@ cd "$REPO_ROOT"
 # An RFC citation is "RFC" followed (optionally after whitespace) by digits.
 # Case-sensitive: the lowercase "rfc" render label in the TUI is a field name,
 # not a citation.
-PATTERN='RFC[[:space:]]?[0-9]'
+#
+# GAP FIX 1 (depth): find -maxdepth 2 misses nested manifests like
+# web/server/Cargo.toml. Dropping the cap discovers every crate at any depth.
+#
+# GAP FIX 2 (split-line): grep is line-bound, so "RFC\n9989" passes. We read
+# each file whole, strip newlines, then match against the collapsed string.
+# This catches citations split across source lines without false-positive on
+# the bare word "RFC" (no digit follows in the collapsed text).
+PATTERN='RFC[[:space:]]*[0-9]'
 
 fail=0
 scanned=0
 
-# Every crate root = a directory containing Cargo.toml, at depth 2 from repo
-# root (engine/Cargo.toml, tui/Cargo.toml, native/Cargo.toml, future web/...).
+# Every crate root = a directory containing a Cargo.toml at ANY depth from the
+# repo root (engine/Cargo.toml, tui/Cargo.toml, native/Cargo.toml, future
+# web/Cargo.toml, web/server/Cargo.toml, flipper/Cargo.toml, ...). The only
+# exclusion is target/ (build artifacts).
 while IFS= read -r manifest; do
     crate_dir="$(dirname "$manifest")"
     crate_name="$(basename "$crate_dir")"
@@ -43,20 +53,34 @@ while IFS= read -r manifest; do
         fail=1
         continue
     fi
-    # grep -r exits 1 on zero matches — that is the PASS case here, so the
-    # exit code is captured, never piped away (exit-codes-before-pipes rule).
+    # Scan each .rs file whole: read it, strip newlines, then match. This
+    # catches citations split across source lines (arm 6 of the six-arm test).
     hits=""
-    hits=$(grep -rnE "$PATTERN" "$src_dir" 2>/dev/null) || true
+    while IFS= read -r src_file; do
+        # Read the file, collapse newlines to nothing, then test the pattern.
+        collapsed=$(tr -d '\n\r' < "$src_file")
+        if printf '%s' "$collapsed" | grep -qE "$PATTERN" 2>/dev/null; then
+            # Also run line-bound grep for the human-readable file:line output.
+            line_hits=$(grep -nE "$PATTERN" "$src_file" 2>/dev/null) || true
+            if [ -n "$line_hits" ]; then
+                hits="$hits$line_hits"$'\n'
+            else
+                # The match was split across lines — name the file.
+                hits="$hits${src_file}: (citation split across lines)$'\n'"
+            fi
+        fi
+    done < <(find "$src_dir" -name '*.rs' | sort)
+
     if [ -n "$hits" ]; then
         echo "✗ $crate_name: RFC citation literal(s) outside the engine:"
-        echo "$hits" | sed 's/^/    /'
+        echo "$hits" | sed 's/^/    /' | sed '/^$/d'
         echo "    Citations live in engine/src/truth_chain.rs (layer 1 of the"
         echo "    truth chain); render from the model instead."
         fail=1
     else
         echo "✓ $crate_name: no RFC citation literals in src/"
     fi
-done < <(find . -maxdepth 2 -name Cargo.toml -not -path './target/*' | sort)
+done < <(find . -name Cargo.toml -not -path '*/target/*' | sort)
 
 # Apparatus check: a gate that enumerated nothing must fail, not pass —
 # "could this command have succeeded while measuring nothing?"

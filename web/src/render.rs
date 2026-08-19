@@ -6,7 +6,9 @@
 // or an RFC number in this crate is a contract violation; the citation half
 // is build-enforced by scripts/check-citation-boundary.sh.
 
-use resolution_scope_engine::truth_chain::{by_severity, truth_chain, Audience, Severity, Tally};
+use resolution_scope_engine::truth_chain::{
+    by_severity, truth_chain, Audience, ControlReport, Severity, Tally,
+};
 use resolution_scope_engine::{ScoredAnalysis, TriState};
 
 /// Minimal HTML escaping for text nodes and attribute values. The engine's
@@ -61,8 +63,8 @@ fn audience_label(a: Audience) -> &'static str {
 /// Render one domain's report section: score header + findings worst-first,
 /// each carrying the full three-layer truth chain.
 fn render_domain(a: &ScoredAnalysis, audience: Audience) -> String {
-    let model = truth_chain(a);
-    let ordered = by_severity(&model);
+    let model: [ControlReport; 8] = truth_chain(a);
+    let ordered: [ControlReport; 8] = by_severity(&model);
     let t = Tally::of(&model);
 
     let mut s = String::new();
