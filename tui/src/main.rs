@@ -29,6 +29,7 @@ use resolution_scope_engine::analysis::CdsDisposition;
 use resolution_scope_engine::analysis::DaneDisposition;
 use resolution_scope_engine::analysis::DkimDisposition;
 use resolution_scope_engine::analysis::DmarcDisposition;
+use resolution_scope_engine::analysis::MtaStsDisposition;
 use resolution_scope_engine::analysis::SpfDisposition;
 use resolution_scope_engine::analysis::DnssecDisposition;
 use resolution_scope_engine::report::render_text;
@@ -302,11 +303,12 @@ fn render_mta_sts(r: &ScoredAnalysis, pal: Palette) -> Vec<Line<'static>> {
         Line::from(""),
     ];
     let (icon, color) = state_icon(r.mta_sts, pal);
-    let detail = match r.mta_sts {
-        TriState::Present => "MTA-STS policy enforced — TLS required for inbound mail (RFC 8461). Prevents downgrade and MITM.",
-        TriState::Absent => "No MTA-STS policy. Mail transport may fall back to plaintext — vulnerable to STARTTLS stripping.",
-        TriState::Indet => "Could not fetch or validate the MTA-STS policy. Check _mta-sts.<domain> TXT discovery and policy URL.",
-        TriState::NotApplicable => "No mail server (MX) — MTA-STS governs inbound mail transport and does not apply.",
+    let detail = match r.mta_sts_disposition {
+        MtaStsDisposition::Enforced => "MTA-STS policy enforced — TLS required for inbound mail (RFC 8461). Prevents downgrade and MITM.",
+        MtaStsDisposition::NotEnforced => "MTA-STS record present but in testing mode (mode: testing) — the policy is published but NOT enforcing TLS. It blocks nothing yet.",
+        MtaStsDisposition::RecordAbsent => "No MTA-STS policy. Mail transport may fall back to plaintext — vulnerable to STARTTLS stripping.",
+        MtaStsDisposition::NoZone => "Domain does not exist — MTA-STS not applicable.",
+        MtaStsDisposition::TransientError => "Could not fetch or validate the MTA-STS policy. Check _mta-sts.<domain> TXT discovery and policy URL.",
     };
     lines.push(Line::from(vec![
         Span::styled("  Status: ", Style::default().fg(pal.fg)),

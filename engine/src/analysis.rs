@@ -159,7 +159,7 @@ impl MtaStsDisposition {
             MtaStsDisposition::RecordAbsent => TriState::Absent,
             MtaStsDisposition::NoZone => TriState::Indet,
             MtaStsDisposition::TransientError => TriState::Indet,
-            MtaStsDisposition::NotEnforced => TriState::Absent,
+            MtaStsDisposition::NotEnforced => TriState::Present,
         }
     }
 }
