@@ -41,6 +41,7 @@ compile_error!(
 
 pub mod analysis;
 pub mod asn_classification;
+pub mod flux;
 pub mod ipc;
 pub mod name_similarity;
 pub mod report;
