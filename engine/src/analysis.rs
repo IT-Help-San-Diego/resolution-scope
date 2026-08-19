@@ -305,6 +305,82 @@ impl std::fmt::Display for DmarcDisposition {
     }
 }
 
+
+// =============================================================================
+// CaaDisposition — CAA record detail
+// =============================================================================
+//
+// CAA is a presence signal (which CAs may issue). The disposition captures
+// configured vs not-configured vs couldn't-measure (SOA disambiguation).
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CaaDisposition {
+    Configured,     // CAA record present
+    NotConfigured,  // zone exists, no CAA
+    NoZone,         // NXDOMAIN — domain missing
+    TransientError,
+}
+
+impl CaaDisposition {
+    pub fn chain(self) -> TriState {
+        match self {
+            CaaDisposition::Configured => TriState::Present,
+            CaaDisposition::NotConfigured => TriState::Absent,
+            CaaDisposition::NoZone => TriState::Indet,
+            CaaDisposition::TransientError => TriState::Indet,
+        }
+    }
+}
+
+impl std::fmt::Display for CaaDisposition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CaaDisposition::Configured => write!(f, "configured"),
+            CaaDisposition::NotConfigured => write!(f, "not-configured"),
+            CaaDisposition::NoZone => write!(f, "no-zone"),
+            CaaDisposition::TransientError => write!(f, "transient-error"),
+        }
+    }
+}
+
+// =============================================================================
+// CdsDisposition — CDS/CDNSKEY detail (DNSSEC DS automation)
+// =============================================================================
+//
+// CDS/CDNSKEY signal whether the child publishes a DS-update hint for the
+// parent. Presence is a measured fact; absence under an existing zone is a
+// different claim from no-zone.
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CdsDisposition {
+    Published,      // CDS or CDNSKEY present
+    NotPublished,   // zone exists, no CDS/CDNSKEY
+    NoZone,         // NXDOMAIN — domain missing
+    TransientError,
+}
+
+impl CdsDisposition {
+    pub fn chain(self) -> TriState {
+        match self {
+            CdsDisposition::Published => TriState::Present,
+            CdsDisposition::NotPublished => TriState::Absent,
+            CdsDisposition::NoZone => TriState::Indet,
+            CdsDisposition::TransientError => TriState::Indet,
+        }
+    }
+}
+
+impl std::fmt::Display for CdsDisposition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CdsDisposition::Published => write!(f, "published"),
+            CdsDisposition::NotPublished => write!(f, "not-published"),
+            CdsDisposition::NoZone => write!(f, "no-zone"),
+            CdsDisposition::TransientError => write!(f, "transient-error"),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ScoredAnalysis {
     pub domain: String,
@@ -325,7 +401,9 @@ pub struct ScoredAnalysis {
     pub mta_sts: TriState,
     pub mta_sts_disposition: MtaStsDisposition, // "warning" → Absent (T1-1 fix)
     pub caa: TriState,
+    pub caa_disposition: CaaDisposition,
     pub cds_cdnskey: TriState,
+    pub cds_disposition: CdsDisposition,
 }
 
 // =============================================================================
@@ -352,8 +430,8 @@ pub async fn analyse_domain(resolver: &TokioResolver, domain: &str) -> Result<Sc
     let (dmarc, dmarc_disposition) = score_dmarc(resolver, domain).await;
     let (dane, dane_disposition) = score_dane(resolver, domain).await;
     let (mta_sts, mta_sts_disposition) = score_mta_sts(resolver, domain).await;
-    let caa = score_caa(resolver, domain).await;
-    let cds_cdnskey = score_cds_cdnskey(resolver, domain).await;
+    let (caa, caa_disposition) = score_caa(resolver, domain).await;
+    let (cds_cdnskey, cds_disposition) = score_cds_cdnskey(resolver, domain).await;
 
     Ok(ScoredAnalysis {
         domain: domain.to_string(),
@@ -372,7 +450,9 @@ pub async fn analyse_domain(resolver: &TokioResolver, domain: &str) -> Result<Sc
         mta_sts,
         mta_sts_disposition,
         caa,
+        caa_disposition,
         cds_cdnskey,
+        cds_disposition,
     })
 }
 
@@ -734,7 +814,7 @@ fn mta_sts_enforced(policy: &str) -> bool {
     version_ok && mode_enforce && has_mx
 }
 
-async fn score_caa(resolver: &TokioResolver, domain: &str) -> TriState {
+async fn score_caa(resolver: &TokioResolver, domain: &str) -> (TriState, CaaDisposition) {
     // CAA record lookup.
     // RecordType::CAA = 257, confirmed present in hickory 0.26 (hickory_rr_types.md).
     //
@@ -745,19 +825,24 @@ async fn score_caa(resolver: &TokioResolver, domain: &str) -> TriState {
     match resolver.lookup(domain, RecordType::CAA).await {
         Ok(resp) => {
             if !resp.answers().is_empty() {
-                TriState::Present
+                (TriState::Present, CaaDisposition::Configured)
             } else {
-                TriState::Absent
+                (TriState::Absent, CaaDisposition::NotConfigured)
             }
         }
         Err(e) => {
             warn!(domain, error = %e, "CAA lookup error");
-            record_absence_verdict(&e, domain)
+            let ts = record_absence_verdict(&e, domain);
+            let disp = match ts {
+                TriState::Indet => CaaDisposition::TransientError,
+                _ => CaaDisposition::NotConfigured,
+            };
+            (ts, disp)
         }
     }
 }
 
-async fn score_cds_cdnskey(resolver: &TokioResolver, domain: &str) -> TriState {
+async fn score_cds_cdnskey(resolver: &TokioResolver, domain: &str) -> (TriState, CdsDisposition) {
     // CDS (type 59) and CDNSKEY (type 60) are published at the child zone apex
     // to signal an ongoing or pending DS rollover to the parent (RFC 7344).
     // Both types confirmed present in hickory 0.26 (hickory_rr_types.md).
@@ -775,13 +860,13 @@ async fn score_cds_cdnskey(resolver: &TokioResolver, domain: &str) -> TriState {
     let cds_absent = match resolver.lookup(domain, RecordType::CDS).await {
         Ok(resp) => {
             if !resp.answers().is_empty() {
-                return TriState::Present; // CDS record found — rollover signalled
+                return (TriState::Present, CdsDisposition::Published); // CDS record found
             }
             true // empty answer section → absent, check CDNSKEY
         }
         Err(e) => {
             if e.is_nx_domain() {
-                return TriState::Indet; // no zone — CDS state not applicable
+                return (TriState::Indet, CdsDisposition::NoZone); // no zone
             }
             if e.is_no_records_found() {
                 true // definitively absent
@@ -797,25 +882,25 @@ async fn score_cds_cdnskey(resolver: &TokioResolver, domain: &str) -> TriState {
     match resolver.lookup(domain, RecordType::CDNSKEY).await {
         Ok(resp) => {
             if !resp.answers().is_empty() {
-                TriState::Present
+                (TriState::Present, CdsDisposition::Published)
             } else if cds_absent {
-                TriState::Absent // both empty
+                (TriState::Absent, CdsDisposition::NotPublished) // both empty
             } else {
-                TriState::Indet // CDS errored, CDNSKEY empty — not conclusive
+                (TriState::Indet, CdsDisposition::TransientError) // CDS errored, CDNSKEY empty
             }
         }
         Err(e) => {
             if e.is_nx_domain() {
-                TriState::Indet // no zone — CDNSKEY state not applicable
+                (TriState::Indet, CdsDisposition::NoZone) // no zone
             } else if e.is_no_records_found() {
                 if cds_absent {
-                    TriState::Absent // both definitively absent
+                    (TriState::Absent, CdsDisposition::NotPublished) // both definitively absent
                 } else {
-                    TriState::Indet // CDS errored, CDNSKEY NODATA — not conclusive
+                    (TriState::Indet, CdsDisposition::TransientError) // CDS errored, CDNSKEY NODATA
                 }
             } else {
                 warn!(domain, error = %e, "CDNSKEY lookup error → Indet");
-                TriState::Indet
+                (TriState::Indet, CdsDisposition::TransientError)
             }
         }
     }
