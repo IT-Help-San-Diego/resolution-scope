@@ -49,6 +49,8 @@ pub mod tristate;
 pub use analysis::DkimDisposition;
 pub use analysis::MtaStsDisposition;
 pub use analysis::DaneDisposition;
+pub use analysis::SpfDisposition;
+pub use analysis::DmarcDisposition;
 pub use analysis::ScoredAnalysis;
 pub use tristate::TriState;
 

@@ -221,6 +221,90 @@ impl std::fmt::Display for DaneDisposition {
     }
 }
 
+
+// =============================================================================
+// SpfDisposition — SPF policy detail
+// =============================================================================
+//
+// ~all (softfail) is deployed-but-not-enforcing — a different claim from
+// absent (no SPF at all) or -all (hardfail). Same shape as MtaStsDisposition.
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SpfDisposition {
+    HardFail,     // -all — SPF enforced
+    SoftFail,     // ~all — deployed but not enforced
+    NotConfigured,// no SPF record
+    NoMail,       // null MX — SPF not applicable
+    TransientError,
+}
+
+impl SpfDisposition {
+    pub fn chain(self) -> TriState {
+        match self {
+            SpfDisposition::HardFail => TriState::Present,
+            SpfDisposition::SoftFail => TriState::Present,
+            SpfDisposition::NotConfigured => TriState::Absent,
+            SpfDisposition::NoMail => TriState::NotApplicable,
+            SpfDisposition::TransientError => TriState::Indet,
+        }
+    }
+}
+
+impl std::fmt::Display for SpfDisposition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SpfDisposition::HardFail => write!(f, "hardfail (-all)"),
+            SpfDisposition::SoftFail => write!(f, "softfail (~all)"),
+            SpfDisposition::NotConfigured => write!(f, "not-configured"),
+            SpfDisposition::NoMail => write!(f, "no-mail"),
+            SpfDisposition::TransientError => write!(f, "transient-error"),
+        }
+    }
+}
+
+// =============================================================================
+// DmarcDisposition — DMARC policy detail
+// =============================================================================
+//
+// p=none is deployed-but-not-enforcing — a different claim from absent
+// or p=reject. Same shape as MtaStsDisposition::NotEnforced.
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DmarcDisposition {
+    Reject,        // p=reject — DMARC enforced
+    Quarantine,    // p=quarantine — intermediate enforcement
+    Monitor,       // p=none — deployed but not enforced
+    NotConfigured, // no DMARC record
+    NoMail,        // null MX — DMARC not applicable
+    TransientError,
+}
+
+impl DmarcDisposition {
+    pub fn chain(self) -> TriState {
+        match self {
+            DmarcDisposition::Reject => TriState::Present,
+            DmarcDisposition::Quarantine => TriState::Present,
+            DmarcDisposition::Monitor => TriState::Present,
+            DmarcDisposition::NotConfigured => TriState::Absent,
+            DmarcDisposition::NoMail => TriState::NotApplicable,
+            DmarcDisposition::TransientError => TriState::Indet,
+        }
+    }
+}
+
+impl std::fmt::Display for DmarcDisposition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DmarcDisposition::Reject => write!(f, "reject (p=reject)"),
+            DmarcDisposition::Quarantine => write!(f, "quarantine (p=quarantine)"),
+            DmarcDisposition::Monitor => write!(f, "monitor (p=none)"),
+            DmarcDisposition::NotConfigured => write!(f, "not-configured"),
+            DmarcDisposition::NoMail => write!(f, "no-mail"),
+            DmarcDisposition::TransientError => write!(f, "transient-error"),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ScoredAnalysis {
     pub domain: String,
@@ -231,9 +315,11 @@ pub struct ScoredAnalysis {
     pub dnssec_chain: TriState,
     pub dnssec_disposition: DnssecDisposition,
     pub spf: TriState,
+    pub spf_disposition: SpfDisposition,
     pub dkim: TriState,
     pub dkim_disposition: DkimDisposition,
     pub dmarc: TriState,
+    pub dmarc_disposition: DmarcDisposition,
     pub dane: TriState,
     pub dane_disposition: DaneDisposition,
     pub mta_sts: TriState,
@@ -260,10 +346,10 @@ pub async fn analyse_domain(resolver: &TokioResolver, domain: &str) -> Result<Sc
     let dnssec_chain = dnssec_disposition.chain();
 
     // ── Email controls (stub — wire up full probes in Tier 2) ───────────────
-    let spf = score_spf(resolver, domain).await;
+    let (spf, spf_disposition) = score_spf(resolver, domain).await;
     let dkim = TriState::Indet; // selector unknown at analysis time
     let dkim_disposition = DkimDisposition::NotFoundDefaults; // 81 defaults not probed yet
-    let dmarc = score_dmarc(resolver, domain).await;
+    let (dmarc, dmarc_disposition) = score_dmarc(resolver, domain).await;
     let (dane, dane_disposition) = score_dane(resolver, domain).await;
     let (mta_sts, mta_sts_disposition) = score_mta_sts(resolver, domain).await;
     let caa = score_caa(resolver, domain).await;
@@ -276,9 +362,11 @@ pub async fn analyse_domain(resolver: &TokioResolver, domain: &str) -> Result<Sc
         dnssec_chain,
         dnssec_disposition,
         spf,
+        spf_disposition,
         dkim,
         dkim_disposition,
         dmarc,
+        dmarc_disposition,
         dane,
         dane_disposition,
         mta_sts,
@@ -409,43 +497,88 @@ async fn score_dnssec(resolver: &TokioResolver, domain: &str) -> DnssecDispositi
     }
 }
 
-async fn score_spf(resolver: &TokioResolver, domain: &str) -> TriState {
-    // SPF is a TXT record at the apex beginning with "v=spf1".
+async fn score_spf(resolver: &TokioResolver, domain: &str) -> (TriState, SpfDisposition) {
+    // SPF is a TXT record at the apex beginning with "v=spf1". The qualifier
+    // (-all hardfail vs ~all softfail) is the deployed-but-not-enforcing
+    // distinction: ~all is advisory, -all is enforced.
     match resolver.txt_lookup(domain).await {
         Ok(rdata) => {
-            let has_spf = rdata.answers().iter().any(|rec| {
-                matches!(&rec.data, hickory_proto::rr::RData::TXT(txt)
-                    if txt.txt_data.iter().any(|s| s.starts_with(b"v=spf1")))
-            });
-            if has_spf {
-                TriState::Present
+            let mut spf_records: Vec<String> = Vec::new();
+            for rec in rdata.answers() {
+                if let hickory_proto::rr::RData::TXT(txt) = &rec.data {
+                    for s in &txt.txt_data {
+                        let s = String::from_utf8_lossy(s);
+                        if s.starts_with("v=spf1") {
+                            spf_records.push(s.to_string());
+                        }
+                    }
+                }
+            }
+            if spf_records.is_empty() {
+                (TriState::Absent, SpfDisposition::NotConfigured)
+            } else if spf_records.iter().any(|r| r.contains("-all")) {
+                (TriState::Present, SpfDisposition::HardFail)
+            } else if spf_records.iter().any(|r| r.contains("~all")) {
+                (TriState::Present, SpfDisposition::SoftFail)
             } else {
-                TriState::Absent
+                (TriState::Present, SpfDisposition::HardFail)
             }
         }
         Err(e) => {
-            // NODATA (no TXT on an existing zone) = measured absence; NXDOMAIN
-            // (no zone) = couldn't-measure; transient = couldn't-measure.
-            record_absence_verdict(&e, domain)
+            let ts = record_absence_verdict(&e, domain);
+            let disp = match ts {
+                TriState::NotApplicable => SpfDisposition::NoMail,
+                TriState::Indet => SpfDisposition::TransientError,
+                _ => SpfDisposition::NotConfigured,
+            };
+            (ts, disp)
         }
     }
 }
 
-async fn score_dmarc(resolver: &TokioResolver, domain: &str) -> TriState {
+async fn score_dmarc(resolver: &TokioResolver, domain: &str) -> (TriState, DmarcDisposition) {
+    // DMARC policy at _dmarc.<domain> TXT "v=DMARC1; p=...". p=none is
+    // deployed-but-not-enforcing (monitor only), p=quarantine is intermediate,
+    // p=reject is enforced. Same shape as MtaStsDisposition::NotEnforced.
     let dmarc_domain = format!("_dmarc.{}", domain);
     match resolver.txt_lookup(dmarc_domain.as_str()).await {
         Ok(rdata) => {
-            let has_dmarc = rdata.answers().iter().any(|rec| {
-                matches!(&rec.data, hickory_proto::rr::RData::TXT(txt)
-                    if txt.txt_data.iter().any(|s| s.starts_with(b"v=DMARC1")))
-            });
-            if has_dmarc {
-                TriState::Present
+            let mut dmarc_records: Vec<String> = Vec::new();
+            for rec in rdata.answers() {
+                if let hickory_proto::rr::RData::TXT(txt) = &rec.data {
+                    for s in &txt.txt_data {
+                        let s = String::from_utf8_lossy(s);
+                        if s.starts_with("v=DMARC1") {
+                            dmarc_records.push(s.to_string());
+                        }
+                    }
+                }
+            }
+            if dmarc_records.is_empty() {
+                (TriState::Absent, DmarcDisposition::NotConfigured)
             } else {
-                TriState::Absent
+                let p = dmarc_records[0].split(';')
+                    .map(|t| t.trim())
+                    .find(|t| t.starts_with("p="))
+                    .map(|t| t[2..].to_string())
+                    .unwrap_or_default();
+                match p.as_str() {
+                    "reject" => (TriState::Present, DmarcDisposition::Reject),
+                    "quarantine" => (TriState::Present, DmarcDisposition::Quarantine),
+                    "none" => (TriState::Present, DmarcDisposition::Monitor),
+                    _ => (TriState::Present, DmarcDisposition::Reject),
+                }
             }
         }
-        Err(e) => record_absence_verdict(&e, domain),
+        Err(e) => {
+            let ts = record_absence_verdict(&e, domain);
+            let disp = match ts {
+                TriState::NotApplicable => DmarcDisposition::NoMail,
+                TriState::Indet => DmarcDisposition::TransientError,
+                _ => DmarcDisposition::NotConfigured,
+            };
+            (ts, disp)
+        }
     }
 }
 
