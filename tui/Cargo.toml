@@ -11,7 +11,7 @@ repository  = "https://github.com/IT-Help-San-Diego/resolution-scope"
 resolution-scope-engine = { path = "../engine" }
 
 # Terminal UI framework
-ratatui = "0.29"
+ratatui = "0.30"
 crossterm = "0.28"
 
 # Async runtime (shared with engine)
