@@ -133,7 +133,8 @@ without its RFC context and consequence is out of contract, for all eight
 controls (DNSSEC, DKIM, MTA-STS, DANE, SPF, DMARC, CAA, CDS).
 
 **The enforcement collapse ruling (attached reasoning, do not re-derive):**
-the three non-enforcing-but-published states — `SpfDisposition::SoftFail`,
+score **deployment, not protection** — the three non-enforcing-but-published
+states — `SpfDisposition::SoftFail`,
 `DmarcDisposition::Monitor`, `MtaStsDisposition::NotEnforced` — all collapse
 to `Present`. Before the ruling, states of identical epistemic type collapsed
 to opposite `TriState` answers inside one struct. `Present` asserts exactly
