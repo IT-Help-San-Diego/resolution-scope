@@ -41,6 +41,7 @@ compile_error!(
 
 pub mod analysis;
 pub mod ipc;
+pub mod name_similarity;
 pub mod report;
 pub mod tristate;
 pub mod truth_chain;
