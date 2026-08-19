@@ -40,6 +40,7 @@ compile_error!(
 // sddf_device.rs exists only in native/). Removed.
 
 pub mod analysis;
+pub mod asn_classification;
 pub mod ipc;
 pub mod name_similarity;
 pub mod report;
