@@ -14,6 +14,13 @@ between a std+tokio crate and a no_std crate is a real hazard).
   host** (`cargo build --lib` ✅, `cargo test --lib` ✅ 4 pass: tristate +
   sddf_device bounds). The `[[bin]]` (main_native.rs) is bare-metal only:
   `#![no_std]`, custom `#[panic_handler]`, `#[no_mangle] main`.
+  **Measured 2026-08-19: the bin does NOT compile even apart from the
+  target** — 12 errors against hickory-proto 0.26.1's no_std API surface
+  (`Message::new()` takes `(u16, MessageType, OpCode)` there; the std-side
+  setter methods `set_id`/`set_op_code`/`header()`/`extensions_mut()` don't
+  exist without default features). Pre-existing, untouched by the truth-chain
+  work; whoever opens the seL4 lane ports main_native.rs's message
+  construction first. The ledger's contract for this crate remains `--lib`.
 
 ## Engine arms — complete (2026-08-18 evening)
 
@@ -48,6 +55,61 @@ Corollary findings: google.com/gmail.com are genuinely unsigned (no DNSKEY, no
 DS, no AD flag) — the engine correctly reports them unsigned. example.com
 publishes a null MX ("accepts no mail") → DANE NotApplicable; whitehouse.gov
 publishes no MX at all (NODATA) → DANE Absent.
+
+## Truth-chain render model (2026-08-19, ARCHITECTURE.md §8 as code)
+
+`engine/src/truth_chain.rs` is the ONE place dispositions map to presentation
+facts: per control a `ControlReport` carrying the three layers (RFC
+requirement / measured label / consequence per `Audience::{BlueTeam,RedTeam}`),
+a consequence-derived `Severity` (declaration order = worst-first sort order),
+and the shared `Tally` (score arithmetic was previously duplicated in
+report.rs and the TUI — both now consume this). The TUI owns styling only; a
+disposition match outside truth_chain.rs is out of contract. 28 engine tests
+pin the mapping, including: the §8 enforcement ruling (SoftFail/Monitor/
+NotEnforced → Present + Medium), broken-deployments-are-Critical, and the
+two-axis doctrine — Unmeasured ⟹ Indet strictly, while island-of-security
+and dane-dnssec-required are the two named measured-but-unchained exceptions
+(Indet tri, ranked severity).
+
+**Fake-data fix, same pass:** `analyse_domain` had emitted
+`DkimDisposition::NotFoundDefaults` ("81 selectors probed, none matched")
+while no DKIM probe exists in the engine — a fabricated measurement claim.
+New `DkimDisposition::NotProbed` is the only honest stub value and is what
+the engine now emits; `NotFoundDefaults` is reserved for a sweep that ran.
+
+**Adversarial panel round (2026-08-19, 33 agents, 15 confirmed):** the panel
+turned up the same defect class at FIVE more emission sites, plus the root
+cause — hand-paired `(TriState, Disposition)` tuples let the two verdict
+channels disagree (three live divergences existed, incl. a same-day
+regression: the NotEnforced→Present ruling changed `chain()` but not the
+emission site). Fixes, all landed:
+
+- **Structural:** every `score_*` now returns ONLY its disposition;
+  `analyse_domain` derives the tri via `chain()`. The divergence class is
+  unwritable now.
+- **DANE:** TLSA presence emits new `TlsaPublished` ("match not verified by
+  this pass") — `Verified`/`Mismatch` are reserved for a future SMTP cert
+  prober and have no emission site. New `NoMx` (zone without MX = Absent,
+  spoofable FROM) split from `NoMail` (null MX = NotApplicable), restoring
+  the four-outcome split this file records above.
+- **SPF:** a record with neither `-all` nor `~all` emitted HardFail
+  (fabricated enforcement); new `OtherPolicy` (Present + Medium — fourth
+  member of the §8 deployed-not-enforcing class).
+- **DMARC:** missing/unrecognized `p=` emitted Reject (fabricated policy);
+  new `InvalidPolicy` (Absent + High — invalid record = no record).
+- **MTA-STS:** hint-present-but-policy-unfetchable emitted TransientError
+  (measured absence flipped to unmeasured, against T1-1); garbage policy
+  text emitted NotEnforced (a mode never parsed). New `PolicyInvalid`
+  (Absent + High) covers both; the policy parser is now three-way
+  (Enforce / TestingOrNone / Invalid).
+- **report.rs:** rows now render from the model (one verdict channel; the
+  raw-field rows could contradict the model's own score line in one
+  document). **TUI:** dead `scroll` wired to the Paragraph; Tab now rescans
+  (it previously showed the old domain's verdicts under the new name).
+
+48-state census pinned in truth_chain tests (30 engine tests green). Live
+check post-fix: resolutionscope.com island + null-MX N/A + 3/5, example.com
+signed+delegated + CDS published + 4/6 — every row's measured label honest.
 
 ## First differential result (2026-08-18, scripts/fixture_differential.py)
 

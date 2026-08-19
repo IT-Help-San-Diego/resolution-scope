@@ -94,7 +94,12 @@ pub enum DkimDisposition {
     Verified,
     /// 81 default selectors probed, none matched — NOT evidence of absence.
     /// Provide a selector (s= tag in DKIM-Signature header) to verify.
+    /// Only the prober may emit this: it is a claim that the sweep RAN.
     NotFoundDefaults,
+    /// The selector sweep has not run (probe not yet wired in). Distinct from
+    /// NotFoundDefaults, which claims 81 probes happened — emitting that
+    /// without probing would be a fabricated measurement.
+    NotProbed,
     /// No mail server — DKIM is not applicable.
     NoMailDomain,
     /// Lookup failed (SERVFAIL/timeout) — could not measure.
@@ -108,6 +113,7 @@ impl DkimDisposition {
         match self {
             DkimDisposition::Verified => TriState::Present,
             DkimDisposition::NotFoundDefaults => TriState::Indet,
+            DkimDisposition::NotProbed => TriState::Indet,
             DkimDisposition::NoMailDomain => TriState::NotApplicable,
             DkimDisposition::TransientError => TriState::Indet,
             DkimDisposition::KeyMismatch => TriState::Absent,
@@ -120,6 +126,7 @@ impl std::fmt::Display for DkimDisposition {
         match self {
             DkimDisposition::Verified => write!(f, "verified"),
             DkimDisposition::NotFoundDefaults => write!(f, "not-found-with-81-defaults"),
+            DkimDisposition::NotProbed => write!(f, "not-probed (selector sweep not yet run)"),
             DkimDisposition::NoMailDomain => write!(f, "no-mail-domain"),
             DkimDisposition::TransientError => write!(f, "transient-error"),
             DkimDisposition::KeyMismatch => write!(f, "key-mismatch"),
@@ -146,10 +153,17 @@ pub enum MtaStsDisposition {
     RecordAbsent,
     /// NXDOMAIN on _mta-sts — the domain does not exist (SOA is parent/TLD).
     NoZone,
-    /// Lookup error (SERVFAIL/timeout) — could not measure.
+    /// The DISCOVERY lookup errored (SERVFAIL/timeout) — nothing measured.
+    /// Never emitted once the hint is confirmed present: a hint without a
+    /// servable policy is PolicyInvalid (measured), not this.
     TransientError,
-    /// Policy URL fetched but mode is "none" or "testing" — not enforced.
+    /// Policy fetched and VALID but mode is "none" or "testing" — deployed,
+    /// not enforcing (§8: scores Present, deployment not protection).
     NotEnforced,
+    /// The hint TXT exists but the HTTPS policy is missing, unfetchable, or
+    /// invalid — T1-1 doctrine: an advertised policy that cannot be served is
+    /// a MEASURED absence, never "couldn't measure".
+    PolicyInvalid,
 }
 
 impl MtaStsDisposition {
@@ -160,6 +174,7 @@ impl MtaStsDisposition {
             MtaStsDisposition::NoZone => TriState::Indet,
             MtaStsDisposition::TransientError => TriState::Indet,
             MtaStsDisposition::NotEnforced => TriState::Present,
+            MtaStsDisposition::PolicyInvalid => TriState::Absent,
         }
     }
 }
@@ -172,6 +187,7 @@ impl std::fmt::Display for MtaStsDisposition {
             MtaStsDisposition::NoZone => write!(f, "no-zone"),
             MtaStsDisposition::TransientError => write!(f, "transient-error"),
             MtaStsDisposition::NotEnforced => write!(f, "not-enforced"),
+            MtaStsDisposition::PolicyInvalid => write!(f, "policy-invalid (hint without a servable policy)"),
         }
     }
 }
@@ -187,10 +203,23 @@ impl std::fmt::Display for MtaStsDisposition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DaneDisposition {
-    Verified,       // TLSA matched
-    Mismatch,       // TLSA found but doesn't match
-    NotConfigured,  // MX exists, no TLSA
-    NoMail,         // null MX (RFC 7505) or no MX
+    /// TLSA records are PUBLISHED at _25._tcp.<mx>. Publication is the only
+    /// fact this pass measures — the certificate match is not checked. This is
+    /// what the presence probe emits; claiming more would be a fabricated
+    /// measurement (the DKIM NotProbed lesson).
+    TlsaPublished,
+    /// RESERVED for the SMTP certificate prober (connect, fetch cert, compare
+    /// digests). No current emission site — TLSA presence alone must emit
+    /// TlsaPublished, never this.
+    Verified,
+    /// RESERVED for the SMTP certificate prober. No current emission site.
+    Mismatch,
+    NotConfigured,  // MX exists (non-null), no TLSA on any MX host
+    /// Zone exists but publishes NO MX at all (NODATA). Mail is unroutable
+    /// yet the domain can still be spoofed FROM — a measured absence, distinct
+    /// from the null-MX declaration below.
+    NoMx,
+    NoMail,         // null MX (RFC 7505) — explicit "accepts no mail"
     TransientError, // SERVFAIL/timeout
     DnssecRequired, // DANE requires DNSSEC (RFC 7672 §4)
 }
@@ -198,9 +227,11 @@ pub enum DaneDisposition {
 impl DaneDisposition {
     pub fn chain(self) -> TriState {
         match self {
+            DaneDisposition::TlsaPublished => TriState::Present,
             DaneDisposition::Verified => TriState::Present,
             DaneDisposition::Mismatch => TriState::Absent,
             DaneDisposition::NotConfigured => TriState::Absent,
+            DaneDisposition::NoMx => TriState::Absent,
             DaneDisposition::NoMail => TriState::NotApplicable,
             DaneDisposition::TransientError => TriState::Indet,
             DaneDisposition::DnssecRequired => TriState::Indet,
@@ -211,10 +242,12 @@ impl DaneDisposition {
 impl std::fmt::Display for DaneDisposition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            DaneDisposition::TlsaPublished => write!(f, "tlsa-published (match not verified)"),
             DaneDisposition::Verified => write!(f, "verified"),
             DaneDisposition::Mismatch => write!(f, "mismatch"),
             DaneDisposition::NotConfigured => write!(f, "not-configured"),
-            DaneDisposition::NoMail => write!(f, "no-mail"),
+            DaneDisposition::NoMx => write!(f, "no-mx (zone has no mail routing)"),
+            DaneDisposition::NoMail => write!(f, "no-mail (null MX)"),
             DaneDisposition::TransientError => write!(f, "transient-error"),
             DaneDisposition::DnssecRequired => write!(f, "dnssec-required"),
         }
@@ -233,6 +266,11 @@ impl std::fmt::Display for DaneDisposition {
 pub enum SpfDisposition {
     HardFail,     // -all — SPF enforced
     SoftFail,     // ~all — deployed but not enforced
+    /// Record present but the terminal qualifier is neither -all nor ~all
+    /// (?all, +all, no all mechanism, bare redirect=). Measured as deployed
+    /// with no enforcement instruction — NEVER report this as HardFail: the
+    /// -all was measured to be absent.
+    OtherPolicy,
     NotConfigured,// no SPF record
     NoMail,       // null MX — SPF not applicable
     TransientError,
@@ -243,6 +281,7 @@ impl SpfDisposition {
         match self {
             SpfDisposition::HardFail => TriState::Present,
             SpfDisposition::SoftFail => TriState::Present,
+            SpfDisposition::OtherPolicy => TriState::Present,
             SpfDisposition::NotConfigured => TriState::Absent,
             SpfDisposition::NoMail => TriState::NotApplicable,
             SpfDisposition::TransientError => TriState::Indet,
@@ -255,6 +294,7 @@ impl std::fmt::Display for SpfDisposition {
         match self {
             SpfDisposition::HardFail => write!(f, "hardfail (-all)"),
             SpfDisposition::SoftFail => write!(f, "softfail (~all)"),
+            SpfDisposition::OtherPolicy => write!(f, "other-policy (no -all/~all terminal)"),
             SpfDisposition::NotConfigured => write!(f, "not-configured"),
             SpfDisposition::NoMail => write!(f, "no-mail"),
             SpfDisposition::TransientError => write!(f, "transient-error"),
@@ -274,6 +314,10 @@ pub enum DmarcDisposition {
     Reject,        // p=reject — DMARC enforced
     Quarantine,    // p=quarantine — intermediate enforcement
     Monitor,       // p=none — deployed but not enforced
+    /// Record present but the REQUIRED p= tag is missing or unrecognized
+    /// (RFC 7489 §6.3: p is mandatory). Receivers ignore an invalid record —
+    /// this is measured invalidity, NEVER to be reported as any real policy.
+    InvalidPolicy,
     NotConfigured, // no DMARC record
     NoMail,        // null MX — DMARC not applicable
     TransientError,
@@ -285,6 +329,9 @@ impl DmarcDisposition {
             DmarcDisposition::Reject => TriState::Present,
             DmarcDisposition::Quarantine => TriState::Present,
             DmarcDisposition::Monitor => TriState::Present,
+            // Missing-or-invalid is the TriState Absent doctrine verbatim: an
+            // invalid record gives receivers exactly as much as no record.
+            DmarcDisposition::InvalidPolicy => TriState::Absent,
             DmarcDisposition::NotConfigured => TriState::Absent,
             DmarcDisposition::NoMail => TriState::NotApplicable,
             DmarcDisposition::TransientError => TriState::Indet,
@@ -298,6 +345,7 @@ impl std::fmt::Display for DmarcDisposition {
             DmarcDisposition::Reject => write!(f, "reject (p=reject)"),
             DmarcDisposition::Quarantine => write!(f, "quarantine (p=quarantine)"),
             DmarcDisposition::Monitor => write!(f, "monitor (p=none)"),
+            DmarcDisposition::InvalidPolicy => write!(f, "invalid-policy (p= missing or unrecognized)"),
             DmarcDisposition::NotConfigured => write!(f, "not-configured"),
             DmarcDisposition::NoMail => write!(f, "no-mail"),
             DmarcDisposition::TransientError => write!(f, "transient-error"),
@@ -424,14 +472,27 @@ pub async fn analyse_domain(resolver: &TokioResolver, domain: &str) -> Result<Sc
     let dnssec_chain = dnssec_disposition.chain();
 
     // ── Email controls (stub — wire up full probes in Tier 2) ───────────────
-    let (spf, spf_disposition) = score_spf(resolver, domain).await;
-    let dkim = TriState::Indet; // selector unknown at analysis time
-    let dkim_disposition = DkimDisposition::NotFoundDefaults; // 81 defaults not probed yet
-    let (dmarc, dmarc_disposition) = score_dmarc(resolver, domain).await;
-    let (dane, dane_disposition) = score_dane(resolver, domain).await;
-    let (mta_sts, mta_sts_disposition) = score_mta_sts(resolver, domain).await;
-    let (caa, caa_disposition) = score_caa(resolver, domain).await;
-    let (cds_cdnskey, cds_disposition) = score_cds_cdnskey(resolver, domain).await;
+    // Every scorer returns ONLY its disposition; the tri-state is derived via
+    // chain() right here and nowhere else. Hand-pairing (TriState, Disposition)
+    // tuples let the two verdict channels disagree — the 2026-08-19 adversarial
+    // panel found three live divergences that way. Derived means impossible.
+    let spf_disposition = score_spf(resolver, domain).await;
+    let spf = spf_disposition.chain();
+    // The selector sweep is not wired in yet, so the ONLY honest disposition
+    // is NotProbed. NotFoundDefaults asserts "81 selectors probed, none
+    // matched" — emitting it here would fabricate a measurement.
+    let dkim_disposition = DkimDisposition::NotProbed;
+    let dkim = dkim_disposition.chain();
+    let dmarc_disposition = score_dmarc(resolver, domain).await;
+    let dmarc = dmarc_disposition.chain();
+    let dane_disposition = score_dane(resolver, domain).await;
+    let dane = dane_disposition.chain();
+    let mta_sts_disposition = score_mta_sts(resolver, domain).await;
+    let mta_sts = mta_sts_disposition.chain();
+    let caa_disposition = score_caa(resolver, domain).await;
+    let caa = caa_disposition.chain();
+    let cds_disposition = score_cds_cdnskey(resolver, domain).await;
+    let cds_cdnskey = cds_disposition.chain();
 
     Ok(ScoredAnalysis {
         domain: domain.to_string(),
@@ -577,7 +638,7 @@ async fn score_dnssec(resolver: &TokioResolver, domain: &str) -> DnssecDispositi
     }
 }
 
-async fn score_spf(resolver: &TokioResolver, domain: &str) -> (TriState, SpfDisposition) {
+async fn score_spf(resolver: &TokioResolver, domain: &str) -> SpfDisposition {
     // SPF is a TXT record at the apex beginning with "v=spf1". The qualifier
     // (-all hardfail vs ~all softfail) is the deployed-but-not-enforcing
     // distinction: ~all is advisory, -all is enforced.
@@ -595,28 +656,26 @@ async fn score_spf(resolver: &TokioResolver, domain: &str) -> (TriState, SpfDisp
                 }
             }
             if spf_records.is_empty() {
-                (TriState::Absent, SpfDisposition::NotConfigured)
+                SpfDisposition::NotConfigured
             } else if spf_records.iter().any(|r| r.contains("-all")) {
-                (TriState::Present, SpfDisposition::HardFail)
+                SpfDisposition::HardFail
             } else if spf_records.iter().any(|r| r.contains("~all")) {
-                (TriState::Present, SpfDisposition::SoftFail)
+                SpfDisposition::SoftFail
             } else {
-                (TriState::Present, SpfDisposition::HardFail)
+                // Neither -all nor ~all was measured. The old fallback claimed
+                // HardFail here — reporting an enforcement that was measured
+                // to be absent (adversarial-panel finding, 2026-08-19).
+                SpfDisposition::OtherPolicy
             }
         }
-        Err(e) => {
-            let ts = record_absence_verdict(&e, domain);
-            let disp = match ts {
-                TriState::NotApplicable => SpfDisposition::NoMail,
-                TriState::Indet => SpfDisposition::TransientError,
-                _ => SpfDisposition::NotConfigured,
-            };
-            (ts, disp)
-        }
+        Err(e) => match record_absence_verdict(&e, domain) {
+            TriState::Indet => SpfDisposition::TransientError,
+            _ => SpfDisposition::NotConfigured,
+        },
     }
 }
 
-async fn score_dmarc(resolver: &TokioResolver, domain: &str) -> (TriState, DmarcDisposition) {
+async fn score_dmarc(resolver: &TokioResolver, domain: &str) -> DmarcDisposition {
     // DMARC policy at _dmarc.<domain> TXT "v=DMARC1; p=...". p=none is
     // deployed-but-not-enforcing (monitor only), p=quarantine is intermediate,
     // p=reject is enforced. Same shape as MtaStsDisposition::NotEnforced.
@@ -635,7 +694,7 @@ async fn score_dmarc(resolver: &TokioResolver, domain: &str) -> (TriState, Dmarc
                 }
             }
             if dmarc_records.is_empty() {
-                (TriState::Absent, DmarcDisposition::NotConfigured)
+                DmarcDisposition::NotConfigured
             } else {
                 let p = dmarc_records[0].split(';')
                     .map(|t| t.trim())
@@ -643,26 +702,24 @@ async fn score_dmarc(resolver: &TokioResolver, domain: &str) -> (TriState, Dmarc
                     .map(|t| t[2..].to_string())
                     .unwrap_or_default();
                 match p.as_str() {
-                    "reject" => (TriState::Present, DmarcDisposition::Reject),
-                    "quarantine" => (TriState::Present, DmarcDisposition::Quarantine),
-                    "none" => (TriState::Present, DmarcDisposition::Monitor),
-                    _ => (TriState::Present, DmarcDisposition::Reject),
+                    "reject" => DmarcDisposition::Reject,
+                    "quarantine" => DmarcDisposition::Quarantine,
+                    "none" => DmarcDisposition::Monitor,
+                    // A missing or unrecognized p= is measured invalidity. The
+                    // old wildcard claimed Reject here — reporting p=reject
+                    // enforcement that was never observed (panel, 2026-08-19).
+                    _ => DmarcDisposition::InvalidPolicy,
                 }
             }
         }
-        Err(e) => {
-            let ts = record_absence_verdict(&e, domain);
-            let disp = match ts {
-                TriState::NotApplicable => DmarcDisposition::NoMail,
-                TriState::Indet => DmarcDisposition::TransientError,
-                _ => DmarcDisposition::NotConfigured,
-            };
-            (ts, disp)
-        }
+        Err(e) => match record_absence_verdict(&e, domain) {
+            TriState::Indet => DmarcDisposition::TransientError,
+            _ => DmarcDisposition::NotConfigured,
+        },
     }
 }
 
-async fn score_dane(resolver: &TokioResolver, domain: &str) -> (TriState, DaneDisposition) {
+async fn score_dane(resolver: &TokioResolver, domain: &str) -> DaneDisposition {
     // DANE for SMTP (RFC 7672): TLSA at _25._tcp.<mx-host> for each MX target.
     // NOT _443._tcp.<domain> — that is HTTPS DANE (RFC 6698 for browsers), the
     // wrong surface for an email-security instrument. A mail domain may host no
@@ -695,13 +752,15 @@ async fn score_dane(resolver: &TokioResolver, domain: &str) -> (TriState, DaneDi
 
             if all_mx.is_empty() {
                 // Defensive: an Ok with no MX answers is NODATA in disguise.
-                return (TriState::Absent, DaneDisposition::NoMail); // no mail routing — spoofable FROM
+                // NoMx (Absent), NOT NoMail — a zone with no mail routing can
+                // still be spoofed FROM; only a null MX declares "no mail".
+                return DaneDisposition::NoMx;
             }
 
             // RFC 7505 null MX ("MX 0 .") = explicit "accepts no mail" — a
             // measured declaration, so DANE is NotApplicable, not Absent/Indet.
             if all_mx.iter().all(|m| m.exchange.is_root()) {
-                return (TriState::NotApplicable, DaneDisposition::NoMail);
+                return DaneDisposition::NoMail;
             }
 
             let exchanges: Vec<String> = all_mx
@@ -713,7 +772,11 @@ async fn score_dane(resolver: &TokioResolver, domain: &str) -> (TriState, DaneDi
             for host in exchanges {
                 let tlsa_name = format!("_25._tcp.{}", host);
                 match resolver.lookup(tlsa_name.as_str(), RecordType::TLSA).await {
-                    Ok(resp) if !resp.answers().is_empty() => return (TriState::Present, DaneDisposition::Verified),
+                    // Publication is the only fact measured here — the SMTP
+                    // certificate comparison does not exist in this crate, so
+                    // Verified must never be emitted from this site (panel
+                    // blocker, 2026-08-19).
+                    Ok(resp) if !resp.answers().is_empty() => return DaneDisposition::TlsaPublished,
                     // No TLSA on this host (its zone exists — the MX host is
                     // already established by the successful MX lookup, so
                     // NXDOMAIN here means "record absent", not "host missing").
@@ -724,10 +787,10 @@ async fn score_dane(resolver: &TokioResolver, domain: &str) -> (TriState, DaneDi
                     }
                 }
             }
-            (TriState::Absent, DaneDisposition::NotConfigured) // no TLSA on any MX
+            DaneDisposition::NotConfigured // MX exists, no TLSA on any MX host
         }
         Err(e) => {
-            // NODATA (no MX) -> Absent; NXDOMAIN (domain missing) -> Indet.
+            // NODATA (no MX) -> NoMx; NXDOMAIN (domain missing) -> Indet.
             // record_absence_verdict applies the SOA disambiguation — the same
             // mechanism _dmarc/_mta-sts use, now generalized to the MX lookup.
             warn!(domain, error = %e, "MX lookup error for DANE");
@@ -736,7 +799,7 @@ async fn score_dane(resolver: &TokioResolver, domain: &str) -> (TriState, DaneDi
     }
 }
 
-async fn score_mta_sts(resolver: &TokioResolver, domain: &str) -> (TriState, MtaStsDisposition) {
+async fn score_mta_sts(resolver: &TokioResolver, domain: &str) -> MtaStsDisposition {
     // MTA-STS (RFC 8461) is a two-step protocol:
     //   1. Discovery: _mta-sts.<domain> TXT ("v=STSv1; id=...") signals that a
     //      policy MAY be published.
@@ -757,22 +820,36 @@ async fn score_mta_sts(resolver: &TokioResolver, domain: &str) -> (TriState, Mta
         }),
         Err(e) => {
             // NODATA (no hint) = measured absence; NXDOMAIN/transient = Indet.
-            let ts = record_absence_verdict(&e, domain); return (ts, if ts == TriState::Indet { MtaStsDisposition::TransientError } else { MtaStsDisposition::RecordAbsent });
+            return match record_absence_verdict(&e, domain) {
+                TriState::Indet => MtaStsDisposition::TransientError,
+                _ => MtaStsDisposition::RecordAbsent,
+            };
         }
     };
 
     if !has_hint {
-        return (TriState::Absent, MtaStsDisposition::RecordAbsent); // no discovery record
+        return MtaStsDisposition::RecordAbsent; // no discovery record
     }
 
     // ── Step 2: fetch + parse the policy ─────────────────────────────────────
+    // The hint is now CONFIRMED present, so every outcome below is a measured
+    // state of the advertised policy — TransientError is no longer honest from
+    // here on (a hint without a servable policy is the T1-1 measured absence,
+    // which is what PolicyInvalid's chain() encodes).
     let policy_url = format!("https://mta-sts.{}/.well-known/mta-sts.txt", domain);
     match fetch_mta_sts_policy(&policy_url).await {
-        Ok(policy) if mta_sts_enforced(&policy) => (TriState::Present, MtaStsDisposition::Enforced),
-        Ok(_) => (TriState::Absent, MtaStsDisposition::NotEnforced), // policy present but not enforced
+        Ok(policy) => match mta_sts_policy_state(&policy) {
+            MtaStsPolicyState::Enforce => MtaStsDisposition::Enforced,
+            // Valid policy, mode testing/none — deployed, not enforcing (§8).
+            MtaStsPolicyState::TestingOrNone => MtaStsDisposition::NotEnforced,
+            // Fetched bytes that are not a valid policy: the old code lumped
+            // this into NotEnforced, reporting "published (mode testing/none)"
+            // for garbage — a mode that was never measured.
+            MtaStsPolicyState::Invalid => MtaStsDisposition::PolicyInvalid,
+        },
         Err(e) => {
             warn!(domain, error = %e, "MTA-STS policy fetch failed");
-            (TriState::Absent, MtaStsDisposition::TransientError) // hint present but policy unfetchable
+            MtaStsDisposition::PolicyInvalid // hint present, policy not servable
         }
     }
 }
@@ -792,29 +869,49 @@ async fn fetch_mta_sts_policy(url: &str) -> anyhow::Result<String> {
     Ok(resp.text().await?)
 }
 
-/// Decide whether an MTA-STS policy text is "enforced": version STSv1, mode
-/// enforce, and at least one mx record. `mode: none` and `mode: testing` are
-/// explicit non-enforcement; a policy missing any of the three is invalid.
-/// (Full RFC 8461 validation — max_age range, strict CRLF line endings — is a
-/// refinement; this captures the enforce/no-enforce signal.)
-fn mta_sts_enforced(policy: &str) -> bool {
+/// The measured state of a fetched MTA-STS policy text. Three-way, because
+/// "valid but mode testing/none" and "not a valid policy at all" are different
+/// measurements — collapsing them reported a mode that was never parsed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MtaStsPolicyState {
+    Enforce,
+    TestingOrNone,
+    Invalid,
+}
+
+/// Classify a policy text: version STSv1 + a recognized mode + at least one mx
+/// make it valid; mode decides Enforce vs TestingOrNone; anything else is
+/// Invalid. (Full RFC 8461 validation — max_age range, strict CRLF — is a
+/// refinement; this captures the measured signal.)
+fn mta_sts_policy_state(policy: &str) -> MtaStsPolicyState {
     let mut version_ok = false;
-    let mut mode_enforce = false;
+    let mut mode: Option<&str> = None;
     let mut has_mx = false;
     for raw in policy.lines() {
         let line = raw.trim();
         if let Some(v) = line.strip_prefix("version:") {
             version_ok = v.trim() == "STSv1";
         } else if let Some(m) = line.strip_prefix("mode:") {
-            mode_enforce = m.trim() == "enforce";
-        } else if line.starts_with("mx:") {
+            mode = Some(m.trim());
+        } else if line.strip_prefix("mx:").is_some() {
             has_mx = true;
         }
     }
-    version_ok && mode_enforce && has_mx
+    match (version_ok, mode, has_mx) {
+        (true, Some("enforce"), true) => MtaStsPolicyState::Enforce,
+        (true, Some("testing"), true) | (true, Some("none"), true) => MtaStsPolicyState::TestingOrNone,
+        _ => MtaStsPolicyState::Invalid,
+    }
 }
 
-async fn score_caa(resolver: &TokioResolver, domain: &str) -> (TriState, CaaDisposition) {
+/// Back-compat shim for the existing tests: "enforced" = the three-way state
+/// reads Enforce.
+#[cfg(test)]
+fn mta_sts_enforced(policy: &str) -> bool {
+    mta_sts_policy_state(policy) == MtaStsPolicyState::Enforce
+}
+
+async fn score_caa(resolver: &TokioResolver, domain: &str) -> CaaDisposition {
     // CAA record lookup.
     // RecordType::CAA = 257, confirmed present in hickory 0.26 (hickory_rr_types.md).
     //
@@ -825,24 +922,22 @@ async fn score_caa(resolver: &TokioResolver, domain: &str) -> (TriState, CaaDisp
     match resolver.lookup(domain, RecordType::CAA).await {
         Ok(resp) => {
             if !resp.answers().is_empty() {
-                (TriState::Present, CaaDisposition::Configured)
+                CaaDisposition::Configured
             } else {
-                (TriState::Absent, CaaDisposition::NotConfigured)
+                CaaDisposition::NotConfigured
             }
         }
         Err(e) => {
             warn!(domain, error = %e, "CAA lookup error");
-            let ts = record_absence_verdict(&e, domain);
-            let disp = match ts {
+            match record_absence_verdict(&e, domain) {
                 TriState::Indet => CaaDisposition::TransientError,
                 _ => CaaDisposition::NotConfigured,
-            };
-            (ts, disp)
+            }
         }
     }
 }
 
-async fn score_cds_cdnskey(resolver: &TokioResolver, domain: &str) -> (TriState, CdsDisposition) {
+async fn score_cds_cdnskey(resolver: &TokioResolver, domain: &str) -> CdsDisposition {
     // CDS (type 59) and CDNSKEY (type 60) are published at the child zone apex
     // to signal an ongoing or pending DS rollover to the parent (RFC 7344).
     // Both types confirmed present in hickory 0.26 (hickory_rr_types.md).
@@ -860,13 +955,13 @@ async fn score_cds_cdnskey(resolver: &TokioResolver, domain: &str) -> (TriState,
     let cds_absent = match resolver.lookup(domain, RecordType::CDS).await {
         Ok(resp) => {
             if !resp.answers().is_empty() {
-                return (TriState::Present, CdsDisposition::Published); // CDS record found
+                return CdsDisposition::Published; // CDS record found
             }
             true // empty answer section → absent, check CDNSKEY
         }
         Err(e) => {
             if e.is_nx_domain() {
-                return (TriState::Indet, CdsDisposition::NoZone); // no zone
+                return CdsDisposition::NoZone; // no zone
             }
             if e.is_no_records_found() {
                 true // definitively absent
@@ -882,25 +977,25 @@ async fn score_cds_cdnskey(resolver: &TokioResolver, domain: &str) -> (TriState,
     match resolver.lookup(domain, RecordType::CDNSKEY).await {
         Ok(resp) => {
             if !resp.answers().is_empty() {
-                (TriState::Present, CdsDisposition::Published)
+                CdsDisposition::Published
             } else if cds_absent {
-                (TriState::Absent, CdsDisposition::NotPublished) // both empty
+                CdsDisposition::NotPublished // both empty
             } else {
-                (TriState::Indet, CdsDisposition::TransientError) // CDS errored, CDNSKEY empty
+                CdsDisposition::TransientError // CDS errored, CDNSKEY empty
             }
         }
         Err(e) => {
             if e.is_nx_domain() {
-                (TriState::Indet, CdsDisposition::NoZone) // no zone
+                CdsDisposition::NoZone // no zone
             } else if e.is_no_records_found() {
                 if cds_absent {
-                    (TriState::Absent, CdsDisposition::NotPublished) // both definitively absent
+                    CdsDisposition::NotPublished // both definitively absent
                 } else {
-                    (TriState::Indet, CdsDisposition::TransientError) // CDS errored, CDNSKEY NODATA
+                    CdsDisposition::TransientError // CDS errored, CDNSKEY NODATA
                 }
             } else {
                 warn!(domain, error = %e, "CDNSKEY lookup error → Indet");
-                (TriState::Indet, CdsDisposition::TransientError)
+                CdsDisposition::TransientError
             }
         }
     }
@@ -1336,14 +1431,13 @@ mod tests {
     }
 }
 
-/// Wraps record_absence_verdict for DANE — converts the TriState to a
-/// (TriState, DaneDisposition) tuple with meaningful disposition labels.
-fn record_absence_to_dane(e: &NetError, domain: &str) -> (TriState, DaneDisposition) {
-    let ts = record_absence_verdict(e, domain);
-    let disp = match ts {
-        TriState::NotApplicable => DaneDisposition::NoMail,
+/// Wraps record_absence_verdict for DANE's MX lookup. A measured absence of
+/// MX records is NoMx (chain: Absent — the "MX exists, no TLSA" state is
+/// NotConfigured and never reachable from a failed MX lookup); anything
+/// unmeasurable is TransientError.
+fn record_absence_to_dane(e: &NetError, domain: &str) -> DaneDisposition {
+    match record_absence_verdict(e, domain) {
         TriState::Indet => DaneDisposition::TransientError,
-        _ => DaneDisposition::NotConfigured,
-    };
-    (ts, disp)
+        _ => DaneDisposition::NoMx,
+    }
 }

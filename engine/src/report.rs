@@ -9,6 +9,7 @@
 
 use crate::analysis::ScoredAnalysis;
 use crate::tristate::TriState;
+use crate::truth_chain::{truth_chain, Tally};
 
 /// Render a human-readable text report.
 pub fn render_text(a: &ScoredAnalysis) -> String {
@@ -18,62 +19,37 @@ pub fn render_text(a: &ScoredAnalysis) -> String {
     out.push_str(&format!("Timestamp : {}\n", a.timestamp_local));
     out.push_str(&format!("Session   : {:016x}\n\n", a.session_id));
 
-    out.push_str("Control         Score\n");
-    out.push_str("──────────────  ───────\n");
-    out.push_str(&row("DNSSEC chain", a.dnssec_chain));
-    out.push_str(&row("SPF", a.spf));
-    out.push_str(&row("DKIM", a.dkim));
-    out.push_str(&row("DMARC", a.dmarc));
-    out.push_str(&row("DANE", a.dane));
-    out.push_str(&row("MTA-STS", a.mta_sts));
-    out.push_str(&row("CAA", a.caa));
-    out.push_str(&row("CDS/CDNSKEY", a.cds_cdnskey));
+    // EVERYTHING below the header renders from the truth-chain model — one
+    // verdict channel. Reading the raw ScoredAnalysis tri fields here opened
+    // a second channel that could (and did) contradict the model's score line
+    // in the same document (adversarial panel, 2026-08-19).
+    let model = truth_chain(a);
 
-    // Explain WHY the DNSSEC verdict is what it is — the disposition carries
-    // the distinction the tri-state collapses (island vs couldn't-measure).
-    out.push_str(&format!("\nDNSSEC detail: {}\n", a.dnssec_disposition));
+    out.push_str("Control         Score    Measured\n");
+    out.push_str("──────────────  ───────  ────────\n");
+    for rep in &model {
+        out.push_str(&row(rep.control.name(), rep.tri, rep.measured));
+    }
 
-    let (present, absent, indet, n_a) = tally(a);
-    let denominator = present + absent;
-    let score = if denominator == 0 {
-        0.0
-    } else {
-        present as f64 / denominator as f64 * 100.0
-    };
+    let t = Tally::of(&model);
     out.push_str(&format!(
-        "\nScore: {}/{} ({:.0}%)  |  unmeasured: {}  |  not-applicable: {}\n",
-        present, denominator, score, indet, n_a
+        "\nScore: {}/{} ({}%)  |  unmeasured: {}  |  not-applicable: {}\n",
+        t.present,
+        t.denominator(),
+        t.percent(),
+        t.unmeasured,
+        t.not_applicable
     ));
     out
 }
 
-fn row(label: &str, t: TriState) -> String {
+fn row(label: &str, t: TriState, measured: &str) -> String {
     let symbol = match t {
         TriState::Present => "PASS",
         TriState::Absent => "FAIL",
         TriState::Indet => "?   ",
         TriState::NotApplicable => "N/A ",
     };
-    format!("{:<16}  {}\n", label, symbol)
+    format!("{:<16}  {}     {}\n", label, symbol, measured)
 }
 
-fn tally(a: &ScoredAnalysis) -> (usize, usize, usize, usize) {
-    let controls = [
-        a.dnssec_chain,
-        a.spf,
-        a.dkim,
-        a.dmarc,
-        a.dane,
-        a.mta_sts,
-        a.caa,
-        a.cds_cdnskey,
-    ];
-    controls
-        .iter()
-        .fold((0, 0, 0, 0), |(p, ab, i, n), &t| match t {
-            TriState::Present => (p + 1, ab, i, n),
-            TriState::Absent => (p, ab + 1, i, n),
-            TriState::Indet => (p, ab, i + 1, n),
-            TriState::NotApplicable => (p, ab, i, n + 1),
-        })
-}

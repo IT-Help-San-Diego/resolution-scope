@@ -43,6 +43,7 @@ pub mod analysis;
 pub mod ipc;
 pub mod report;
 pub mod tristate;
+pub mod truth_chain;
 
 // Re-export the most-used surface types so callers can write
 // `resolution_scope_engine::ScoredAnalysis` without a full module path.
@@ -55,6 +56,7 @@ pub use analysis::CaaDisposition;
 pub use analysis::CdsDisposition;
 pub use analysis::ScoredAnalysis;
 pub use tristate::TriState;
+pub use truth_chain::{by_severity, truth_chain, Audience, ControlId, ControlReport, Severity, Tally};
 
 // =============================================================================
 // TriState — the core scoring primitive

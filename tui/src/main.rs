@@ -19,20 +19,15 @@ use crossterm::ExecutableCommand;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span, Text};
+use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Tabs, Wrap};
 use ratatui::{Frame, Terminal};
 
 use resolution_scope_engine::analysis::analyse_domain;
-use resolution_scope_engine::analysis::CaaDisposition;
-use resolution_scope_engine::analysis::CdsDisposition;
-use resolution_scope_engine::analysis::DaneDisposition;
-use resolution_scope_engine::analysis::DkimDisposition;
-use resolution_scope_engine::analysis::DmarcDisposition;
-use resolution_scope_engine::analysis::MtaStsDisposition;
-use resolution_scope_engine::analysis::SpfDisposition;
-use resolution_scope_engine::analysis::DnssecDisposition;
 use resolution_scope_engine::report::render_text;
+use resolution_scope_engine::truth_chain::{
+    by_severity, truth_chain, Audience, ControlId, ControlReport, Severity, Tally,
+};
 use resolution_scope_engine::ScoredAnalysis;
 use resolution_scope_engine::TriState;
 
@@ -95,19 +90,47 @@ const TAB_LABELS: &[&str] = &[
     "1:Summary", "2:DNSSEC", "3:DANE", "4:SPF/DMARC", "5:MTA-STS", "6:CAA/CDS",
 ];
 
-fn section_for_tab(tab: usize, result: &ScoredAnalysis, pal: Palette) -> Vec<Line<'static>> {
+fn section_for_tab(
+    tab: usize,
+    result: &ScoredAnalysis,
+    pal: Palette,
+    audience: Audience,
+    selected: usize,
+) -> Vec<Line<'static>> {
+    let model = truth_chain(result);
     match tab {
-        0 => render_summary(result, pal),
-        1 => render_dnssec(result, pal),
-        2 => render_dane(result, pal),
-        3 => render_email_auth(result, pal),
-        4 => render_mta_sts(result, pal),
-        5 => render_caa_cds(result, pal),
+        0 => render_summary(&model, pal, audience, selected),
+        1 => render_controls("══ DNSSEC ══", &model, &[ControlId::Dnssec], pal, audience),
+        2 => render_controls("══ DANE (SMTP TLSA) ══", &model, &[ControlId::Dane], pal, audience),
+        3 => render_controls(
+            "══ Email Authentication ══",
+            &model,
+            &[ControlId::Spf, ControlId::Dkim, ControlId::Dmarc],
+            pal,
+            audience,
+        ),
+        4 => render_controls("══ MTA-STS ══", &model, &[ControlId::MtaSts], pal, audience),
+        5 => render_controls("══ CAA / CDS ══", &model, &[ControlId::Caa, ControlId::Cds], pal, audience),
         _ => vec![Line::from("—")],
     }
 }
 
+/// Which detail tab shows a given control (Enter on the summary jumps there).
+fn tab_for_control(c: ControlId) -> usize {
+    match c {
+        ControlId::Dnssec => 1,
+        ControlId::Dane => 2,
+        ControlId::Spf | ControlId::Dkim | ControlId::Dmarc => 3,
+        ControlId::MtaSts => 4,
+        ControlId::Caa | ControlId::Cds => 5,
+    }
+}
+
 // ── section renderers ──────────────────────────────────────────────
+//
+// The TUI owns STYLING ONLY. Verdict meaning — labels, severities,
+// consequences, tally — comes from engine::truth_chain (ARCHITECTURE.md §8).
+// A match on a disposition enum in this file is a contract violation.
 
 fn state_icon(s: TriState, pal: Palette) -> (&'static str, Color) {
     match s {
@@ -118,222 +141,113 @@ fn state_icon(s: TriState, pal: Palette) -> (&'static str, Color) {
     }
 }
 
-fn dnssec_label(d: DnssecDisposition) -> &'static str {
-    match d {
-        DnssecDisposition::SignedAndDelegated => "signed + delegated",
-        DnssecDisposition::SignedNotDelegated => "island of security",
-        DnssecDisposition::BrokenChain => "broken chain",
-        DnssecDisposition::ChainUnverified => "could not verify",
-        DnssecDisposition::Unsigned => "unsigned",
-        DnssecDisposition::NoZone => "no zone",
-        DnssecDisposition::Unreachable => "unreachable",
+fn severity_style(s: Severity, pal: Palette) -> Style {
+    match s {
+        Severity::Critical => Style::default().fg(pal.fail).add_modifier(Modifier::BOLD),
+        Severity::High => Style::default().fg(pal.fail),
+        Severity::Medium => Style::default().fg(pal.warn),
+        Severity::Low => Style::default().fg(pal.fg),
+        Severity::Ok => Style::default().fg(pal.pass),
+        Severity::Unmeasured | Severity::NotApplicable => Style::default().fg(pal.muted),
     }
 }
 
-fn dkim_label(d: DkimDisposition) -> &'static str {
-    match d {
-        DkimDisposition::Verified => "verified",
-        DkimDisposition::NotFoundDefaults => "not-found-with-81-defaults",
-        DkimDisposition::NoMailDomain => "no-mail",
-        DkimDisposition::TransientError => "lookup-error",
-        DkimDisposition::KeyMismatch => "misconfigured",
-    }
+fn report_for(model: &[ControlReport; 8], c: ControlId) -> &ControlReport {
+    model
+        .iter()
+        .find(|r| r.control == c)
+        .expect("truth_chain always carries all eight controls")
 }
 
-fn spf_label(d: SpfDisposition) -> &'static str {
-    match d {
-        SpfDisposition::HardFail => "hardfail (-all)",
-        SpfDisposition::SoftFail => "softfail (~all)",
-        SpfDisposition::NotConfigured => "not-configured",
-        SpfDisposition::NoMail => "no-mail",
-        SpfDisposition::TransientError => "lookup-error",
-    }
-}
-
-fn dmarc_label(d: DmarcDisposition) -> &'static str {
-    match d {
-        DmarcDisposition::Reject => "reject (p=reject)",
-        DmarcDisposition::Quarantine => "quarantine (p=quarantine)",
-        DmarcDisposition::Monitor => "monitor (p=none)",
-        DmarcDisposition::NotConfigured => "not-configured",
-        DmarcDisposition::NoMail => "no-mail",
-        DmarcDisposition::TransientError => "lookup-error",
-    }
-}
-
-fn caa_label(d: CaaDisposition) -> &'static str {
-    match d {
-        CaaDisposition::Configured => "configured",
-        CaaDisposition::NotConfigured => "not-configured",
-        CaaDisposition::NoZone => "no-zone",
-        CaaDisposition::TransientError => "lookup-error",
-    }
-}
-
-fn cds_label(d: CdsDisposition) -> &'static str {
-    match d {
-        CdsDisposition::Published => "published",
-        CdsDisposition::NotPublished => "not-published",
-        CdsDisposition::NoZone => "no-zone",
-        CdsDisposition::TransientError => "lookup-error",
-    }
-}
-
-fn render_summary(r: &ScoredAnalysis, pal: Palette) -> Vec<Line<'static>> {
+/// Summary: every control, worst first, with the selection cursor. Severity
+/// order comes from the model; the score comes from the shared Tally.
+fn render_summary(
+    model: &[ControlReport; 8],
+    pal: Palette,
+    audience: Audience,
+    selected: usize,
+) -> Vec<Line<'static>> {
     let mut lines = vec![
-        Line::from(Span::styled("══ Summary ══", Style::default().fg(pal.accent).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(
+            "══ Findings (worst first) ══",
+            Style::default().fg(pal.accent).add_modifier(Modifier::BOLD),
+        )),
         Line::from(""),
     ];
-    let controls = [
-        ("DNSSEC", r.dnssec_chain),
-        ("SPF", r.spf),
-        ("DKIM", r.dkim),
-        ("DMARC", r.dmarc),
-        ("DANE", r.dane),
-        ("MTA-STS", r.mta_sts),
-        ("CAA", r.caa),
-        ("CDS/CDNSKEY", r.cds_cdnskey),
-    ];
-    for (name, state) in &controls {
-        let (icon, color) = state_icon(*state, pal);
-        let extra = if *name == "DNSSEC" {
-            format!("  {}", dnssec_label(r.dnssec_disposition))
-        } else if *name == "DKIM" {
-            format!("  {}", dkim_label(r.dkim_disposition))
-        } else if *name == "SPF" {
-            format!("  {}", spf_label(r.spf_disposition))
-        } else if *name == "DMARC" {
-            format!("  {}", dmarc_label(r.dmarc_disposition))
-        } else if *name == "CAA" {
-            format!("  {}", caa_label(r.caa_disposition))
-        } else if *name == "CDS/CDNSKEY" {
-            format!("  {}", cds_label(r.cds_disposition))
-        } else {
-            String::new()
-        };
+    let ordered = by_severity(model);
+    for (i, rep) in ordered.iter().enumerate() {
+        let is_sel = i == selected;
+        let cursor = if is_sel { "▸ " } else { "  " };
+        let row_bg = if is_sel { Style::default().bg(pal.highlight) } else { Style::default() };
+        let (icon, icon_color) = state_icon(rep.tri, pal);
         lines.push(Line::from(vec![
-            Span::styled(format!("  {:>12}  ", name), Style::default().fg(pal.fg)),
-            Span::styled(icon, Style::default().fg(color).add_modifier(Modifier::BOLD)),
-            Span::styled(extra, Style::default().fg(pal.muted)),
+            Span::styled(cursor.to_string(), row_bg.fg(pal.accent)),
+            Span::styled(format!("{:<10}", rep.severity.label()), severity_style(rep.severity, pal).patch(row_bg)),
+            Span::styled(format!(" {:<12}", rep.control.name()), row_bg.fg(pal.fg).add_modifier(Modifier::BOLD)),
+            Span::styled(format!(" {} ", icon), row_bg.fg(icon_color).add_modifier(Modifier::BOLD)),
+            Span::styled(format!(" {}", rep.measured), row_bg.fg(pal.muted)),
         ]));
+        if is_sel {
+            lines.push(Line::from(Span::styled(
+                format!("      → {}", rep.consequence(audience)),
+                Style::default().fg(pal.fg),
+            )));
+        }
     }
     lines.push(Line::from(""));
-    let present = controls.iter().filter(|(_, s)| *s == TriState::Present).count();
-    let total = controls.iter().filter(|(_, s)| *s != TriState::NotApplicable && *s != TriState::Indet).count();
+    let t = Tally::of(model);
     lines.push(Line::from(Span::styled(
-        format!("  Score: {}/{} ({}%)", present, total, if total > 0 { present * 100 / total } else { 0 }),
+        format!(
+            "  Score: {}/{} ({}%)  │  unmeasured: {}  │  n/a: {}",
+            t.present,
+            t.denominator(),
+            t.percent(),
+            t.unmeasured,
+            t.not_applicable
+        ),
         Style::default().fg(pal.accent).add_modifier(Modifier::BOLD),
+    )));
+    lines.push(Line::from(Span::styled(
+        "  (unmeasured never enters the score — a ? is not a verdict)",
+        Style::default().fg(pal.muted),
     )));
     lines
 }
 
-fn render_dnssec(r: &ScoredAnalysis, pal: Palette) -> Vec<Line<'static>> {
+/// Detail view: the full truth chain for one or more controls — RFC
+/// requirement, measured state, consequence — straight from the model.
+fn render_controls(
+    title: &'static str,
+    model: &[ControlReport; 8],
+    controls: &[ControlId],
+    pal: Palette,
+    audience: Audience,
+) -> Vec<Line<'static>> {
     let mut lines = vec![
-        Line::from(Span::styled("══ DNSSEC ══", Style::default().fg(pal.accent).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(title, Style::default().fg(pal.accent).add_modifier(Modifier::BOLD))),
         Line::from(""),
     ];
-    let (icon, color) = state_icon(r.dnssec_chain, pal);
-    let (label, detail) = match r.dnssec_disposition {
-        DnssecDisposition::SignedAndDelegated => ("Signed + Delegated", "Chain validates from root — DNSSEC is fully configured and operational."),
-        DnssecDisposition::SignedNotDelegated => ("Island of Security", "Zone is signed (DNSKEY present) but no DS at parent — cannot validate from root. Genuinely signed, not chainable."),
-        DnssecDisposition::BrokenChain => ("Broken Chain", "DS present but chain fails validation — wrong DS, expired RRSIG, or misconfigured. Counts as a finding."),
-        DnssecDisposition::ChainUnverified => ("Could Not Verify", "DNSKEY present but AD flag absent or resolvers disagreed — cannot confirm or deny. Re-run."),
-        DnssecDisposition::Unsigned => ("Unsigned", "No DNSKEY published — the zone is not signed."),
-        DnssecDisposition::NoZone => ("No Zone", "NXDOMAIN — the domain does not exist. DNSSEC is not applicable."),
-        DnssecDisposition::Unreachable => ("Unreachable", "Lookup failed (timeout/refused). Could not measure — re-run."),
-    };
-    lines.push(Line::from(vec![
-        Span::styled("  Verdict:  ", Style::default().fg(pal.fg)),
-        Span::styled(icon, Style::default().fg(color).add_modifier(Modifier::BOLD)),
-        Span::styled(format!("  {}", label), Style::default().fg(pal.accent).add_modifier(Modifier::BOLD)),
-    ]));
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(format!("  {}", detail), Style::default().fg(pal.muted))));
-    lines
-}
-
-fn render_dane(r: &ScoredAnalysis, pal: Palette) -> Vec<Line<'static>> {
-    let mut lines = vec![
-        Line::from(Span::styled("══ DANE (SMTP TLSA) ══", Style::default().fg(pal.accent).add_modifier(Modifier::BOLD))),
-        Line::from(""),
-    ];
-    let (icon, color) = state_icon(r.dane, pal);
-    let detail = match r.dane_disposition {
-        DaneDisposition::Verified => "TLSA record verified for the mail server — DANE requires DNSSEC (RFC 7672 §4).",
-        DaneDisposition::Mismatch => "TLSA record exists but the digest does not match the certificate — DANE is deployed but MISCONFIGURED.",
-        DaneDisposition::NotConfigured => "No TLSA record found. Without DANE, STARTTLS is vulnerable to downgrade attacks.",
-        DaneDisposition::NoMail => "No mail server (null MX or no MX) — DANE requires an MX to target.",
-        DaneDisposition::TransientError => "Could not measure — check that the MX host resolves and publishes a TLSA record at _25._tcp.<mx>.",
-        DaneDisposition::DnssecRequired => "DANE requires DNSSEC (RFC 7672 §4) — the zone is not signed.",
-    };
-    lines.push(Line::from(vec![
-        Span::styled("  Status: ", Style::default().fg(pal.fg)),
-        Span::styled(icon, Style::default().fg(color).add_modifier(Modifier::BOLD)),
-    ]));
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(format!("  {}", detail), Style::default().fg(pal.muted))));
-    lines
-}
-
-fn render_email_auth(r: &ScoredAnalysis, pal: Palette) -> Vec<Line<'static>> {
-    let mut lines = vec![
-        Line::from(Span::styled("══ Email Authentication ══", Style::default().fg(pal.accent).add_modifier(Modifier::BOLD))),
-        Line::from(""),
-    ];
-    let controls = [
-        ("SPF", r.spf, "Sender Policy Framework (RFC 7208) — authorizes sending IPs. Absent = any IP can spoof."),
-        ("DKIM", r.dkim, "DomainKeys Identified Mail (RFC 6376) — cryptographic signing. 81 default selectors probed; provide yours if absent."),
-        ("DMARC", r.dmarc, "Domain-based Message Authentication (RFC 7489) — policy for SPF/DKIM. p=reject blocks spoofing; p=none is monitoring-only."),
-    ];
-    for (name, state, detail) in &controls {
-        let (icon, color) = state_icon(*state, pal);
+    for c in controls {
+        let rep = report_for(model, *c);
+        let (icon, icon_color) = state_icon(rep.tri, pal);
         lines.push(Line::from(vec![
-            Span::styled(format!("  {:>5} ", name), Style::default().fg(pal.fg)),
-            Span::styled(icon, Style::default().fg(color).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("  {} ", rep.control.name()), Style::default().fg(pal.fg).add_modifier(Modifier::BOLD)),
+            Span::styled(icon, Style::default().fg(icon_color).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("  {}", rep.severity.label()), severity_style(rep.severity, pal)),
         ]));
-        lines.push(Line::from(Span::styled(format!("      {}", detail), Style::default().fg(pal.muted))));
         lines.push(Line::from(""));
-    }
-    lines
-}
-
-fn render_mta_sts(r: &ScoredAnalysis, pal: Palette) -> Vec<Line<'static>> {
-    let mut lines = vec![
-        Line::from(Span::styled("══ MTA-STS ══", Style::default().fg(pal.accent).add_modifier(Modifier::BOLD))),
-        Line::from(""),
-    ];
-    let (icon, color) = state_icon(r.mta_sts, pal);
-    let detail = match r.mta_sts_disposition {
-        MtaStsDisposition::Enforced => "MTA-STS policy enforced — TLS required for inbound mail (RFC 8461). Prevents downgrade and MITM.",
-        MtaStsDisposition::NotEnforced => "MTA-STS record present but in testing mode (mode: testing) — the policy is published but NOT enforcing TLS. It blocks nothing yet.",
-        MtaStsDisposition::RecordAbsent => "No MTA-STS policy. Mail transport may fall back to plaintext — vulnerable to STARTTLS stripping.",
-        MtaStsDisposition::NoZone => "Domain does not exist — MTA-STS not applicable.",
-        MtaStsDisposition::TransientError => "Could not fetch or validate the MTA-STS policy. Check _mta-sts.<domain> TXT discovery and policy URL.",
-    };
-    lines.push(Line::from(vec![
-        Span::styled("  Status: ", Style::default().fg(pal.fg)),
-        Span::styled(icon, Style::default().fg(color).add_modifier(Modifier::BOLD)),
-    ]));
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(format!("  {}", detail), Style::default().fg(pal.muted))));
-    lines
-}
-
-fn render_caa_cds(r: &ScoredAnalysis, pal: Palette) -> Vec<Line<'static>> {
-    let mut lines = vec![
-        Line::from(Span::styled("══ CAA / CDS ══", Style::default().fg(pal.accent).add_modifier(Modifier::BOLD))),
-        Line::from(""),
-    ];
-    for (name, state, detail) in &[
-        ("CAA", r.caa, "Certification Authority Authorization (RFC 6844) — restricts which CAs can issue TLS certificates. Absent = any CA can issue."),
-        ("CDS", r.cds_cdnskey, "Child DS / CDNSKEY (RFC 7344) — automates DNSSEC DS updates at the parent. Absent = manual DS rotation."),
-    ] {
-        let (icon, color) = state_icon(*state, pal);
         lines.push(Line::from(vec![
-            Span::styled(format!("  {:>3} ", name), Style::default().fg(pal.fg)),
-            Span::styled(icon, Style::default().fg(color).add_modifier(Modifier::BOLD)),
+            Span::styled("  measured   ", Style::default().fg(pal.accent)),
+            Span::styled(rep.measured, Style::default().fg(pal.fg)),
         ]));
-        lines.push(Line::from(Span::styled(format!("      {}", detail), Style::default().fg(pal.muted))));
+        lines.push(Line::from(vec![
+            Span::styled("  rfc        ", Style::default().fg(pal.accent)),
+            Span::styled(rep.rfc_requirement, Style::default().fg(pal.muted)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("  consequence ", Style::default().fg(pal.accent)),
+            Span::styled(rep.consequence(audience), Style::default().fg(pal.fg)),
+        ]));
         lines.push(Line::from(""));
     }
     lines
@@ -353,6 +267,7 @@ struct App {
     results: Vec<ScoredAnalysis>,
     scroll: u16,
     selected_tab: usize,
+    selected_control: usize,
     last_scan: Option<Instant>,
     input_mode: InputMode,
     input_buf: String,
@@ -363,18 +278,29 @@ impl App {
         let mode = if covert { Mode::Covert } else { Mode::Blue };
         let pal = if covert { Palette::COVERT } else { Palette::BLUE };
         Self { mode, pal, resolver, domains, current_domain: 0,
-            results: Vec::new(), scroll: 0, selected_tab: 0, last_scan: None,
-            input_mode: InputMode::Normal, input_buf: String::new() }
+            results: Vec::new(), scroll: 0, selected_tab: 0, selected_control: 0,
+            last_scan: None, input_mode: InputMode::Normal, input_buf: String::new() }
     }
     fn toggle_mode(&mut self) {
         self.mode = match self.mode { Mode::Blue => Mode::Covert, Mode::Covert => Mode::Blue };
         self.pal = match self.mode { Mode::Blue => Palette::BLUE, Mode::Covert => Palette::COVERT };
+    }
+    /// The mode flip changes framing (which consequence string renders), never
+    /// facts — both strings come from the shared model.
+    fn audience(&self) -> Audience {
+        match self.mode { Mode::Blue => Audience::BlueTeam, Mode::Covert => Audience::RedTeam }
+    }
+    /// The control the summary cursor points at, in severity order.
+    fn selected_report(&self) -> Option<ControlReport> {
+        self.current_result()
+            .map(|r| by_severity(&truth_chain(r))[self.selected_control.min(7)])
     }
     async fn scan(&mut self) -> Result<()> {
         let domain = &self.domains[self.current_domain];
         self.results = vec![analyse_domain(&self.resolver, domain).await?];
         self.last_scan = Some(Instant::now());
         self.scroll = 0;
+        self.selected_control = 0;
         Ok(())
     }
     fn current_result(&self) -> Option<&ScoredAnalysis> { self.results.first() }
@@ -411,7 +337,7 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
             Span::styled(domain, Style::default().fg(p.fg).add_modifier(Modifier::BOLD)),
         ]),
         Line::from(vec![Span::styled(
-            "1-6:nav  m:mode  j/k:scroll  r:rescan  tab:next  q:quit",
+            "1-6:nav  m:mode  j/k:select/scroll  enter:detail  r:rescan  tab:next  q:quit",
             Style::default().fg(p.muted),
         )]),
     ];
@@ -435,9 +361,13 @@ fn render_tabs(f: &mut Frame, area: Rect, app: &App) {
 fn render_content(f: &mut Frame, area: Rect, app: &App) {
     let p = app.pal;
     if let Some(result) = app.current_result() {
-        let section_lines = section_for_tab(app.selected_tab, result, p);
+        let section_lines =
+            section_for_tab(app.selected_tab, result, p, app.audience(), app.selected_control);
         let block = Block::default().style(Style::default().bg(p.bg)).borders(Borders::NONE);
-        let widget = Paragraph::new(section_lines).block(block).wrap(Wrap { trim: false });
+        let widget = Paragraph::new(section_lines)
+            .block(block)
+            .wrap(Wrap { trim: false })
+            .scroll((app.scroll, 0));
         f.render_widget(widget, area);
     } else {
         let hint = vec![Line::from(Span::styled("Press 'r' to scan, or enter a domain.", Style::default().fg(p.muted)))];
@@ -467,8 +397,30 @@ fn handle_input(app: &mut App, code: KeyCode, modifiers: KeyModifiers) -> Result
         KeyCode::Char('q') => return Ok(false),
         KeyCode::Char('m') => app.toggle_mode(),
         KeyCode::Char('r') => { /* handled in main loop */ }
-        KeyCode::Char('j') | KeyCode::Down => app.scroll = app.scroll.saturating_add(1),
-        KeyCode::Char('k') | KeyCode::Up => app.scroll = app.scroll.saturating_sub(1),
+        // Summary tab: j/k moves the finding cursor. Detail tabs: j/k scrolls.
+        KeyCode::Char('j') | KeyCode::Down => {
+            if app.selected_tab == 0 {
+                app.selected_control = (app.selected_control + 1).min(7);
+            } else {
+                app.scroll = app.scroll.saturating_add(1);
+            }
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            if app.selected_tab == 0 {
+                app.selected_control = app.selected_control.saturating_sub(1);
+            } else {
+                app.scroll = app.scroll.saturating_sub(1);
+            }
+        }
+        // Enter on the summary jumps to the selected control's detail tab.
+        KeyCode::Enter => {
+            if app.selected_tab == 0 {
+                if let Some(rep) = app.selected_report() {
+                    app.selected_tab = tab_for_control(rep.control);
+                    app.scroll = 0;
+                }
+            }
+        }
         KeyCode::Tab => {
             if modifiers.contains(KeyModifiers::SHIFT) { app.prev_domain(); }
             else { app.next_domain(); }
@@ -549,7 +501,12 @@ async fn main() -> Result<()> {
                     continue;
                 }
                 if !handle_input(&mut app, key.code, key.modifiers)? { break Ok(()); }
-                if key.code == KeyCode::Char('r') { app.scan().await?; }
+                // Rescan on 'r' AND on domain switch — Tab without a rescan
+                // rendered the previous domain's verdicts under the new
+                // domain's name (adversarial panel, 2026-08-19).
+                if key.code == KeyCode::Char('r') || key.code == KeyCode::Tab {
+                    app.scan().await?;
+                }
             }
         }
     };
