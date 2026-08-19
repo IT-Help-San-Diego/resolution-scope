@@ -24,6 +24,7 @@ use ratatui::widgets::{Block, Borders, Paragraph, Tabs, Wrap};
 use ratatui::{Frame, Terminal};
 
 use resolution_scope_engine::analysis::analyse_domain;
+use resolution_scope_engine::analysis::DaneDisposition;
 use resolution_scope_engine::analysis::DkimDisposition;
 use resolution_scope_engine::analysis::DmarcDisposition;
 use resolution_scope_engine::analysis::SpfDisposition;
@@ -232,11 +233,13 @@ fn render_dane(r: &ScoredAnalysis, pal: Palette) -> Vec<Line<'static>> {
         Line::from(""),
     ];
     let (icon, color) = state_icon(r.dane, pal);
-    let detail = match r.dane {
-        TriState::Present => "TLSA record verified for the mail server — DANE requires DNSSEC (RFC 7672 §4).",
-        TriState::Absent => "No valid TLSA record found. Without DANE, STARTTLS is vulnerable to downgrade attacks.",
-        TriState::Indet => "Could not measure — check that the MX host resolves and publishes a TLSA record at _25._tcp.<mx>.",
-        TriState::NotApplicable => "No mail server (null MX or no MX) — DANE requires an MX to target.",
+    let detail = match r.dane_disposition {
+        DaneDisposition::Verified => "TLSA record verified for the mail server — DANE requires DNSSEC (RFC 7672 §4).",
+        DaneDisposition::Mismatch => "TLSA record exists but the digest does not match the certificate — DANE is deployed but MISCONFIGURED.",
+        DaneDisposition::NotConfigured => "No TLSA record found. Without DANE, STARTTLS is vulnerable to downgrade attacks.",
+        DaneDisposition::NoMail => "No mail server (null MX or no MX) — DANE requires an MX to target.",
+        DaneDisposition::TransientError => "Could not measure — check that the MX host resolves and publishes a TLSA record at _25._tcp.<mx>.",
+        DaneDisposition::DnssecRequired => "DANE requires DNSSEC (RFC 7672 §4) — the zone is not signed.",
     };
     lines.push(Line::from(vec![
         Span::styled("  Status: ", Style::default().fg(pal.fg)),
