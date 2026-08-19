@@ -429,7 +429,7 @@ impl std::fmt::Display for CdsDisposition {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScoredAnalysis {
     pub domain: String,
     pub session_id: u64,
