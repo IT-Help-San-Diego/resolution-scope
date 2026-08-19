@@ -33,6 +33,20 @@ cd "$REPO_ROOT"
 # the bare word "RFC" (no digit follows in the collapsed text).
 PATTERN='RFC[[:space:]]*[0-9]'
 
+# Positive control: the matcher must fire on a known citation, or the gate
+# could pass by matching nothing. A guard never watched failing is a guard
+# that cannot fail — this is the bash equivalent of the Rust test's
+# matcher_detects_real_citations, kept here so the single authority is
+# self-verifying after the per-crate test was removed.
+if ! printf 'Optional (RFC 9989)' | grep -qE "$PATTERN"; then
+    echo "✗ matcher self-test failed: PATTERN '$PATTERN' does not match a real citation"
+    exit 1
+fi
+if printf '  rfc        ' | grep -qE "$PATTERN"; then
+    echo "✗ matcher self-test failed: PATTERN matched the bare field label 'rfc' (false positive)"
+    exit 1
+fi
+
 fail=0
 scanned=0
 

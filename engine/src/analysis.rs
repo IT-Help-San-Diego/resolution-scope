@@ -126,7 +126,7 @@ impl std::fmt::Display for DkimDisposition {
         match self {
             DkimDisposition::Verified => write!(f, "verified"),
             DkimDisposition::NotFoundDefaults => write!(f, "not-found-with-81-defaults"),
-            DkimDisposition::NotProbed => write!(f, "not-probed (selector sweep not yet run)"),
+            DkimDisposition::NotProbed => write!(f, "not-probed (no selector available)"),
             DkimDisposition::NoMailDomain => write!(f, "no-mail-domain"),
             DkimDisposition::TransientError => write!(f, "transient-error"),
             DkimDisposition::KeyMismatch => write!(f, "key-mismatch"),

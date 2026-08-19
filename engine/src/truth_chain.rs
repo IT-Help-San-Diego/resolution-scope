@@ -24,9 +24,10 @@
 // require anything), while its successor RFC 9989 is Standards Track
 // (obsoletes 7489 + 9091, verified at rfc-editor.org). Cite successor-first,
 // keep the obsoleted number for reader orientation, and prefer normative
-// documents wherever one exists. The citation boundary is build-enforced:
-// tui/tests/no_rfc_literals.rs in-crate, scripts/check-citation-boundary.sh
-// across every non-engine crate in CI.
+// documents wherever one exists. The citation boundary is build-enforced by
+// scripts/check-citation-boundary.sh, which enumerates every non-engine crate
+// and scans its src/ in CI (a new renderer crate is covered the day its
+// Cargo.toml exists).
 //
 // Kept alloc-light on purpose (only &'static str + fixed arrays): report.rs
 // aims to compile for a no_std seL4 compartment someday, and this module sits
