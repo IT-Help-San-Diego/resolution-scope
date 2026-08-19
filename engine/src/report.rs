@@ -52,4 +52,3 @@ fn row(label: &str, t: TriState, measured: &str) -> String {
     };
     format!("{:<16}  {}     {}\n", label, symbol, measured)
 }
-

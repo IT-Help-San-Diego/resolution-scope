@@ -180,8 +180,9 @@ fn rfc_requirement(control: ControlId) -> &'static str {
              outbound mail (DKIM-Signature `s=` tag), not in the zone."
         }
         ControlId::Dmarc => {
-            "Optional (RFC 7489). TXT at _dmarc.<domain> with p=none, \
-             p=quarantine, or p=reject; only quarantine and reject enforce."
+            "Optional (RFC 9989, which obsoletes RFC 7489). TXT at \
+             _dmarc.<domain> with p=none, p=quarantine, or p=reject; only \
+             quarantine and reject enforce."
         }
         ControlId::Dane => {
             "Optional (RFC 7672). TLSA at _25._tcp.<mx-host> for each MX; \
@@ -385,7 +386,7 @@ fn dmarc_report(d: DmarcDisposition) -> ControlReport {
         DmarcDisposition::InvalidPolicy => (
             "record present but invalid — required p= tag missing or unrecognized",
             Severity::High,
-            "The DMARC record exists but has no usable p= tag (RFC 7489 requires it), so receivers ignore the record entirely — the domain pays DMARC's operational cost and gets none of its protection. Fix the p= tag.",
+            "The DMARC record exists but has no usable p= tag (RFC 9989 requires it), so receivers ignore the record entirely — the domain pays DMARC's operational cost and gets none of its protection. Fix the p= tag.",
             "Invalid policy equals no policy: alignment failures carry no owner instruction, while the owner likely believes DMARC is deployed.",
         ),
         DmarcDisposition::NotConfigured => (
@@ -650,7 +651,12 @@ pub struct Tally {
 impl Tally {
     pub fn of(reports: &[ControlReport; 8]) -> Tally {
         reports.iter().fold(
-            Tally { present: 0, absent: 0, unmeasured: 0, not_applicable: 0 },
+            Tally {
+                present: 0,
+                absent: 0,
+                unmeasured: 0,
+                not_applicable: 0,
+            },
             |mut t, r| {
                 match r.tri {
                     TriState::Present => t.present += 1,
@@ -670,8 +676,10 @@ impl Tally {
 
     /// Integer percent (0 when nothing was measured — never a fake 100).
     pub fn percent(&self) -> usize {
-        let d = self.denominator();
-        if d == 0 { 0 } else { self.present * 100 / d }
+        self.present
+            .saturating_mul(100)
+            .checked_div(self.denominator())
+            .unwrap_or(0)
     }
 }
 
@@ -773,12 +781,32 @@ mod tests {
     #[test]
     fn every_disposition_carries_all_three_layers() {
         let reports = all_dispositions();
-        assert_eq!(reports.len(), 48, "disposition census changed — update this test's inventory");
+        assert_eq!(
+            reports.len(),
+            48,
+            "disposition census changed — update this test's inventory"
+        );
         for r in &reports {
-            assert!(!r.rfc_requirement.is_empty(), "{:?}: empty RFC layer", r.control);
-            assert!(!r.measured.is_empty(), "{:?}: empty measured layer", r.control);
-            assert!(!r.consequence(Audience::BlueTeam).is_empty(), "{:?}: empty blue consequence", r.control);
-            assert!(!r.consequence(Audience::RedTeam).is_empty(), "{:?}: empty red consequence", r.control);
+            assert!(
+                !r.rfc_requirement.is_empty(),
+                "{:?}: empty RFC layer",
+                r.control
+            );
+            assert!(
+                !r.measured.is_empty(),
+                "{:?}: empty measured layer",
+                r.control
+            );
+            assert!(
+                !r.consequence(Audience::BlueTeam).is_empty(),
+                "{:?}: empty blue consequence",
+                r.control
+            );
+            assert!(
+                !r.consequence(Audience::RedTeam).is_empty(),
+                "{:?}: empty red consequence",
+                r.control
+            );
         }
     }
 
@@ -797,8 +825,18 @@ mod tests {
             // not enforcing — same epistemic type as the ruling's three.
             spf_report(SpfDisposition::OtherPolicy),
         ] {
-            assert_eq!(r.tri, TriState::Present, "{:?}: non-enforcing must score Present", r.control);
-            assert_eq!(r.severity, Severity::Medium, "{:?}: enforcement gap must rank Medium", r.control);
+            assert_eq!(
+                r.tri,
+                TriState::Present,
+                "{:?}: non-enforcing must score Present",
+                r.control
+            );
+            assert_eq!(
+                r.severity,
+                Severity::Medium,
+                "{:?}: enforcement gap must rank Medium",
+                r.control
+            );
         }
     }
 
@@ -812,8 +850,18 @@ mod tests {
             dmarc_report(DmarcDisposition::InvalidPolicy),
             mta_sts_report(MtaStsDisposition::PolicyInvalid),
         ] {
-            assert_eq!(r.tri, TriState::Absent, "{:?}: invalid must score Absent", r.control);
-            assert_eq!(r.severity, Severity::High, "{:?}: invalid-while-advertised ranks High", r.control);
+            assert_eq!(
+                r.tri,
+                TriState::Absent,
+                "{:?}: invalid must score Absent",
+                r.control
+            );
+            assert_eq!(
+                r.severity,
+                Severity::High,
+                "{:?}: invalid-while-advertised ranks High",
+                r.control
+            );
         }
     }
 
@@ -823,16 +871,27 @@ mod tests {
     fn tlsa_presence_is_not_verification() {
         let r = dane_report(DaneDisposition::TlsaPublished);
         assert!(r.measured.contains("not verified"));
-        assert!(!r.consequence(Audience::BlueTeam).contains("downgrade-resistant"));
+        assert!(!r
+            .consequence(Audience::BlueTeam)
+            .contains("downgrade-resistant"));
     }
 
     /// Deployed-but-WRONG is the worst tier: the control asserts something
     /// false right now.
     #[test]
     fn broken_deployments_are_critical() {
-        assert_eq!(dnssec_report(DnssecDisposition::BrokenChain).severity, Severity::Critical);
-        assert_eq!(dane_report(DaneDisposition::Mismatch).severity, Severity::Critical);
-        assert_eq!(dkim_report(DkimDisposition::KeyMismatch).severity, Severity::Critical);
+        assert_eq!(
+            dnssec_report(DnssecDisposition::BrokenChain).severity,
+            Severity::Critical
+        );
+        assert_eq!(
+            dane_report(DaneDisposition::Mismatch).severity,
+            Severity::Critical
+        );
+        assert_eq!(
+            dkim_report(DkimDisposition::KeyMismatch).severity,
+            Severity::Critical
+        );
     }
 
     /// The denominator doctrine and the severity doctrine are DIFFERENT axes:
@@ -850,7 +909,10 @@ mod tests {
     #[test]
     fn unmeasured_is_never_a_finding() {
         let reports = all_dispositions();
-        for r in reports.iter().filter(|r| r.severity == Severity::Unmeasured) {
+        for r in reports
+            .iter()
+            .filter(|r| r.severity == Severity::Unmeasured)
+        {
             assert_eq!(
                 r.tri,
                 TriState::Indet,
@@ -924,14 +986,14 @@ mod tests {
     #[test]
     fn by_severity_orders_and_preserves() {
         let model = [
-            dnssec_report(DnssecDisposition::Unsigned),          // High
-            spf_report(SpfDisposition::HardFail),                // Ok
-            dkim_report(DkimDisposition::NotProbed),             // Unmeasured
-            dmarc_report(DmarcDisposition::Monitor),             // Medium
-            dane_report(DaneDisposition::Mismatch),              // Critical
-            mta_sts_report(MtaStsDisposition::RecordAbsent),     // High
-            caa_report(CaaDisposition::NotConfigured),           // Low
-            cds_report(CdsDisposition::NotPublished),            // Low
+            dnssec_report(DnssecDisposition::Unsigned),      // High
+            spf_report(SpfDisposition::HardFail),            // Ok
+            dkim_report(DkimDisposition::NotProbed),         // Unmeasured
+            dmarc_report(DmarcDisposition::Monitor),         // Medium
+            dane_report(DaneDisposition::Mismatch),          // Critical
+            mta_sts_report(MtaStsDisposition::RecordAbsent), // High
+            caa_report(CaaDisposition::NotConfigured),       // Low
+            cds_report(CdsDisposition::NotPublished),        // Low
         ];
         let sorted = by_severity(&model);
         let severities: Vec<Severity> = sorted.iter().map(|r| r.severity).collect();
@@ -960,7 +1022,10 @@ mod tests {
             cds_report(CdsDisposition::NotPublished),             // Absent
         ];
         let t = Tally::of(&model);
-        assert_eq!((t.present, t.absent, t.unmeasured, t.not_applicable), (3, 2, 2, 1));
+        assert_eq!(
+            (t.present, t.absent, t.unmeasured, t.not_applicable),
+            (3, 2, 2, 1)
+        );
         assert_eq!(t.denominator(), 5);
         assert_eq!(t.percent(), 60);
 
@@ -976,6 +1041,10 @@ mod tests {
         ];
         let t0 = Tally::of(&nothing);
         assert_eq!(t0.denominator(), 0);
-        assert_eq!(t0.percent(), 0, "nothing measured must never read as a score");
+        assert_eq!(
+            t0.percent(),
+            0,
+            "nothing measured must never read as a score"
+        );
     }
 }

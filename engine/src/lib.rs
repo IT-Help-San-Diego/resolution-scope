@@ -47,16 +47,18 @@ pub mod truth_chain;
 
 // Re-export the most-used surface types so callers can write
 // `resolution_scope_engine::ScoredAnalysis` without a full module path.
-pub use analysis::DkimDisposition;
-pub use analysis::MtaStsDisposition;
-pub use analysis::DaneDisposition;
-pub use analysis::SpfDisposition;
-pub use analysis::DmarcDisposition;
 pub use analysis::CaaDisposition;
 pub use analysis::CdsDisposition;
+pub use analysis::DaneDisposition;
+pub use analysis::DkimDisposition;
+pub use analysis::DmarcDisposition;
+pub use analysis::MtaStsDisposition;
 pub use analysis::ScoredAnalysis;
+pub use analysis::SpfDisposition;
 pub use tristate::TriState;
-pub use truth_chain::{by_severity, truth_chain, Audience, ControlId, ControlReport, Severity, Tally};
+pub use truth_chain::{
+    by_severity, truth_chain, Audience, ControlId, ControlReport, Severity, Tally,
+};
 
 // =============================================================================
 // TriState — the core scoring primitive

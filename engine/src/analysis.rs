@@ -134,7 +134,6 @@ impl std::fmt::Display for DkimDisposition {
     }
 }
 
-
 // =============================================================================
 // MtaStsDisposition — MTA-STS policy detail
 // =============================================================================
@@ -187,12 +186,12 @@ impl std::fmt::Display for MtaStsDisposition {
             MtaStsDisposition::NoZone => write!(f, "no-zone"),
             MtaStsDisposition::TransientError => write!(f, "transient-error"),
             MtaStsDisposition::NotEnforced => write!(f, "not-enforced"),
-            MtaStsDisposition::PolicyInvalid => write!(f, "policy-invalid (hint without a servable policy)"),
+            MtaStsDisposition::PolicyInvalid => {
+                write!(f, "policy-invalid (hint without a servable policy)")
+            }
         }
     }
 }
-
-
 
 // =============================================================================
 // DaneDisposition — DANE (SMTP TLSA) verification detail
@@ -214,7 +213,7 @@ pub enum DaneDisposition {
     Verified,
     /// RESERVED for the SMTP certificate prober. No current emission site.
     Mismatch,
-    NotConfigured,  // MX exists (non-null), no TLSA on any MX host
+    NotConfigured, // MX exists (non-null), no TLSA on any MX host
     /// Zone exists but publishes NO MX at all (NODATA). Mail is unroutable
     /// yet the domain can still be spoofed FROM — a measured absence, distinct
     /// from the null-MX declaration below.
@@ -254,7 +253,6 @@ impl std::fmt::Display for DaneDisposition {
     }
 }
 
-
 // =============================================================================
 // SpfDisposition — SPF policy detail
 // =============================================================================
@@ -264,15 +262,15 @@ impl std::fmt::Display for DaneDisposition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SpfDisposition {
-    HardFail,     // -all — SPF enforced
-    SoftFail,     // ~all — deployed but not enforced
+    HardFail, // -all — SPF enforced
+    SoftFail, // ~all — deployed but not enforced
     /// Record present but the terminal qualifier is neither -all nor ~all
     /// (?all, +all, no all mechanism, bare redirect=). Measured as deployed
     /// with no enforcement instruction — NEVER report this as HardFail: the
     /// -all was measured to be absent.
     OtherPolicy,
-    NotConfigured,// no SPF record
-    NoMail,       // null MX — SPF not applicable
+    NotConfigured, // no SPF record
+    NoMail,        // null MX — SPF not applicable
     TransientError,
 }
 
@@ -311,12 +309,13 @@ impl std::fmt::Display for SpfDisposition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DmarcDisposition {
-    Reject,        // p=reject — DMARC enforced
-    Quarantine,    // p=quarantine — intermediate enforcement
-    Monitor,       // p=none — deployed but not enforced
+    Reject,     // p=reject — DMARC enforced
+    Quarantine, // p=quarantine — intermediate enforcement
+    Monitor,    // p=none — deployed but not enforced
     /// Record present but the REQUIRED p= tag is missing or unrecognized
-    /// (RFC 7489 §6.3: p is mandatory). Receivers ignore an invalid record —
-    /// this is measured invalidity, NEVER to be reported as any real policy.
+    /// (RFC 9989, which obsoletes RFC 7489: p is mandatory). Receivers ignore
+    /// an invalid record — this is measured invalidity, NEVER to be reported
+    /// as any real policy.
     InvalidPolicy,
     NotConfigured, // no DMARC record
     NoMail,        // null MX — DMARC not applicable
@@ -345,14 +344,15 @@ impl std::fmt::Display for DmarcDisposition {
             DmarcDisposition::Reject => write!(f, "reject (p=reject)"),
             DmarcDisposition::Quarantine => write!(f, "quarantine (p=quarantine)"),
             DmarcDisposition::Monitor => write!(f, "monitor (p=none)"),
-            DmarcDisposition::InvalidPolicy => write!(f, "invalid-policy (p= missing or unrecognized)"),
+            DmarcDisposition::InvalidPolicy => {
+                write!(f, "invalid-policy (p= missing or unrecognized)")
+            }
             DmarcDisposition::NotConfigured => write!(f, "not-configured"),
             DmarcDisposition::NoMail => write!(f, "no-mail"),
             DmarcDisposition::TransientError => write!(f, "transient-error"),
         }
     }
 }
-
 
 // =============================================================================
 // CaaDisposition — CAA record detail
@@ -363,9 +363,9 @@ impl std::fmt::Display for DmarcDisposition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CaaDisposition {
-    Configured,     // CAA record present
-    NotConfigured,  // zone exists, no CAA
-    NoZone,         // NXDOMAIN — domain missing
+    Configured,    // CAA record present
+    NotConfigured, // zone exists, no CAA
+    NoZone,        // NXDOMAIN — domain missing
     TransientError,
 }
 
@@ -401,9 +401,9 @@ impl std::fmt::Display for CaaDisposition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CdsDisposition {
-    Published,      // CDS or CDNSKEY present
-    NotPublished,   // zone exists, no CDS/CDNSKEY
-    NoZone,         // NXDOMAIN — domain missing
+    Published,    // CDS or CDNSKEY present
+    NotPublished, // zone exists, no CDS/CDNSKEY
+    NoZone,       // NXDOMAIN — domain missing
     TransientError,
 }
 
@@ -696,7 +696,8 @@ async fn score_dmarc(resolver: &TokioResolver, domain: &str) -> DmarcDisposition
             if dmarc_records.is_empty() {
                 DmarcDisposition::NotConfigured
             } else {
-                let p = dmarc_records[0].split(';')
+                let p = dmarc_records[0]
+                    .split(';')
                     .map(|t| t.trim())
                     .find(|t| t.starts_with("p="))
                     .map(|t| t[2..].to_string())
@@ -776,7 +777,9 @@ async fn score_dane(resolver: &TokioResolver, domain: &str) -> DaneDisposition {
                     // certificate comparison does not exist in this crate, so
                     // Verified must never be emitted from this site (panel
                     // blocker, 2026-08-19).
-                    Ok(resp) if !resp.answers().is_empty() => return DaneDisposition::TlsaPublished,
+                    Ok(resp) if !resp.answers().is_empty() => {
+                        return DaneDisposition::TlsaPublished
+                    }
                     // No TLSA on this host (its zone exists — the MX host is
                     // already established by the successful MX lookup, so
                     // NXDOMAIN here means "record absent", not "host missing").
@@ -899,7 +902,9 @@ fn mta_sts_policy_state(policy: &str) -> MtaStsPolicyState {
     }
     match (version_ok, mode, has_mx) {
         (true, Some("enforce"), true) => MtaStsPolicyState::Enforce,
-        (true, Some("testing"), true) | (true, Some("none"), true) => MtaStsPolicyState::TestingOrNone,
+        (true, Some("testing"), true) | (true, Some("none"), true) => {
+            MtaStsPolicyState::TestingOrNone
+        }
         _ => MtaStsPolicyState::Invalid,
     }
 }
@@ -1022,6 +1027,17 @@ fn unix_now() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+/// Wraps record_absence_verdict for DANE's MX lookup. A measured absence of
+/// MX records is NoMx (chain: Absent — the "MX exists, no TLSA" state is
+/// NotConfigured and never reachable from a failed MX lookup); anything
+/// unmeasurable is TransientError.
+fn record_absence_to_dane(e: &NetError, domain: &str) -> DaneDisposition {
+    match record_absence_verdict(e, domain) {
+        TriState::Indet => DaneDisposition::TransientError,
+        _ => DaneDisposition::NoMx,
+    }
 }
 
 // =============================================================================
@@ -1428,16 +1444,5 @@ mod tests {
         let policy =
             "version: STSv1\r\nmode: enforce\r\nmx: smtp.example.com\r\nmax_age: 86400\r\n";
         assert!(mta_sts_enforced(policy));
-    }
-}
-
-/// Wraps record_absence_verdict for DANE's MX lookup. A measured absence of
-/// MX records is NoMx (chain: Absent — the "MX exists, no TLSA" state is
-/// NotConfigured and never reachable from a failed MX lookup); anything
-/// unmeasurable is TransientError.
-fn record_absence_to_dane(e: &NetError, domain: &str) -> DaneDisposition {
-    match record_absence_verdict(e, domain) {
-        TriState::Indet => DaneDisposition::TransientError,
-        _ => DaneDisposition::NoMx,
     }
 }

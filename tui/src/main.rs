@@ -14,7 +14,9 @@ use std::time::Instant;
 use anyhow::Result;
 use clap::Parser;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
+use crossterm::terminal::{
+    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+};
 use crossterm::ExecutableCommand;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -38,7 +40,10 @@ use hickory_resolver::TokioResolver;
 // ── CLI ────────────────────────────────────────────────────────────
 
 #[derive(Parser)]
-#[command(name = "rs", about = "Resolution Scope — DNS security analysis terminal")]
+#[command(
+    name = "rs",
+    about = "Resolution Scope — DNS security analysis terminal"
+)]
 struct Args {
     #[arg(short, long)]
     domains: Vec<String>,
@@ -51,23 +56,37 @@ struct Args {
 // ── palette ────────────────────────────────────────────────────────
 
 #[derive(Clone, Copy, PartialEq)]
-enum Mode { Blue, Covert }
+enum Mode {
+    Blue,
+    Covert,
+}
 
 #[derive(Clone, Copy)]
 struct Palette {
-    bg: Color, fg: Color, accent: Color, warn: Color, fail: Color,
-    pass: Color, muted: Color, border: Color, highlight: Color,
-    header_bg: Color, header_fg: Color,
+    bg: Color,
+    fg: Color,
+    accent: Color,
+    warn: Color,
+    fail: Color,
+    pass: Color,
+    muted: Color,
+    border: Color,
+    highlight: Color,
+    header_bg: Color,
 }
 
 impl Palette {
     const BLUE: Self = Self {
-        bg: Color::Rgb(10, 10, 10), fg: Color::Rgb(224, 224, 224),
-        accent: Color::Rgb(64, 160, 255), warn: Color::Rgb(255, 180, 40),
-        fail: Color::Rgb(255, 70, 70), pass: Color::Rgb(70, 200, 100),
-        muted: Color::Rgb(100, 100, 100), border: Color::Rgb(50, 50, 55),
-        highlight: Color::Rgb(40, 40, 48), header_bg: Color::Rgb(30, 30, 38),
-        header_fg: Color::Rgb(180, 200, 220),
+        bg: Color::Rgb(10, 10, 10),
+        fg: Color::Rgb(224, 224, 224),
+        accent: Color::Rgb(64, 160, 255),
+        warn: Color::Rgb(255, 180, 40),
+        fail: Color::Rgb(255, 70, 70),
+        pass: Color::Rgb(70, 200, 100),
+        muted: Color::Rgb(100, 100, 100),
+        border: Color::Rgb(50, 50, 55),
+        highlight: Color::Rgb(40, 40, 48),
+        header_bg: Color::Rgb(30, 30, 38),
     };
     const COVERT: Self = Self {
         bg: Color::Rgb(6, 4, 2),
@@ -80,14 +99,18 @@ impl Palette {
         border: Color::Rgb(50, 30, 15),
         highlight: Color::Rgb(25, 15, 8),
         header_bg: Color::Rgb(18, 10, 6),
-        header_fg: Color::Rgb(210, 150, 70),
     };
 }
 
 // ── navigation tabs ────────────────────────────────────────────────
 
 const TAB_LABELS: &[&str] = &[
-    "1:Summary", "2:DNSSEC", "3:DANE", "4:SPF/DMARC", "5:MTA-STS", "6:CAA/CDS",
+    "1:Summary",
+    "2:DNSSEC",
+    "3:DANE",
+    "4:SPF/DMARC",
+    "5:MTA-STS",
+    "6:CAA/CDS",
 ];
 
 fn section_for_tab(
@@ -101,7 +124,13 @@ fn section_for_tab(
     match tab {
         0 => render_summary(&model, pal, audience, selected),
         1 => render_controls("══ DNSSEC ══", &model, &[ControlId::Dnssec], pal, audience),
-        2 => render_controls("══ DANE (SMTP TLSA) ══", &model, &[ControlId::Dane], pal, audience),
+        2 => render_controls(
+            "══ DANE (SMTP TLSA) ══",
+            &model,
+            &[ControlId::Dane],
+            pal,
+            audience,
+        ),
         3 => render_controls(
             "══ Email Authentication ══",
             &model,
@@ -110,7 +139,13 @@ fn section_for_tab(
             audience,
         ),
         4 => render_controls("══ MTA-STS ══", &model, &[ControlId::MtaSts], pal, audience),
-        5 => render_controls("══ CAA / CDS ══", &model, &[ControlId::Caa, ControlId::Cds], pal, audience),
+        5 => render_controls(
+            "══ CAA / CDS ══",
+            &model,
+            &[ControlId::Caa, ControlId::Cds],
+            pal,
+            audience,
+        ),
         _ => vec![Line::from("—")],
     }
 }
@@ -178,13 +213,26 @@ fn render_summary(
     for (i, rep) in ordered.iter().enumerate() {
         let is_sel = i == selected;
         let cursor = if is_sel { "▸ " } else { "  " };
-        let row_bg = if is_sel { Style::default().bg(pal.highlight) } else { Style::default() };
+        let row_bg = if is_sel {
+            Style::default().bg(pal.highlight)
+        } else {
+            Style::default()
+        };
         let (icon, icon_color) = state_icon(rep.tri, pal);
         lines.push(Line::from(vec![
             Span::styled(cursor.to_string(), row_bg.fg(pal.accent)),
-            Span::styled(format!("{:<10}", rep.severity.label()), severity_style(rep.severity, pal).patch(row_bg)),
-            Span::styled(format!(" {:<12}", rep.control.name()), row_bg.fg(pal.fg).add_modifier(Modifier::BOLD)),
-            Span::styled(format!(" {} ", icon), row_bg.fg(icon_color).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                format!("{:<10}", rep.severity.label()),
+                severity_style(rep.severity, pal).patch(row_bg),
+            ),
+            Span::styled(
+                format!(" {:<12}", rep.control.name()),
+                row_bg.fg(pal.fg).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!(" {} ", icon),
+                row_bg.fg(icon_color).add_modifier(Modifier::BOLD),
+            ),
             Span::styled(format!(" {}", rep.measured), row_bg.fg(pal.muted)),
         ]));
         if is_sel {
@@ -224,16 +272,28 @@ fn render_controls(
     audience: Audience,
 ) -> Vec<Line<'static>> {
     let mut lines = vec![
-        Line::from(Span::styled(title, Style::default().fg(pal.accent).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(
+            title,
+            Style::default().fg(pal.accent).add_modifier(Modifier::BOLD),
+        )),
         Line::from(""),
     ];
     for c in controls {
         let rep = report_for(model, *c);
         let (icon, icon_color) = state_icon(rep.tri, pal);
         lines.push(Line::from(vec![
-            Span::styled(format!("  {} ", rep.control.name()), Style::default().fg(pal.fg).add_modifier(Modifier::BOLD)),
-            Span::styled(icon, Style::default().fg(icon_color).add_modifier(Modifier::BOLD)),
-            Span::styled(format!("  {}", rep.severity.label()), severity_style(rep.severity, pal)),
+            Span::styled(
+                format!("  {} ", rep.control.name()),
+                Style::default().fg(pal.fg).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                icon,
+                Style::default().fg(icon_color).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("  {}", rep.severity.label()),
+                severity_style(rep.severity, pal),
+            ),
         ]));
         lines.push(Line::from(""));
         lines.push(Line::from(vec![
@@ -256,7 +316,10 @@ fn render_controls(
 // ── app state ──────────────────────────────────────────────────────
 
 #[derive(Clone, Copy, PartialEq)]
-enum InputMode { Normal, Domain }
+enum InputMode {
+    Normal,
+    Domain,
+}
 
 struct App {
     mode: Mode,
@@ -276,19 +339,43 @@ struct App {
 impl App {
     fn new(resolver: TokioResolver, domains: Vec<String>, covert: bool) -> Self {
         let mode = if covert { Mode::Covert } else { Mode::Blue };
-        let pal = if covert { Palette::COVERT } else { Palette::BLUE };
-        Self { mode, pal, resolver, domains, current_domain: 0,
-            results: Vec::new(), scroll: 0, selected_tab: 0, selected_control: 0,
-            last_scan: None, input_mode: InputMode::Normal, input_buf: String::new() }
+        let pal = if covert {
+            Palette::COVERT
+        } else {
+            Palette::BLUE
+        };
+        Self {
+            mode,
+            pal,
+            resolver,
+            domains,
+            current_domain: 0,
+            results: Vec::new(),
+            scroll: 0,
+            selected_tab: 0,
+            selected_control: 0,
+            last_scan: None,
+            input_mode: InputMode::Normal,
+            input_buf: String::new(),
+        }
     }
     fn toggle_mode(&mut self) {
-        self.mode = match self.mode { Mode::Blue => Mode::Covert, Mode::Covert => Mode::Blue };
-        self.pal = match self.mode { Mode::Blue => Palette::BLUE, Mode::Covert => Palette::COVERT };
+        self.mode = match self.mode {
+            Mode::Blue => Mode::Covert,
+            Mode::Covert => Mode::Blue,
+        };
+        self.pal = match self.mode {
+            Mode::Blue => Palette::BLUE,
+            Mode::Covert => Palette::COVERT,
+        };
     }
     /// The mode flip changes framing (which consequence string renders), never
     /// facts — both strings come from the shared model.
     fn audience(&self) -> Audience {
-        match self.mode { Mode::Blue => Audience::BlueTeam, Mode::Covert => Audience::RedTeam }
+        match self.mode {
+            Mode::Blue => Audience::BlueTeam,
+            Mode::Covert => Audience::RedTeam,
+        }
     }
     /// The control the summary cursor points at, in severity order.
     fn selected_report(&self) -> Option<ControlReport> {
@@ -303,9 +390,16 @@ impl App {
         self.selected_control = 0;
         Ok(())
     }
-    fn current_result(&self) -> Option<&ScoredAnalysis> { self.results.first() }
-    fn next_domain(&mut self) { self.current_domain = (self.current_domain + 1) % self.domains.len().max(1); }
-    fn prev_domain(&mut self) { self.current_domain = (self.current_domain + self.domains.len() - 1) % self.domains.len().max(1); }
+    fn current_result(&self) -> Option<&ScoredAnalysis> {
+        self.results.first()
+    }
+    fn next_domain(&mut self) {
+        self.current_domain = (self.current_domain + 1) % self.domains.len().max(1);
+    }
+    fn prev_domain(&mut self) {
+        self.current_domain =
+            (self.current_domain + self.domains.len() - 1) % self.domains.len().max(1);
+    }
 }
 
 // ── rendering ──────────────────────────────────────────────────────
@@ -314,9 +408,15 @@ fn render_ui(f: &mut Frame, app: &App) {
     let p = app.pal;
     f.render_widget(Block::default().style(Style::default().bg(p.bg)), f.area());
 
-    let main = Layout::default().direction(Direction::Vertical).constraints([
-        Constraint::Length(3), Constraint::Length(2), Constraint::Min(0), Constraint::Length(1),
-    ]).split(f.area());
+    let main = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Length(2),
+            Constraint::Min(0),
+            Constraint::Length(1),
+        ])
+        .split(f.area());
 
     render_header(f, main[0], app);
     render_tabs(f, main[1], app);
@@ -326,33 +426,63 @@ fn render_ui(f: &mut Frame, app: &App) {
 
 fn render_header(f: &mut Frame, area: Rect, app: &App) {
     let p = app.pal;
-    let mode_label = match app.mode { Mode::Blue => "BLUE", Mode::Covert => "COVERT" };
-    let domain = app.domains.get(app.current_domain).map(|d| d.as_str()).unwrap_or("—");
+    let mode_label = match app.mode {
+        Mode::Blue => "BLUE",
+        Mode::Covert => "COVERT",
+    };
+    let domain = app
+        .domains
+        .get(app.current_domain)
+        .map(|d| d.as_str())
+        .unwrap_or("—");
     let text = vec![
         Line::from(vec![
-            Span::styled("⚡ RESOLUTION SCOPE ", Style::default().fg(p.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "⚡ RESOLUTION SCOPE ",
+                Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
+            ),
             Span::styled(mode_label, Style::default().fg(p.warn)),
-            Span::styled(format!(" [{}/{}] ", app.current_domain + 1, app.domains.len()), Style::default().fg(p.muted)),
+            Span::styled(
+                format!(" [{}/{}] ", app.current_domain + 1, app.domains.len()),
+                Style::default().fg(p.muted),
+            ),
             Span::styled("│  ", Style::default().fg(p.muted)),
-            Span::styled(domain, Style::default().fg(p.fg).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                domain,
+                Style::default().fg(p.fg).add_modifier(Modifier::BOLD),
+            ),
         ]),
         Line::from(vec![Span::styled(
             "1-6:nav  m:mode  j/k:select/scroll  enter:detail  r:rescan  tab:next  q:quit",
             Style::default().fg(p.muted),
         )]),
     ];
-    let widget = Paragraph::new(text).block(Block::default().style(Style::default().bg(p.header_bg)).borders(Borders::BOTTOM).border_style(Style::default().fg(p.border)));
+    let widget = Paragraph::new(text).block(
+        Block::default()
+            .style(Style::default().bg(p.header_bg))
+            .borders(Borders::BOTTOM)
+            .border_style(Style::default().fg(p.border)),
+    );
     f.render_widget(widget, area);
 }
 
 fn render_tabs(f: &mut Frame, area: Rect, app: &App) {
     let p = app.pal;
-    let titles: Vec<Line> = TAB_LABELS.iter().enumerate().map(|(i, t)| {
-        let style = if i == app.selected_tab { Style::default().fg(p.accent).add_modifier(Modifier::BOLD) }
-        else { Style::default().fg(p.muted) };
-        Line::from(Span::styled(*t, style))
-    }).collect();
-    let tabs = Tabs::new(titles).select(app.selected_tab).style(Style::default().fg(p.muted))
+    let titles: Vec<Line> = TAB_LABELS
+        .iter()
+        .enumerate()
+        .map(|(i, t)| {
+            let style = if i == app.selected_tab {
+                Style::default().fg(p.accent).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(p.muted)
+            };
+            Line::from(Span::styled(*t, style))
+        })
+        .collect();
+    let tabs = Tabs::new(titles)
+        .select(app.selected_tab)
+        .style(Style::default().fg(p.muted))
         .highlight_style(Style::default().fg(p.accent))
         .divider(Span::styled("│", Style::default().fg(p.muted)));
     f.render_widget(tabs, area);
@@ -361,16 +491,26 @@ fn render_tabs(f: &mut Frame, area: Rect, app: &App) {
 fn render_content(f: &mut Frame, area: Rect, app: &App) {
     let p = app.pal;
     if let Some(result) = app.current_result() {
-        let section_lines =
-            section_for_tab(app.selected_tab, result, p, app.audience(), app.selected_control);
-        let block = Block::default().style(Style::default().bg(p.bg)).borders(Borders::NONE);
+        let section_lines = section_for_tab(
+            app.selected_tab,
+            result,
+            p,
+            app.audience(),
+            app.selected_control,
+        );
+        let block = Block::default()
+            .style(Style::default().bg(p.bg))
+            .borders(Borders::NONE);
         let widget = Paragraph::new(section_lines)
             .block(block)
             .wrap(Wrap { trim: false })
             .scroll((app.scroll, 0));
         f.render_widget(widget, area);
     } else {
-        let hint = vec![Line::from(Span::styled("Press 'r' to scan, or enter a domain.", Style::default().fg(p.muted)))];
+        let hint = vec![Line::from(Span::styled(
+            "Press 'r' to scan, or enter a domain.",
+            Style::default().fg(p.muted),
+        ))];
         f.render_widget(Paragraph::new(hint).style(Style::default().bg(p.bg)), area);
     }
 }
@@ -379,15 +519,34 @@ fn render_footer(f: &mut Frame, area: Rect, app: &App) {
     let p = app.pal;
     if app.input_mode == InputMode::Domain {
         let prompt = format!(" Domain: {}█", app.input_buf);
-        f.render_widget(Paragraph::new(Line::from(Span::styled(prompt, Style::default().fg(p.accent).add_modifier(Modifier::BOLD)))).style(Style::default().bg(p.header_bg)), area);
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                prompt,
+                Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
+            )))
+            .style(Style::default().bg(p.header_bg)),
+            area,
+        );
         return;
     }
     let status = match app.last_scan {
-        Some(t) => format!("last scan: {:.0}s ago  │  domain {}/{}  │  tab: {}  │  d:add domain",
-            t.elapsed().as_secs(), app.current_domain + 1, app.domains.len(), TAB_LABELS[app.selected_tab]),
+        Some(t) => format!(
+            "last scan: {:.0}s ago  │  domain {}/{}  │  tab: {}  │  d:add domain",
+            t.elapsed().as_secs(),
+            app.current_domain + 1,
+            app.domains.len(),
+            TAB_LABELS[app.selected_tab]
+        ),
         None => "no scan yet — press 'r'  |  d:add domain".into(),
     };
-    f.render_widget(Paragraph::new(Line::from(Span::styled(status, Style::default().fg(p.muted)))).style(Style::default().bg(p.header_bg)), area);
+    f.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            status,
+            Style::default().fg(p.muted),
+        )))
+        .style(Style::default().bg(p.header_bg)),
+        area,
+    );
 }
 
 // ── input ──────────────────────────────────────────────────────────
@@ -422,13 +581,21 @@ fn handle_input(app: &mut App, code: KeyCode, modifiers: KeyModifiers) -> Result
             }
         }
         KeyCode::Tab => {
-            if modifiers.contains(KeyModifiers::SHIFT) { app.prev_domain(); }
-            else { app.next_domain(); }
+            if modifiers.contains(KeyModifiers::SHIFT) {
+                app.prev_domain();
+            } else {
+                app.next_domain();
+            }
         }
-        KeyCode::Char('d') => { app.input_mode = InputMode::Domain; app.input_buf.clear(); }
+        KeyCode::Char('d') => {
+            app.input_mode = InputMode::Domain;
+            app.input_buf.clear();
+        }
         KeyCode::Char(c) if c.is_ascii_digit() => {
             if let Some(n) = c.to_digit(10) {
-                if n >= 1 && n <= 6 { app.selected_tab = n as usize - 1; }
+                if (1..=6).contains(&n) {
+                    app.selected_tab = n as usize - 1;
+                }
             }
         }
         _ => {}
@@ -451,8 +618,12 @@ fn handle_input_mode(app: &mut App, code: KeyCode) {
             app.input_mode = InputMode::Normal;
             app.input_buf.clear();
         }
-        KeyCode::Backspace => { app.input_buf.pop(); }
-        KeyCode::Char(c) => { app.input_buf.push(c); }
+        KeyCode::Backspace => {
+            app.input_buf.pop();
+        }
+        KeyCode::Char(c) => {
+            app.input_buf.push(c);
+        }
         _ => {}
     }
 }
@@ -462,7 +633,9 @@ fn handle_input_mode(app: &mut App, code: KeyCode) {
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
-    let domains = if !args.domains.is_empty() { args.domains } else {
+    let domains = if !args.domains.is_empty() {
+        args.domains
+    } else {
         eprintln!("Usage: rs -d example.com [resolutionscope.com ...]");
         std::process::exit(1);
     };
@@ -472,7 +645,9 @@ async fn main() -> Result<()> {
     let resolver = TokioResolver::builder_with_config(
         ResolverConfig::udp_and_tcp(&hickory_resolver::config::CLOUDFLARE),
         TokioRuntimeProvider::default(),
-    ).with_options(opts).build()?;
+    )
+    .with_options(opts)
+    .build()?;
 
     if args.text {
         for domain in &domains {
@@ -500,7 +675,9 @@ async fn main() -> Result<()> {
                     }
                     continue;
                 }
-                if !handle_input(&mut app, key.code, key.modifiers)? { break Ok(()); }
+                if !handle_input(&mut app, key.code, key.modifiers)? {
+                    break Ok(());
+                }
                 // Rescan on 'r' AND on domain switch — Tab without a rescan
                 // rendered the previous domain's verdicts under the new
                 // domain's name (adversarial panel, 2026-08-19).
