@@ -1,0 +1,23 @@
+[package]
+name        = "resolution-scope-web"
+version     = "0.1.0"
+edition     = "2021"
+description = "Resolution Scope web renderer — static HTML from the shared truth-chain model"
+license     = "AGPL-3.0"
+repository  = "https://github.com/IT-Help-San-Diego/resolution-scope"
+
+[dependencies]
+# Engine — the single producer of verdict meaning. This crate reads
+# ControlReport/Tally/Severity/Audience and defines NO RFC text and NO
+# verdict logic of its own (scripts/check-citation-boundary.sh enforces the
+# citation half in CI the moment this manifest exists).
+resolution-scope-engine = { path = "../engine" }
+
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+hickory-resolver = { version = "0.26.1", features = ["dnssec-ring"] }
+
+[[bin]]
+name = "rs-web"
+path = "src/main.rs"

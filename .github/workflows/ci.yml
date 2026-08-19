@@ -52,6 +52,24 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
         working-directory: tui
 
+  web:
+    name: web — fmt, tests (render contract), strict clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: web
+      - run: cargo fmt --check
+        working-directory: web
+      - run: cargo test
+        working-directory: web
+      - run: cargo clippy --all-targets -- -D warnings
+        working-directory: web
+
   native-lib:
     name: native — lib build + tests (the ledger contract; bin is bare-metal)
     runs-on: ubuntu-latest
