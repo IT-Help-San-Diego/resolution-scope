@@ -24,6 +24,8 @@ use ratatui::widgets::{Block, Borders, Paragraph, Tabs, Wrap};
 use ratatui::{Frame, Terminal};
 
 use resolution_scope_engine::analysis::analyse_domain;
+use resolution_scope_engine::analysis::CaaDisposition;
+use resolution_scope_engine::analysis::CdsDisposition;
 use resolution_scope_engine::analysis::DaneDisposition;
 use resolution_scope_engine::analysis::DkimDisposition;
 use resolution_scope_engine::analysis::DmarcDisposition;
@@ -158,6 +160,24 @@ fn dmarc_label(d: DmarcDisposition) -> &'static str {
     }
 }
 
+fn caa_label(d: CaaDisposition) -> &'static str {
+    match d {
+        CaaDisposition::Configured => "configured",
+        CaaDisposition::NotConfigured => "not-configured",
+        CaaDisposition::NoZone => "no-zone",
+        CaaDisposition::TransientError => "lookup-error",
+    }
+}
+
+fn cds_label(d: CdsDisposition) -> &'static str {
+    match d {
+        CdsDisposition::Published => "published",
+        CdsDisposition::NotPublished => "not-published",
+        CdsDisposition::NoZone => "no-zone",
+        CdsDisposition::TransientError => "lookup-error",
+    }
+}
+
 fn render_summary(r: &ScoredAnalysis, pal: Palette) -> Vec<Line<'static>> {
     let mut lines = vec![
         Line::from(Span::styled("══ Summary ══", Style::default().fg(pal.accent).add_modifier(Modifier::BOLD))),
@@ -183,6 +203,10 @@ fn render_summary(r: &ScoredAnalysis, pal: Palette) -> Vec<Line<'static>> {
             format!("  {}", spf_label(r.spf_disposition))
         } else if *name == "DMARC" {
             format!("  {}", dmarc_label(r.dmarc_disposition))
+        } else if *name == "CAA" {
+            format!("  {}", caa_label(r.caa_disposition))
+        } else if *name == "CDS/CDNSKEY" {
+            format!("  {}", cds_label(r.cds_disposition))
         } else {
             String::new()
         };
