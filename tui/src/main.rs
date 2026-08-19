@@ -25,7 +25,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Tabs, Wrap};
 use ratatui::{Frame, Terminal};
 
-use resolution_scope_engine::analysis::analyse_domain;
+use resolution_scope_engine::analysis::analyse_domain_with_selectors;
 use resolution_scope_engine::report::render_text;
 use resolution_scope_engine::truth_chain::{
     by_severity, truth_chain, Audience, ControlId, ControlReport, Severity, Tally,
@@ -51,6 +51,8 @@ struct Args {
     covert: bool,
     #[arg(short = 't', long)]
     text: bool,
+    #[arg(long)]
+    dkim_selector: Vec<String>,
 }
 
 // ── palette ────────────────────────────────────────────────────────
@@ -326,6 +328,7 @@ struct App {
     pal: Palette,
     resolver: TokioResolver,
     domains: Vec<String>,
+    dkim_selector: Vec<String>,
     current_domain: usize,
     results: Vec<ScoredAnalysis>,
     scroll: u16,
@@ -337,7 +340,12 @@ struct App {
 }
 
 impl App {
-    fn new(resolver: TokioResolver, domains: Vec<String>, covert: bool) -> Self {
+    fn new(
+        resolver: TokioResolver,
+        domains: Vec<String>,
+        dkim_selector: Vec<String>,
+        covert: bool,
+    ) -> Self {
         let mode = if covert { Mode::Covert } else { Mode::Blue };
         let pal = if covert {
             Palette::COVERT
@@ -349,6 +357,7 @@ impl App {
             pal,
             resolver,
             domains,
+            dkim_selector,
             current_domain: 0,
             results: Vec::new(),
             scroll: 0,
@@ -384,7 +393,8 @@ impl App {
     }
     async fn scan(&mut self) -> Result<()> {
         let domain = &self.domains[self.current_domain];
-        self.results = vec![analyse_domain(&self.resolver, domain).await?];
+        self.results =
+            vec![analyse_domain_with_selectors(&self.resolver, domain, &self.dkim_selector).await?];
         self.last_scan = Some(Instant::now());
         self.scroll = 0;
         self.selected_control = 0;
@@ -651,12 +661,17 @@ async fn main() -> Result<()> {
 
     if args.text {
         for domain in &domains {
-            println!("{}", render_text(&analyse_domain(&resolver, domain).await?));
+            println!(
+                "{}",
+                render_text(
+                    &analyse_domain_with_selectors(&resolver, domain, &args.dkim_selector).await?
+                )
+            );
         }
         return Ok(());
     }
 
-    let mut app = App::new(resolver, domains, args.covert);
+    let mut app = App::new(resolver, domains, args.dkim_selector, args.covert);
     app.scan().await?;
 
     enable_raw_mode()?;

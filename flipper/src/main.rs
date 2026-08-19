@@ -20,7 +20,7 @@ use clap::Parser;
 use hickory_resolver::config::{ResolverConfig, ResolverOpts};
 use hickory_resolver::net::runtime::TokioRuntimeProvider;
 use hickory_resolver::TokioResolver;
-use resolution_scope_engine::analysis::analyse_domain;
+use resolution_scope_engine::analysis::analyse_domain_with_selectors;
 use resolution_scope_engine::truth_chain::Audience;
 
 #[derive(Parser)]
@@ -41,6 +41,12 @@ struct Args {
     /// Consequence framing: blue (defend) or red (assess)
     #[arg(long, default_value = "blue")]
     audience: String,
+
+    /// DKIM selector(s) to probe in addition to the 81 defaults (repeatable).
+    /// A known selector yields a definitive Verified/KeyMismatch instead of
+    /// the sweep's "absence NOT proven".
+    #[arg(long)]
+    dkim_selector: Vec<String>,
 
     /// Output file path (for html/text; tui always goes to stdout)
     #[arg(short, long)]
@@ -70,7 +76,7 @@ async fn main() -> Result<()> {
     let mut analyses = Vec::with_capacity(args.domains.len());
     for domain in &args.domains {
         eprintln!("scanning {domain} …");
-        analyses.push(analyse_domain(&resolver, domain).await?);
+        analyses.push(analyse_domain_with_selectors(&resolver, domain, &args.dkim_selector).await?);
     }
 
     match args.format.as_str() {

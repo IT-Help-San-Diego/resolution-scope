@@ -458,7 +458,21 @@ pub struct ScoredAnalysis {
 // analyse_domain — top-level entry point
 // =============================================================================
 
+/// Analyse a domain with the default probe set (no caller-supplied DKIM
+/// selectors). Thin wrapper over [`analyse_domain_with_selectors`].
 pub async fn analyse_domain(resolver: &TokioResolver, domain: &str) -> Result<ScoredAnalysis> {
+    analyse_domain_with_selectors(resolver, domain, &[]).await
+}
+
+/// Analyse a domain, probing the caller-supplied DKIM selectors in addition
+/// to (and ahead of) the 81 defaults. A user who knows their selector gets a
+/// definitive `Verified` / `KeyMismatch` instead of the sweep's
+/// "absence NOT proven".
+pub async fn analyse_domain_with_selectors(
+    resolver: &TokioResolver,
+    domain: &str,
+    dkim_selectors: &[String],
+) -> Result<ScoredAnalysis> {
     debug!(domain, "starting analysis");
 
     let session_id: u64 = rand_session_id();
@@ -482,7 +496,7 @@ pub async fn analyse_domain(resolver: &TokioResolver, domain: &str) -> Result<Sc
     // caller-supplied selector via analyse_domain_with_selectors). The honest
     // dispositions are Verified / KeyMismatch / NotFoundDefaults — no longer
     // a hardcoded NotProbed stub.
-    let dkim_disposition = score_dkim(resolver, domain, &[]).await;
+    let dkim_disposition = score_dkim(resolver, domain, dkim_selectors).await;
     let dkim = dkim_disposition.chain();
     let dmarc_disposition = score_dmarc(resolver, domain).await;
     let dmarc = dmarc_disposition.chain();
@@ -830,13 +844,22 @@ pub(crate) const DEFAULT_DKIM_SELECTORS: [&str; 81] = [
 ];
 
 /// Pure DKIM key-record extractor: returns the `p=` value if `record` is a
-/// `v=DKIM1` key (case-insensitive per RFC 5234 ABNF literals), else None.
-/// The public key lives in the `p=` tag (RFC 6376 §3.6.1); an EMPTY `p=`
-/// is a revocation — the key is present but deliberately unusable.
+/// DKIM key, else None.
+///
+/// RFC 6376 §3.6.1: the `v=` tag is RECOMMENDED with default "DKIM1" (not
+/// required) — a key record may omit it (e.g. the Mailchimp `mandrill`
+/// selector publishes `k=rsa; p=...` with no v=). A record whose FIRST tag is
+/// `v=` with any value OTHER than `dkim1` (case-insensitive per RFC 5234) is
+/// NOT a DKIM key (e.g. `v=spf1`). The public key is the `p=` tag; an EMPTY
+/// `p=` is a revocation (RFC 6376 §3.6.1) — the key is present but unusable.
 fn dkim_p_value(record: &str) -> Option<&str> {
-    let lower = record.to_ascii_lowercase();
-    if !lower.starts_with("v=dkim1") {
-        return None;
+    // Reject an explicit v= tag with a non-DKIM1 value. Absent v= defaults to
+    // DKIM1, so a bare `k=rsa; p=...` record IS a DKIM key.
+    if let Some(first) = record.split(';').next().map(str::trim) {
+        let f = first.to_ascii_lowercase();
+        if f.starts_with("v=") && !f.starts_with("v=dkim1") {
+            return None;
+        }
     }
     record.split(';').find_map(|part| {
         let part = part.trim();
@@ -1670,6 +1693,14 @@ mod tests {
         assert_eq!(dkim_p_value("v=DKIM1; k=rsa"), None);
         // Empty p= is a revocation — the extractor still returns Some("").
         assert_eq!(dkim_p_value("v=DKIM1; p="), Some(""));
+        // A key record that OMITS v= is still a DKIM key (RFC 6376 §3.6.1:
+        // v= is RECOMMENDED, default DKIM1) — the Mailchimp mandrill shape.
+        assert_eq!(
+            dkim_p_value("k=rsa; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQ"),
+            Some("MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQ")
+        );
+        // An explicit non-DKIM version tag is rejected even with a p= present.
+        assert_eq!(dkim_p_value("v=spf1; p=abc"), None);
     }
 
     /// The disposition classifier's precedence, pinned without network:
