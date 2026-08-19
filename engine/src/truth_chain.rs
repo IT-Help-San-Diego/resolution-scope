@@ -17,6 +17,17 @@
 // variant the prober actually emits after probing (see DkimDisposition::
 // NotProbed vs NotFoundDefaults).
 //
+// Citations are claims too, and their STATUS is part of the claim: layer 1
+// says what a standard REQUIRES, so it must cite documents that can require.
+// The 2026-08-19 audit's DMARC fix was a category upgrade, not just a
+// freshness fix — RFC 7489 was Informational (never normative; it could not
+// require anything), while its successor RFC 9989 is Standards Track
+// (obsoletes 7489 + 9091, verified at rfc-editor.org). Cite successor-first,
+// keep the obsoleted number for reader orientation, and prefer normative
+// documents wherever one exists. The citation boundary is build-enforced:
+// tui/tests/no_rfc_literals.rs in-crate, scripts/check-citation-boundary.sh
+// across every non-engine crate in CI.
+//
 // Kept alloc-light on purpose (only &'static str + fixed arrays): report.rs
 // aims to compile for a no_std seL4 compartment someday, and this module sits
 // on that same side of the boundary.

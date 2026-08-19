@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  citation-boundary:
+    name: Citation boundary (every non-engine crate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: RFC literals stay in the engine
+        run: bash scripts/check-citation-boundary.sh
+
+  engine:
+    name: engine — fmt, test, strict clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: engine
+      - run: cargo fmt --check
+        working-directory: engine
+      - run: cargo test
+        working-directory: engine
+      # The strict form is the real gate: plain `cargo clippy` passed while
+      # --all-targets was red (items_after_test_module, caught 2026-08-19).
+      - run: cargo clippy --all-targets -- -D warnings
+        working-directory: engine
+
+  tui:
+    name: tui — fmt, tests (incl. citation guard), strict clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tui
+      - run: cargo fmt --check
+        working-directory: tui
+      - run: cargo test
+        working-directory: tui
+      - run: cargo clippy --all-targets -- -D warnings
+        working-directory: tui
+
+  native-lib:
+    name: native — lib build + tests (the ledger contract; bin is bare-metal)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+      # --lib only, per docs/BUILD-STATE.md: the [[bin]] is bare-metal Phase-2
+      # code with recorded pre-existing debt; the lib is the host contract.
+      - run: cargo build --lib
+        working-directory: native
+      - run: cargo test --lib
+        working-directory: native
