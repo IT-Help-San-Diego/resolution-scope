@@ -25,6 +25,8 @@ use ratatui::{Frame, Terminal};
 
 use resolution_scope_engine::analysis::analyse_domain;
 use resolution_scope_engine::analysis::DkimDisposition;
+use resolution_scope_engine::analysis::DmarcDisposition;
+use resolution_scope_engine::analysis::SpfDisposition;
 use resolution_scope_engine::analysis::DnssecDisposition;
 use resolution_scope_engine::report::render_text;
 use resolution_scope_engine::ScoredAnalysis;
@@ -130,7 +132,28 @@ fn dkim_label(d: DkimDisposition) -> &'static str {
         DkimDisposition::NotFoundDefaults => "not-found-with-81-defaults",
         DkimDisposition::NoMailDomain => "no-mail",
         DkimDisposition::TransientError => "lookup-error",
-        DkimDisposition::KeyMismatch => "key-mismatch",
+        DkimDisposition::KeyMismatch => "misconfigured",
+    }
+}
+
+fn spf_label(d: SpfDisposition) -> &'static str {
+    match d {
+        SpfDisposition::HardFail => "hardfail (-all)",
+        SpfDisposition::SoftFail => "softfail (~all)",
+        SpfDisposition::NotConfigured => "not-configured",
+        SpfDisposition::NoMail => "no-mail",
+        SpfDisposition::TransientError => "lookup-error",
+    }
+}
+
+fn dmarc_label(d: DmarcDisposition) -> &'static str {
+    match d {
+        DmarcDisposition::Reject => "reject (p=reject)",
+        DmarcDisposition::Quarantine => "quarantine (p=quarantine)",
+        DmarcDisposition::Monitor => "monitor (p=none)",
+        DmarcDisposition::NotConfigured => "not-configured",
+        DmarcDisposition::NoMail => "no-mail",
+        DmarcDisposition::TransientError => "lookup-error",
     }
 }
 
@@ -155,6 +178,10 @@ fn render_summary(r: &ScoredAnalysis, pal: Palette) -> Vec<Line<'static>> {
             format!("  {}", dnssec_label(r.dnssec_disposition))
         } else if *name == "DKIM" {
             format!("  {}", dkim_label(r.dkim_disposition))
+        } else if *name == "SPF" {
+            format!("  {}", spf_label(r.spf_disposition))
+        } else if *name == "DMARC" {
+            format!("  {}", dmarc_label(r.dmarc_disposition))
         } else {
             String::new()
         };
