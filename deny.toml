@@ -9,7 +9,6 @@
 # fails the build instead of silently contaminating the license.
 
 [licenses]
-version = 2
 allow = [
     # Permissive (the Rust ecosystem norm — mostly dual MIT/Apache-2.0)
     "MIT",
@@ -35,13 +34,11 @@ allow = [
     # Public-domain
     "CC0-1.0",
 ]
-# The GPL-2.0-only family cannot combine with a GPL-3.0-family work (the
-# "or later" clause is absent, so they are mutually incompatible).
-deny = [
-    "GPL-2.0-only",
-    "LGPL-2.1-only",
-    "GPL-1.0-only",
-]
+# NOTE: cargo-deny v2 config is deny-by-default — every license NOT in the
+# allow list above fails the build. The GPL-2.0-only family (GPL-2.0-only,
+# LGPL-2.1-only, GPL-1.0-only) is therefore denied without needing a list:
+# the "or later" clause is absent, so those cannot combine with a
+# GPL-3.0-family work.
 # Complex-but-compatible expressions that cargo-deny cannot match as a single
 # SPDX id. Each entry is the crate name + its full expression, triaged below.
 exceptions = [
@@ -59,7 +56,6 @@ exceptions = [
 [advisories]
 # Vulnerability database check (independent of licenses). Keep on; it fails the
 # build on known-vulnerable crates.
-version = 2
 yanked = "deny"
 
 [sources]

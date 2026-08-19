@@ -14,9 +14,17 @@ jobs:
       - name: RFC literals stay in the engine
         run: bash scripts/check-citation-boundary.sh
 
-  engine:
-    name: engine — fmt, test, strict clippy
+  # One matrix for every host crate — a new renderer is a ONE-TOKEN addition
+  # here, not a copied job (the hand-maintained-mirror lesson: flipper shipped
+  # with no CI job because the per-crate jobs were copies). native is separate
+  # below: its contract is --lib only.
+  crates:
+    name: ${{ matrix.crate }} — fmt, test, strict clippy
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        crate: [engine, tui, web, flipper]
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -24,51 +32,15 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: engine
+          workspaces: ${{ matrix.crate }}
       - run: cargo fmt --check
-        working-directory: engine
+        working-directory: ${{ matrix.crate }}
       - run: cargo test
-        working-directory: engine
+        working-directory: ${{ matrix.crate }}
       # The strict form is the real gate: plain `cargo clippy` passed while
       # --all-targets was red (items_after_test_module, caught 2026-08-19).
       - run: cargo clippy --all-targets -- -D warnings
-        working-directory: engine
-
-  tui:
-    name: tui — fmt, tests (incl. citation guard), strict clippy
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: tui
-      - run: cargo fmt --check
-        working-directory: tui
-      - run: cargo test
-        working-directory: tui
-      - run: cargo clippy --all-targets -- -D warnings
-        working-directory: tui
-
-  web:
-    name: web — fmt, tests (render contract), strict clippy
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: web
-      - run: cargo fmt --check
-        working-directory: web
-      - run: cargo test
-        working-directory: web
-      - run: cargo clippy --all-targets -- -D warnings
-        working-directory: web
+        working-directory: ${{ matrix.crate }}
 
   native-lib:
     name: native — lib build + tests (the ledger contract; bin is bare-metal)
@@ -85,3 +57,21 @@ jobs:
         working-directory: native
       - run: cargo test --lib
         working-directory: native
+
+  # License gate (deny.toml): v2 config is deny-by-default — any license not
+  # on the allow list fails the build. Watched failing locally (MIT removed →
+  # licenses FAILED) before being trusted. sources check rejects non-crates.io
+  # dependencies so a git dep can't smuggle in an unaudited license.
+  licenses:
+    name: license gate — ${{ matrix.crate }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        crate: [engine, tui, web, flipper, native]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses sources
+          manifest-path: ${{ matrix.crate }}/Cargo.toml
