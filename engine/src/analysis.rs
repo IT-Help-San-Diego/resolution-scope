@@ -702,10 +702,7 @@ async fn score_spf(resolver: &TokioResolver, domain: &str) -> SpfDisposition {
             }
             spf_disposition_from_records(&spf_records)
         }
-        Err(e) => match record_absence_verdict(&e, domain) {
-            TriState::Indet => SpfDisposition::TransientError,
-            _ => SpfDisposition::NotConfigured,
-        },
+        Err(e) => spf_err_to_disposition(&e, domain),
     }
 }
 
@@ -749,10 +746,7 @@ async fn score_dmarc(resolver: &TokioResolver, domain: &str) -> DmarcDisposition
                 dmarc_disposition_from_record(&dmarc_records[0])
             }
         }
-        Err(e) => match record_absence_verdict(&e, domain) {
-            TriState::Indet => DmarcDisposition::TransientError,
-            _ => DmarcDisposition::NotConfigured,
-        },
+        Err(e) => dmarc_err_to_disposition(&e, domain),
     }
 }
 
@@ -1117,10 +1111,7 @@ async fn score_mta_sts(resolver: &TokioResolver, domain: &str) -> MtaStsDisposit
         }),
         Err(e) => {
             // NODATA (no hint) = measured absence; NXDOMAIN/transient = Indet.
-            return match record_absence_verdict(&e, domain) {
-                TriState::Indet => MtaStsDisposition::TransientError,
-                _ => MtaStsDisposition::RecordAbsent,
-            };
+            return mta_sts_err_to_disposition(&e, domain);
         }
     };
 
@@ -1228,10 +1219,7 @@ async fn score_caa(resolver: &TokioResolver, domain: &str) -> CaaDisposition {
         }
         Err(e) => {
             warn!(domain, error = %e, "CAA lookup error");
-            match record_absence_verdict(&e, domain) {
-                TriState::Indet => CaaDisposition::TransientError,
-                _ => CaaDisposition::NotConfigured,
-            }
+            caa_err_to_disposition(&e, domain)
         }
     }
 }
@@ -1331,6 +1319,41 @@ fn record_absence_to_dane(e: &NetError, domain: &str) -> DaneDisposition {
     match record_absence_verdict(e, domain) {
         TriState::Indet => DaneDisposition::TransientError,
         _ => DaneDisposition::NoMx,
+    }
+}
+
+/// Pure Err-branch mappings: each collapses `record_absence_verdict`'s
+/// TriState to a control's disposition. Extracted so the load-bearing
+/// `TriState::Indet => TransientError` arm is a named, unit-testable decision
+/// rather than an inline match that mutation testing showed could be deleted
+/// (collapsing "couldn't measure" into a measured-absence variant) with no test
+/// failing. Same shape as record_absence_to_dane; one per control because the
+/// absence variant differs (NotConfigured vs RecordAbsent).
+fn spf_err_to_disposition(e: &NetError, domain: &str) -> SpfDisposition {
+    match record_absence_verdict(e, domain) {
+        TriState::Indet => SpfDisposition::TransientError,
+        _ => SpfDisposition::NotConfigured,
+    }
+}
+
+fn dmarc_err_to_disposition(e: &NetError, domain: &str) -> DmarcDisposition {
+    match record_absence_verdict(e, domain) {
+        TriState::Indet => DmarcDisposition::TransientError,
+        _ => DmarcDisposition::NotConfigured,
+    }
+}
+
+fn mta_sts_err_to_disposition(e: &NetError, domain: &str) -> MtaStsDisposition {
+    match record_absence_verdict(e, domain) {
+        TriState::Indet => MtaStsDisposition::TransientError,
+        _ => MtaStsDisposition::RecordAbsent,
+    }
+}
+
+fn caa_err_to_disposition(e: &NetError, domain: &str) -> CaaDisposition {
+    match record_absence_verdict(e, domain) {
+        TriState::Indet => CaaDisposition::TransientError,
+        _ => CaaDisposition::NotConfigured,
     }
 }
 
@@ -1624,6 +1647,72 @@ mod tests {
                 "example.com"
             ),
             DaneDisposition::NoMx
+        );
+    }
+
+    // --- the four extracted Err-branch wrappers: Indet -> TransientError -------
+    // Each is the same doctrine as record_absence_to_dane: a transient failure
+    // must NOT collapse to a measured-absence variant. Mutation testing showed
+    // deleting these `TriState::Indet` arms survived with no test failing;
+    // each pair below pins both directions.
+
+    #[test]
+    fn spf_err_indet_is_transient_not_notconfigured() {
+        assert_eq!(
+            spf_err_to_disposition(&servfail_err(), "example.com"),
+            SpfDisposition::TransientError
+        );
+        assert_eq!(
+            spf_err_to_disposition(
+                &no_records_err(hickory_proto::op::ResponseCode::NoError),
+                "example.com"
+            ),
+            SpfDisposition::NotConfigured
+        );
+    }
+
+    #[test]
+    fn dmarc_err_indet_is_transient_not_notconfigured() {
+        assert_eq!(
+            dmarc_err_to_disposition(&servfail_err(), "example.com"),
+            DmarcDisposition::TransientError
+        );
+        assert_eq!(
+            dmarc_err_to_disposition(
+                &no_records_err(hickory_proto::op::ResponseCode::NoError),
+                "example.com"
+            ),
+            DmarcDisposition::NotConfigured
+        );
+    }
+
+    #[test]
+    fn mta_sts_err_indet_is_transient_not_recordabsent() {
+        assert_eq!(
+            mta_sts_err_to_disposition(&servfail_err(), "example.com"),
+            MtaStsDisposition::TransientError
+        );
+        assert_eq!(
+            mta_sts_err_to_disposition(
+                &no_records_err(hickory_proto::op::ResponseCode::NoError),
+                "example.com"
+            ),
+            MtaStsDisposition::RecordAbsent
+        );
+    }
+
+    #[test]
+    fn caa_err_indet_is_transient_not_notconfigured() {
+        assert_eq!(
+            caa_err_to_disposition(&servfail_err(), "example.com"),
+            CaaDisposition::TransientError
+        );
+        assert_eq!(
+            caa_err_to_disposition(
+                &no_records_err(hickory_proto::op::ResponseCode::NoError),
+                "example.com"
+            ),
+            CaaDisposition::NotConfigured
         );
     }
 
