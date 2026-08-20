@@ -74,6 +74,7 @@ mod tests {
             domain: "example.com".to_string(),
             session_id: 0xdead_beef,
             timestamp_local: 1_700_000_000,
+            resolver_identity: "default".to_string(),
             dnssec_chain: TriState::Indet,
             dnssec_disposition: crate::analysis::DnssecDisposition::NoZone,
             spf: TriState::Indet,

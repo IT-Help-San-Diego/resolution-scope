@@ -178,6 +178,7 @@ mod tests {
             domain: domain.to_string(),
             session_id: 0xabcd,
             timestamp_local: 1_787_000_000,
+            resolver_identity: "default".to_string(),
             dnssec_chain: dnssec.chain(),
             dnssec_disposition: dnssec,
             spf: spf.chain(),
