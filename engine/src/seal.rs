@@ -1,11 +1,19 @@
 // =============================================================================
-// seal — the "anyone can verify" property (measurement provenance)
+// seal — tamper-evidence for sealed verdicts (NOT provenance)
 // =============================================================================
 //
 // A seal is a deterministic SHA3-512 digest of a measurement's *verdict
-// content*. It exists so a measurement is not merely asserted but verifiable:
-// anyone holding the verdict can re-derive the seal and confirm the verdict
-// has not been altered in transit, in storage, or by a third party.
+// content*. It is tamper-evidence, not a proof that a measurement occurred:
+// anyone can recompute a valid seal over a fabricated verdict, so the seal
+// alone cannot establish that a scan happened. What it DOES establish is
+// that a verdict matches a published seal — if you hold the seal as a
+// trusted value, recomputing it over a verdict confirms that verdict is the
+// one that was sealed, and flags any alteration after sealing.
+//
+// The honest claim (the only one this module makes): "anyone can verify this
+// verdict is the one that was sealed." It is NOT "anyone can verify this was
+// measured." Overstating the seal as provenance is the one thing this
+// instrument must not do.
 //
 // This is the "structure-as-label" property from the Carrier Color deep-time
 // doctrine — the verification is folded into the shape of the verdict itself,

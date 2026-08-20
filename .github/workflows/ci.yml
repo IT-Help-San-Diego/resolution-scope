@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
 
+# Least-privilege GITHUB_TOKEN (CodeQL: actions/missing-workflow-permissions).
+# CI only reads the repo (checkout) and builds/tests — it never pushes,
+# opens PRs, or writes artifacts — so contents:read is the honest ceiling.
+# A compromised workflow with a read-only token can observe, never modify.
+permissions:
+  contents: read
+
 jobs:
   citation-boundary:
     name: Citation boundary (every non-engine crate)
