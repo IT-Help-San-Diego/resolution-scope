@@ -42,10 +42,14 @@ The 9 misses split into two classes:
    `cymru_parse_rejects_two_part_line` (2-part rejected).
 
 2. **`observe_flux` (7)** — the async network path (A/AAAA match arms,
-   `!found`, `unresolved +=`). Only covered by the `#[ignore]`'d live test.
-   Expected for I/O, but a named gap: a mock-resolver seam (injecting a fake
-   `TokioResolver` or an address→ASN lookup fn) would let the A/AAAA extraction
-   and the unresolved counter be unit-tested offline. Deferred, not hidden.
+   `!found`, `unresolved +=`). These miss not because network code is
+   intrinsically untestable, but as a **coverage fact**: the only test covering
+   this path is the `#[ignore]`'d live test, which never runs in `cargo test`,
+   so the mutations are unobserved. The fix is a mock-resolver seam — inject a
+   fake `TokioResolver` or an address→ASN lookup fn — so the A/AAAA extraction
+   and the unresolved counter are unit-tested offline. Actionable, not a
+   permanent exemption: the moment that seam lands, these mutants flip from
+   "missed" to "caught."
 
 **Re-run after the parser-boundary fix:** `34 mutants tested: 7 missed,
 23 caught, 4 unviable`. The two parser misses are gone; the remaining seven are
@@ -56,6 +60,7 @@ all `observe_flux` (the I/O seam above).
 - Mutation testing is the tool for the "are these tests real?" question that
   the 106-test count cannot answer. Run it on a file when that file's verdict
   logic is frozen — not before (a moving file produces churn, not signal).
-- `dispersion()` is now proven mutation-clean; `observe_flux`'s I/O path is the
-  honest open seam, and the fix is a seam injection, not more tests against a
+- `dispersion()` is now proven mutation-clean; `observe_flux`'s 7 misses are a
+  coverage gap (the only covering test is `#[ignore]`'d), not a property of
+  network code — and the fix is a seam injection, not more tests against a
   network.
