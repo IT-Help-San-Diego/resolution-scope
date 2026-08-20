@@ -94,6 +94,30 @@ is now **18 specimens**, and the only multi-operator benign case found at all
 was in **mail** infrastructure rather than web serving — which is also where
 the per-name scoping fix does its work.
 
+## The rate distinction — third assessment state (implemented)
+
+Modelling the shipped `transitions == 0` rule over five real sequence shapes
+surfaced the residual that actually matters: **one transition and n−1
+transitions both read `Dispersing`** — so a legitimate single failover
+(`{A},{A},{B},{B}`) or an operator added mid-window (`{A},{A},{A,B}`) scores
+identically to continuous rotation. This is the false-positive class the study
+left open, arriving as "operators that change once" rather than "multiple
+operators."
+
+Fix (shipped — not a threshold, a third state keyed on transition COUNT):
+
+- `transitions == 0` → `Stable`
+- `transitions == 1` → `Transient` (one observed change, insufficient to
+  characterise as rotation)
+- `transitions >= 2` → `Dispersing` (the set does not settle)
+
+`transition_rate` (`transitions ÷ observations`) is also reported so the
+"1-in-4 vs 3-in-4" distinction is visible to a reader, but the assessment keys
+on the COUNT, not the rate. Regression-pinned:
+`single_failover_reads_transient_not_dispersing`,
+`operator_added_mid_window_reads_transient_not_dispersing`,
+`oscillation_reads_dispersing`, `transition_rate_is_none_without_a_window`.
+
 ## What it does NOT establish (stated, not buried)
 
 - **No malicious specimen measured** — the false-negative rate is unknown.
@@ -107,6 +131,7 @@ the per-name scoping fix does its work.
 The numbers are the detector's baseline, not to be re-derived. The discriminator
 is confirmed by measurement in the false-positive direction (18 single-ASN
 benign + 1 multi-operator benign, all correctly quiet on ASN dispersion). The
-per-name scoping rule is recorded and regression-pinned. Remaining open arms:
-a malicious fast-flux specimen (false-negative rate), and multi-vantage
-separation of steering from rotation.
+per-name scoping rule is recorded and regression-pinned. The rate distinction
+(one transition = `Transient`, not `Dispersing`) is implemented and
+regression-pinned. Remaining open arms: a malicious fast-flux specimen
+(false-negative rate), and multi-vantage separation of steering from rotation.

@@ -16,8 +16,11 @@
 //     space is where compromised-host flux lives; gating unknowns would
 //     blind the detector to its primary signal.
 //   - The dispersion counter REPORTS (observations, distinct ASNs,
-//     transitions, TTL floor). It never claims intent: "dispersing" is a
-//     measured shape, not an accusation.
+//     transitions, transition rate, TTL floor). It never claims intent:
+//     the assessment is keyed on transition COUNT (0 → Stable, 1 → Transient,
+//     ≥2 → Dispersing), so a single failover or an operator added mid-window
+//     does not read "dispersing" — "dispersing" is a measured shape, not an
+//     accusation.
 //
 // The Team Cymru origin service is queried over DNS (TXT), same interface the
 // Go parent uses (asn_lookup.go): reversed-octet names under
@@ -266,9 +269,11 @@ fn observation_from_asns(
 /// constant, not a standard — no RFC defines fast-flux.
 pub const SHORT_TTL_CEILING_SECS: u32 = 300;
 
-/// What the history measured. Descriptive shapes only — "Dispersing" states
-/// that the origin-ASN set changed, and how much; it is not a verdict about
-/// intent.
+/// What the history measured. Descriptive shapes only — none of these is a
+/// verdict about intent. The split is keyed on how many times the origin-ASN
+/// set CHANGED (transitions), never on how many ASNs were seen: a multi-operator
+/// partition that never moves is Stable, while a single switch is Transient
+/// (insufficient to characterise as rotation).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FluxAssessment {
     /// Fewer than two observable observations — dispersion is a claim about
@@ -276,19 +281,34 @@ pub enum FluxAssessment {
     InsufficientHistory,
     /// Two or more observations, origin-ASN set never changed.
     Stable,
-    /// The origin-ASN set changed between consecutive observations.
+    /// Exactly one transition: the set changed once and then held. This is
+    /// indistinguishable from a legitimate failover or an operator added
+    /// mid-window — a single change is insufficient to characterise as
+    /// rotation, so it gets its own state rather than collapsing into
+    /// Dispersing. Honest "I saw one change, and nothing more."
+    Transient,
+    /// Two or more transitions: the set moved at least twice. Rotation-shaped
+    /// (the set does not settle) — still descriptive, not a claim of intent.
     Dispersing,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FluxSignal {
     /// Observable observations counted (non-Observable ones are excluded —
     /// a proxied scan says nothing about origin churn).
     pub observations: usize,
-    /// Union size of all origin ASNs seen across the history.
+    /// Union size of all origin ASNs seen across the history. Reported shape
+    /// only — the assessment never reads this count (a stable multi-operator
+    /// partition reports 2+ and still reads Stable).
     pub distinct_origin_asns: usize,
-    /// Number of consecutive pairs whose origin-ASN sets differ.
+    /// Number of consecutive pairs whose origin-ASN sets differ. This is what
+    /// the assessment keys on: 0 → Stable, 1 → Transient, ≥2 → Dispersing.
     pub transitions: usize,
+    /// `transitions ÷ observations` — the share of observations that witnessed
+    /// a set change (Claude Science's "1-in-4 vs 3-in-4" distinction). `None`
+    /// when fewer than two observations (a rate needs a window). Reported for
+    /// the reader; the assessment is keyed on the transition COUNT, not this.
+    pub transition_rate: Option<f64>,
     /// True when any observation's TTL floor was ≤ SHORT_TTL_CEILING_SECS —
     /// the co-signal, reported alongside, never merged into the assessment.
     pub short_ttl_seen: bool,
@@ -320,14 +340,22 @@ pub fn dispersion(history: &[FluxObservation]) -> FluxSignal {
         FluxAssessment::InsufficientHistory
     } else if transitions == 0 {
         FluxAssessment::Stable
+    } else if transitions == 1 {
+        FluxAssessment::Transient
     } else {
         FluxAssessment::Dispersing
+    };
+    let transition_rate = if observable.len() >= 2 {
+        Some(transitions as f64 / observable.len() as f64)
+    } else {
+        None
     };
 
     FluxSignal {
         observations: observable.len(),
         distinct_origin_asns: union.len(),
         transitions,
+        transition_rate,
         short_ttl_seen,
         assessment,
     }
@@ -532,6 +560,69 @@ mod tests {
         // shape (distinct_origin_asns), never an assessment input; the guard
         // is that the assessment reads transitions, not this count.
         assert_eq!(s.distinct_origin_asns, 2);
+    }
+
+    #[test]
+    fn single_failover_reads_transient_not_dispersing() {
+        // {A},{A},{B},{B}: one real switch (provider-outage failover), then
+        // the set holds. One transition is insufficient to characterise as
+        // rotation — it must NOT read Dispersing.
+        let h = vec![
+            obs(&["345"], Some(3600)),
+            obs(&["345"], Some(3600)),
+            obs(&["5374"], Some(3600)),
+            obs(&["5374"], Some(3600)),
+        ];
+        let s = dispersion(&h);
+        assert_eq!(s.assessment, FluxAssessment::Transient);
+        assert_eq!(s.transitions, 1);
+        assert_eq!(s.distinct_origin_asns, 2);
+        assert_eq!(s.transition_rate, Some(1.0 / 4.0)); // 1-in-4
+    }
+
+    #[test]
+    fn operator_added_mid_window_reads_transient_not_dispersing() {
+        // {A},{A},{A,B}: a second operator joins once and the set holds. One
+        // transition (the union grows) — not rotation.
+        let h = vec![
+            obs(&["345"], Some(3600)),
+            obs(&["345"], Some(3600)),
+            obs(&["345", "5374"], Some(3600)),
+        ];
+        let s = dispersion(&h);
+        assert_eq!(s.assessment, FluxAssessment::Transient);
+        assert_eq!(s.transitions, 1);
+        assert_eq!(s.distinct_origin_asns, 2);
+        assert_eq!(s.transition_rate, Some(1.0 / 3.0));
+    }
+
+    #[test]
+    fn oscillation_reads_dispersing() {
+        // {A},{B},{A},{B}: the set never settles — every consecutive pair
+        // differs. Three transitions over four observations is rotation-shaped,
+        // not a single event.
+        let h = vec![
+            obs(&["345"], Some(300)),
+            obs(&["5374"], Some(300)),
+            obs(&["345"], Some(300)),
+            obs(&["5374"], Some(300)),
+        ];
+        let s = dispersion(&h);
+        assert_eq!(s.assessment, FluxAssessment::Dispersing);
+        assert_eq!(s.transitions, 3);
+        assert_eq!(s.distinct_origin_asns, 2);
+        assert_eq!(s.transition_rate, Some(3.0 / 4.0)); // 3-in-4
+        assert!(s.short_ttl_seen);
+    }
+
+    #[test]
+    fn transition_rate_is_none_without_a_window() {
+        // Fewer than two observations: no rate is meaningful.
+        assert_eq!(dispersion(&[]).transition_rate, None);
+        assert_eq!(
+            dispersion(&[obs(&["345"], Some(3600))]).transition_rate,
+            None
+        );
     }
 
     // ── Live (specimen) ─────────────────────────────────────────────────────
