@@ -1939,17 +1939,21 @@ mod tests {
     #[test]
     fn tlsa_err_nxdomain_own_zone_is_measured_absence() {
         // NXDOMAIN with the HOST's own zone in the SOA: the host exists, only
-        // _25._tcp.<host> is absent → measured absence. This is the trailing-
-        // dot case — host passed without its dot so the SOA comparison matches.
+        // _25._tcp.<host> is absent → measured absence. The host is passed in
+        // its PRODUCTION shape — WITH the trailing dot, as Name::to_ascii()
+        // emits it — so this test exercises the host-side trim_end_matches
+        // that the sanitised form would leave untested (and that cargo-mutants
+        // cannot flag, since the trim is a method call, not a mutable operator).
         let e = nxdomain_err_with_soa("mail.example.com.");
-        assert_eq!(tlsa_err_to_count(&e, "mail.example.com"), Some(0));
+        assert_eq!(tlsa_err_to_count(&e, "mail.example.com."), Some(0));
     }
 
     #[test]
     fn tlsa_err_nxdomain_parent_zone_is_unmeasured() {
         // NXDOMAIN with the parent's SOA: the host itself is missing → Indet.
+        // Host in the dotted production form here too, for the same reason.
         let e = nxdomain_err_with_soa("example.com.");
-        assert_eq!(tlsa_err_to_count(&e, "mail.example.com"), None);
+        assert_eq!(tlsa_err_to_count(&e, "mail.example.com."), None);
     }
 
     // --- the four extracted Err-branch wrappers: Indet -> TransientError -------
