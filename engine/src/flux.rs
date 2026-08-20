@@ -304,10 +304,12 @@ pub struct FluxSignal {
     /// Number of consecutive pairs whose origin-ASN sets differ. This is what
     /// the assessment keys on: 0 → Stable, 1 → Transient, ≥2 → Dispersing.
     pub transitions: usize,
-    /// `transitions ÷ observations` — the share of observations that witnessed
-    /// a set change (Claude Science's "1-in-4 vs 3-in-4" distinction). `None`
-    /// when fewer than two observations (a rate needs a window). Reported for
-    /// the reader; the assessment is keyed on the transition COUNT, not this.
+    /// `transitions ÷ (observations−1)` — the share of transition BOUNDARIES
+    /// that witnessed a set change (Claude Science's "1-in-4 vs 3-in-4"
+    /// distinction). Bounded [0,1] regardless of window length. `None` when
+    /// fewer than two observations (a rate needs at least one boundary).
+    /// Reported for the reader; the assessment is keyed on the transition
+    /// COUNT, not this.
     pub transition_rate: Option<f64>,
     /// True when any observation's TTL floor was ≤ SHORT_TTL_CEILING_SECS —
     /// the co-signal, reported alongside, never merged into the assessment.
@@ -346,7 +348,12 @@ pub fn dispersion(history: &[FluxObservation]) -> FluxSignal {
         FluxAssessment::Dispersing
     };
     let transition_rate = if observable.len() >= 2 {
-        Some(transitions as f64 / observable.len() as f64)
+        // Denominators is the number of transition BOUNDARIES (n−1 consecutive
+        // pairs), not the number of observations (n). A rate divided by n has a
+        // ceiling that drifts with the window (0.5 at n=2, 0.875 at n=8), which
+        // is exactly the incomparability a reported rate exists to remove.
+        // Divided by n−1 the ceiling is a constant 1.0 regardless of window.
+        Some(transitions as f64 / (observable.len() - 1) as f64)
     } else {
         None
     };
@@ -577,7 +584,7 @@ mod tests {
         assert_eq!(s.assessment, FluxAssessment::Transient);
         assert_eq!(s.transitions, 1);
         assert_eq!(s.distinct_origin_asns, 2);
-        assert_eq!(s.transition_rate, Some(1.0 / 4.0)); // 1-in-4
+        assert_eq!(s.transition_rate, Some(1.0 / 3.0)); // 1-in-3 boundaries
     }
 
     #[test]
@@ -593,7 +600,7 @@ mod tests {
         assert_eq!(s.assessment, FluxAssessment::Transient);
         assert_eq!(s.transitions, 1);
         assert_eq!(s.distinct_origin_asns, 2);
-        assert_eq!(s.transition_rate, Some(1.0 / 3.0));
+        assert_eq!(s.transition_rate, Some(1.0 / 2.0)); // 1-in-2 boundaries
     }
 
     #[test]
@@ -611,7 +618,7 @@ mod tests {
         assert_eq!(s.assessment, FluxAssessment::Dispersing);
         assert_eq!(s.transitions, 3);
         assert_eq!(s.distinct_origin_asns, 2);
-        assert_eq!(s.transition_rate, Some(3.0 / 4.0)); // 3-in-4
+        assert_eq!(s.transition_rate, Some(3.0 / 3.0)); // 3-in-3 boundaries
         assert!(s.short_ttl_seen);
     }
 

@@ -111,9 +111,10 @@ Fix (shipped — not a threshold, a third state keyed on transition COUNT):
   characterise as rotation)
 - `transitions >= 2` → `Dispersing` (the set does not settle)
 
-`transition_rate` (`transitions ÷ observations`) is also reported so the
-"1-in-4 vs 3-in-4" distinction is visible to a reader, but the assessment keys
-on the COUNT, not the rate. Regression-pinned:
+`transition_rate` (`transitions ÷ (observations−1)` — the share of transition
+*boundaries* that fired, bounded [0,1] regardless of window) is also reported so
+the "1-in-4 vs 3-in-4" distinction is visible to a reader, but the assessment
+keys on the COUNT, not the rate. Regression-pinned:
 `single_failover_reads_transient_not_dispersing`,
 `operator_added_mid_window_reads_transient_not_dispersing`,
 `oscillation_reads_dispersing`, `transition_rate_is_none_without_a_window`.
