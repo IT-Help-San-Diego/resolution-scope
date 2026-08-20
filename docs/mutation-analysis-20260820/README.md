@@ -44,7 +44,14 @@ remedy is extraction, not mocking.
   `dkim_key_state`, `dkim_disposition_from_probes`.
 
 Scoring-path survivors: 32 → 27 (the five Indet kills, exactly) → 14 (DKIM
-extraction).
+extraction, −13: `score_dkim` 13→0, nothing else moved).
+
+The DKIM path is genuinely clean: `dkim_disposition_from_counts` 12/0,
+`dkim_disposition_from_probes` 10/0, `build_dkim_selector_list` 5/0,
+`dkim_p_value` 5/0. Two functions read 0 caught / 0 missed — `score_dkim` and
+`dkim_key_state` — which is the `observe_flux` signature: **not COVERED, but no
+longer CONTAINING killable logic** (their only remaining mutants are "unviable"
+— the tool could not compile a testable form). Do not read 0/0 as coverage.
 
 ## What remains (14 scoring-path + 12 cosmetic)
 
@@ -55,11 +62,24 @@ extraction).
   `score_mta_sts` 1, `mta_sts_policy_state` 1
 - 12 cosmetic (8 `Display::fmt` + `rand_session_id` + `unix_now`)
 
-## Test-authoring rule learned from the mutation tool itself
+## Method: one assertion per source (mutation-detectable test defects)
 
-Combining two miss-SHAPES in one probe list lets one `+=` site's mutant hide
-behind the other's count (the run went *up* before it went down). Each
-miss-arm must be the sole contributor in its own assertion.
+A passing test can be wrong in a way ordinary suites cannot reveal, but mutation
+testing exposes. The defect that surfaced this session: **combining two
+miss-SHAPES in one probe list let each `+=` mutant hide behind the other's
+contribution** — the count went *up* when the test changed, which is what
+exposed it. A test that passes both before and after a real mutation is not
+testing what it claims.
+
+**Rule: each assertable source must be the sole contributor in its own
+assertion.** If two arms both increment a counter and a test feeds both, either
+arm's mutant survives because the other arm still produces the same count. One
+assertion per arm is the only way a mutant in one arm fails the test.
+
+This is the same family as every instrument failure in the session: a check that
+cannot distinguish its own sources (`all()` over an empty set, a comparator that
+included its own metadata). One control: make the check unable to pass for a
+reason other than the one it claims.
 
 ## What this is and is not
 
