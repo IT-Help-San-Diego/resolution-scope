@@ -393,8 +393,15 @@ impl App {
     }
     async fn scan(&mut self) -> Result<()> {
         let domain = &self.domains[self.current_domain];
-        self.results =
-            vec![analyse_domain_with_selectors(&self.resolver, domain, &self.dkim_selector, "cloudflare").await?];
+        self.results = vec![
+            analyse_domain_with_selectors(
+                &self.resolver,
+                domain,
+                &self.dkim_selector,
+                "cloudflare",
+            )
+            .await?,
+        ];
         self.last_scan = Some(Instant::now());
         self.scroll = 0;
         self.selected_control = 0;
@@ -664,7 +671,13 @@ async fn main() -> Result<()> {
             println!(
                 "{}",
                 render_text(
-                    &analyse_domain_with_selectors(&resolver, domain, &args.dkim_selector, "cloudflare").await?
+                    &analyse_domain_with_selectors(
+                        &resolver,
+                        domain,
+                        &args.dkim_selector,
+                        "cloudflare"
+                    )
+                    .await?
                 )
             );
         }

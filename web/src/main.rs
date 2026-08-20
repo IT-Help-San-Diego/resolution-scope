@@ -62,7 +62,10 @@ async fn main() -> Result<()> {
     let mut analyses = Vec::with_capacity(args.domains.len());
     for domain in &args.domains {
         eprintln!("scanning {domain} …");
-        analyses.push(analyse_domain_with_selectors(&resolver, domain, &args.dkim_selector, "cloudflare").await?);
+        analyses.push(
+            analyse_domain_with_selectors(&resolver, domain, &args.dkim_selector, "cloudflare")
+                .await?,
+        );
     }
 
     let page = render::render_page(&analyses, audience);
