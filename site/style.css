@@ -166,6 +166,7 @@ pre.report {
 .pill.present { color: var(--green); }
 .pill.absent { color: var(--red); }
 .pill.indet { color: var(--text2); }
+.pill.na { color: var(--copper); }
 
 /* ---- substrate table ---- */
 

@@ -28,6 +28,26 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: House invariants (no-JS, external CSS, vocabulary guard)
         run: bash site/verify.sh
+      - name: Validate headers-policy JSON (client-side param validation)
+        # A malformed policy would otherwise merge green and detonate only in
+        # the post-merge deploy. Dummy creds + unroutable endpoint: botocore
+        # validates the config shape before any network call, so "connection
+        # failed" means the JSON is valid and "ParamValidation" means it isn't.
+        env:
+          AWS_ACCESS_KEY_ID: validation-only
+          AWS_SECRET_ACCESS_KEY: validation-only
+          AWS_REGION: us-west-2
+        run: |
+          set +e
+          ERR=$(aws cloudfront update-response-headers-policy \
+            --id validation-only --if-match validation-only \
+            --response-headers-policy-config file://infra/cloudfront/security-headers.json \
+            --endpoint-url http://127.0.0.1:9 2>&1)
+          set -e
+          if echo "$ERR" | grep -qi "ParamValidation\|Missing required parameter\|Unknown parameter"; then
+            echo "::error::security-headers.json fails CloudFront param validation:"; echo "$ERR"; exit 1
+          fi
+          echo "Policy JSON shape valid (request reached the connection stage)."
 
   deploy:
     if: ${{ github.event_name == 'push' }}
@@ -53,18 +73,17 @@ jobs:
           echo "Headers policy synced."
 
       - name: Upload immutable assets (long cache)
-        # Exclude HTML, CSS, all *.txt, xml, and .well-known — those get
-        # short-cache + correct content-type below. style.css is NOT
-        # content-hashed, so an immutable TTL would strand browsers on a
+        # ALLOWLIST: only assets/* ships immutable — an extensionless dev file
+        # added to site/ later can never leak to the bucket. The trailing
+        # DS_Store exclude wins over the include (last match rules). HTML, CSS,
+        # txt, xml get short-cache + correct content-type below; style.css is
+        # NOT content-hashed, so an immutable TTL would strand browsers on a
         # stale sheet for a year (invalidation clears the edge, not browser
         # caches). verify.sh must never ship.
         run: |
           aws s3 sync site/ "s3://$BUCKET/" \
-            --exclude "*.sh" --exclude "*.md" \
-            --exclude ".DS_Store" --exclude "**/.DS_Store" \
-            --exclude "*.html" --exclude "*.css" \
-            --exclude "*.txt" --exclude "*.xml" \
-            --exclude ".well-known/*" \
+            --exclude "*" --include "assets/*" \
+            --exclude "*.DS_Store" \
             --cache-control "public,max-age=31536000,immutable" \
             --metadata-directive REPLACE --delete
 
@@ -76,11 +95,14 @@ jobs:
             --metadata-directive REPLACE
 
       - name: Upload HTML (short cache)
+        # --delete scopes to the include set, so a page removed from site/
+        # is removed from the bucket too. (txt/xml/css use cp below — retiring
+        # one of those files needs a manual `aws s3 rm`.)
         run: |
           aws s3 sync site/ "s3://$BUCKET/" \
             --exclude "*" --include "*.html" \
             --cache-control "public,max-age=3600,stale-while-revalidate=86400" \
-            --metadata-directive REPLACE
+            --metadata-directive REPLACE --delete
 
       - name: Upload text/xml endpoints with correct content-type
         run: |

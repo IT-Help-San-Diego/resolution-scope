@@ -53,10 +53,13 @@ if og:
         k(f"og:image is 1200x630 (got {w}x{h})", (w, h) == (1200, 630))
 
 # Retired-vocabulary / product-boundary guard (case-insensitive, all shipped text).
-# 'provenance' is retired seal vocabulary (the seal claims tamper-evidence +
-# proof-of-measurement, nothing more). The rest are Calibration Scope framing —
+# 'provenance' and 'proof of measurement' are forbidden seal vocabulary —
+# seal.rs: the seal is tamper-evidence ("anyone can verify this verdict is the
+# one that was sealed"); overstating it as proof a measurement occurred is the
+# one thing the instrument must not do. The rest are Calibration Scope framing —
 # the caught collusion must not regrow (Resolution Scope = DNS resolution).
-FORBIDDEN = ["provenance", "any subject", "any substrate", "minds can actually do"]
+FORBIDDEN = ["provenance", "proof of measurement", "proof-of-measurement",
+             "any subject", "any substrate", "minds can actually do"]
 shipped_ext = (".html", ".svg", ".txt", ".xml", ".json", ".webmanifest", ".css")
 stale = []
 for root, dirs, files in os.walk("."):

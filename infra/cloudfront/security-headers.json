@@ -2,7 +2,6 @@
     "Comment": "Resolution Scope public site - strict headers, zero scripts, no email. A+/Observatory target.",
     "Name": "resolutionscope-site-security-headers",
     "SecurityHeadersConfig": {
-        "XSSProtection": {},
         "FrameOptions": {
             "Override": true,
             "FrameOption": "DENY"

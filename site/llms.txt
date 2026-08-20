@@ -6,10 +6,11 @@
 
 Resolution Scope measures eight DNS controls (DNSSEC, SPF, DKIM, DMARC, DANE,
 MTA-STS, CAA, CDS/CDNSKEY) through one truth-chain: every verdict keeps the RFC
-requirement, the measured state, and the real-world consequence. Verdicts are
-tri-state — present / absent / indeterminate — and unmeasured is reported as
-unmeasured, never guessed. Each report carries a re-derivable SHA3-512 seal
-(tamper-evidence, proof of measurement).
+requirement, the measured state, and the real-world consequence. Verdicts carry
+four states — present / absent / indeterminate / not-applicable — and unmeasured
+is reported as unmeasured, never guessed. Each report carries a SHA3-512 seal:
+tamper-evidence that the verdict you hold is the one that was sealed. The seal
+does not prove a measurement occurred — a fabricated verdict can be sealed too.
 
 It is the verified-substrate build of the DNS Tool family: a Rust engine
 differential-tested against the production Go parent, scoring semantics
