@@ -127,6 +127,30 @@ keys on the COUNT, not the rate. Regression-pinned:
 - **The three 2-address specimens show co-ASN membership, not a characterised
   rotation pool.**
 
+## The multi-vantage arm — a resolver-policy trap to avoid (verified 2026-08-20)
+
+Separating geographic *steering* from temporal *rotation* needs a second
+vantage. EDNS Client Subnet (RFC 7871) is the cheap mechanism — a single
+resolver can be asked to answer "as if" the query came from a different source
+prefix, no second probe location required. **But ECS is a MAY, not a MUST**:
+RFC 7871 §7.3.2 says the resolver "MAY" use the client-supplied ADDRESS "if the
+local policy allows."
+
+**The trap:** Cloudflare's 1.1.1.1 does NOT honor client ECS — its own FAQ
+states "It does not send the EDNS Client Subnet (ECS) header," and the stance is
+privacy-motivated. A query to 1.1.1.1 carrying an ECS option returns the same
+answer as one without it. So if the multi-vantage arm reuses the live test's
+resolver pin (`ResolverConfig::udp_and_tcp(&CLOUDFLARE)` in `flux.rs`), it will
+**silently no-op** — identical answers, falsely read as "no steering," when the
+truth is the resolver ignored the hint.
+
+The ECS-honoring public resolver is Google's 8.8.8.8 (one of the few large
+public resolvers that accepts client ECS up to /24 for geo-aware CDN answers).
+The multi-vantage arm must pin an ECS-honoring resolver — and should assert
+non-identity of the two answers against a known-geo-steered control domain
+before concluding any "no steering" result, otherwise it reproduces the exact
+"silent no-op read as a finding" class this document exists to eliminate.
+
 ## Status
 
 The numbers are the detector's baseline, not to be re-derived. The discriminator
