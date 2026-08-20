@@ -8,7 +8,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 12.72002775,
+          "duration": 12.520723166,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -20,7 +20,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.800066042,
+          "duration": 0.799532291,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -71,7 +71,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.532868209,
+          "duration": 0.481019667,
           "process_status": {
             "Failure": 101
           },
@@ -125,7 +125,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.024484333,
+          "duration": 1.007792166,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -137,7 +137,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.75874125,
+          "duration": 0.802649291,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -188,7 +188,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.543079833,
+          "duration": 0.536952333,
           "process_status": {
             "Failure": 101
           },
@@ -242,7 +242,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.066090834,
+          "duration": 1.008593667,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -254,7 +254,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.759340417,
+          "duration": 0.796670542,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -305,7 +305,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.378454917,
+          "duration": 0.377193125,
           "process_status": {
             "Failure": 101
           },
@@ -359,7 +359,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.0233245,
+          "duration": 1.060631458,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -371,7 +371,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.796887792,
+          "duration": 0.756096208,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -422,7 +422,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.433143792,
+          "duration": 0.36386225,
           "process_status": {
             "Failure": 101
           },
@@ -476,7 +476,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.915775291,
+          "duration": 0.853935917,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -488,7 +488,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.802156541,
+          "duration": 0.807950958,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -539,7 +539,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.539895792,
+          "duration": 0.538008584,
           "process_status": {
             "Failure": 101
           },
@@ -593,7 +593,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.074581084,
+          "duration": 1.01990825,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -605,7 +605,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.812883208,
+          "duration": 0.802027208,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -656,7 +656,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.539216166,
+          "duration": 0.49541875,
           "process_status": {
             "Failure": 101
           },
@@ -710,7 +710,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.072774583,
+          "duration": 1.011147042,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -722,7 +722,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.815227125,
+          "duration": 0.798801583,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -773,7 +773,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.54043225,
+          "duration": 0.480871833,
           "process_status": {
             "Failure": 101
           },
@@ -827,7 +827,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.0302275,
+          "duration": 1.03064625,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -839,7 +839,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.807374583,
+          "duration": 0.845184917,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -890,7 +890,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.432665125,
+          "duration": 0.373270333,
           "process_status": {
             "Failure": 101
           },
@@ -944,7 +944,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.9233275,
+          "duration": 0.854444666,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -956,7 +956,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.79922425,
+          "duration": 0.849575542,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1007,7 +1007,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.484939084,
+          "duration": 0.48094025,
           "process_status": {
             "Failure": 101
           },
@@ -1061,7 +1061,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.536760041,
+          "duration": 0.490222333,
           "process_status": {
             "Failure": 101
           },
@@ -1115,7 +1115,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.485624334,
+          "duration": 0.482522791,
           "process_status": {
             "Failure": 101
           },
@@ -1169,7 +1169,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.167401291,
+          "duration": 1.191944834,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1181,7 +1181,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.541064084,
+          "duration": 0.528340416,
           "process_status": {
             "Failure": 101
           },
@@ -1234,7 +1234,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.126447542,
+          "duration": 1.180277084,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1246,7 +1246,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.49335775,
+          "duration": 0.535979334,
           "process_status": {
             "Failure": 101
           },
@@ -1299,7 +1299,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.175348459,
+          "duration": 1.1232125,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1311,7 +1311,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.538430583,
+          "duration": 0.540804167,
           "process_status": {
             "Failure": 101
           },
@@ -1364,7 +1364,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.0271284999999999,
+          "duration": 0.967786125,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1376,7 +1376,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.493764958,
+          "duration": 0.534394916,
           "process_status": {
             "Failure": 101
           },
@@ -1429,7 +1429,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.910023208,
+          "duration": 1.020035625,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1441,7 +1441,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.533565042,
+          "duration": 0.541232625,
           "process_status": {
             "Failure": 101
           },
@@ -1494,7 +1494,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.486493708,
+          "duration": 0.485991459,
           "process_status": {
             "Failure": 101
           },
@@ -1548,7 +1548,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.484058042,
+          "duration": 0.485435041,
           "process_status": {
             "Failure": 101
           },
@@ -1602,7 +1602,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.129137834,
+          "duration": 1.081517833,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1614,7 +1614,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.865881542,
+          "duration": 0.930008458,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1665,7 +1665,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.48968375,
+          "duration": 0.492655,
           "process_status": {
             "Failure": 101
           },
@@ -1719,7 +1719,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.958764084,
+          "duration": 0.914486291,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1731,7 +1731,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.539734667,
+          "duration": 0.532482167,
           "process_status": {
             "Failure": 101
           },
@@ -1784,7 +1784,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.923435625,
+          "duration": 0.852793958,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1796,7 +1796,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.540312542,
+          "duration": 0.538715292,
           "process_status": {
             "Failure": 101
           },
@@ -1849,7 +1849,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.859857917,
+          "duration": 0.8682415,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1861,7 +1861,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.533305833,
+          "duration": 0.543183916,
           "process_status": {
             "Failure": 101
           },
@@ -1914,7 +1914,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.868143375,
+          "duration": 0.909043042,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1926,7 +1926,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.541236083,
+          "duration": 0.533288542,
           "process_status": {
             "Failure": 101
           },
@@ -1979,7 +1979,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.489441667,
+          "duration": 0.423606625,
           "process_status": {
             "Failure": 101
           },
@@ -2033,7 +2033,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.979889208,
+          "duration": 0.977591542,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -2045,7 +2045,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.858606167,
+          "duration": 0.916946875,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -2096,7 +2096,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.535898334,
+          "duration": 0.538296833,
           "process_status": {
             "Failure": 101
           },
@@ -2150,7 +2150,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.4795025,
+          "duration": 0.540478291,
           "process_status": {
             "Failure": 101
           },
@@ -2204,7 +2204,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.023684,
+          "duration": 1.07110125,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -2216,7 +2216,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.964507625,
+          "duration": 0.913282458,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -2267,7 +2267,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.068811542,
+          "duration": 1.076089084,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -2279,7 +2279,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.54080825,
+          "duration": 0.650358958,
           "process_status": {
             "Failure": 101
           },
@@ -2332,7 +2332,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.918646375,
+          "duration": 0.921111458,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -2344,7 +2344,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.539973667,
+          "duration": 0.588273292,
           "process_status": {
             "Failure": 101
           },
@@ -2397,7 +2397,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.907948,
+          "duration": 0.922024917,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -2409,7 +2409,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.545963333,
+          "duration": 0.579651291,
           "process_status": {
             "Failure": 101
           },
@@ -2462,7 +2462,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.071110416,
+          "duration": 1.118607875,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -2474,7 +2474,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.53531075,
+          "duration": 0.545527209,
           "process_status": {
             "Failure": 101
           },
@@ -2527,7 +2527,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.918255666,
+          "duration": 1.014831541,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -2539,7 +2539,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.59299225,
+          "duration": 0.5925665,
           "process_status": {
             "Failure": 101
           },
@@ -2592,7 +2592,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.532617125,
+          "duration": 0.534381,
           "process_status": {
             "Failure": 101
           },
@@ -2646,7 +2646,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.965800125,
+          "duration": 0.920534208,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -2658,7 +2658,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.544343541,
+          "duration": 0.542519292,
           "process_status": {
             "Failure": 101
           },
@@ -2711,7 +2711,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.915631875,
+          "duration": 0.912445625,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -2723,7 +2723,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.593589125,
+          "duration": 0.536972,
           "process_status": {
             "Failure": 101
           },
@@ -2776,7 +2776,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.969441333,
+          "duration": 0.959481875,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -2788,7 +2788,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.591155292,
+          "duration": 0.585114375,
           "process_status": {
             "Failure": 101
           },
@@ -2841,7 +2841,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.911793875,
+          "duration": 0.976728209,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -2853,7 +2853,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.588240375,
+          "duration": 0.587703083,
           "process_status": {
             "Failure": 101
           },
@@ -2906,7 +2906,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.909616625,
+          "duration": 0.973920166,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -2918,7 +2918,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.595632834,
+          "duration": 0.587956708,
           "process_status": {
             "Failure": 101
           },
@@ -2971,7 +2971,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.925522958,
+          "duration": 0.975087541,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -2983,7 +2983,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.593072333,
+          "duration": 0.58962675,
           "process_status": {
             "Failure": 101
           },
@@ -3036,7 +3036,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.965601334,
+          "duration": 1.017276375,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3048,7 +3048,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.533932791,
+          "duration": 0.58657875,
           "process_status": {
             "Failure": 101
           },
@@ -3101,7 +3101,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.966892375,
+          "duration": 0.915640375,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3113,7 +3113,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.594761083,
+          "duration": 0.587827917,
           "process_status": {
             "Failure": 101
           },
@@ -3166,7 +3166,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.922437375,
+          "duration": 0.96935075,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3178,7 +3178,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.582839125,
+          "duration": 0.591824625,
           "process_status": {
             "Failure": 101
           },
@@ -3231,7 +3231,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.922147709,
+          "duration": 0.9723875,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3243,7 +3243,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.587952958,
+          "duration": 0.644140292,
           "process_status": {
             "Failure": 101
           },
@@ -3296,7 +3296,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.975980875,
+          "duration": 0.975435125,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3308,7 +3308,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.594631,
+          "duration": 0.598836917,
           "process_status": {
             "Failure": 101
           },
@@ -3361,7 +3361,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.922333292,
+          "duration": 0.969778708,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3373,7 +3373,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.596317042,
+          "duration": 0.588733334,
           "process_status": {
             "Failure": 101
           },
@@ -3426,7 +3426,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.53239025,
+          "duration": 0.483046583,
           "process_status": {
             "Failure": 101
           },
@@ -3480,7 +3480,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.962900292,
+          "duration": 1.070994917,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3492,7 +3492,7 @@
         },
         {
           "phase": "Test",
-          "duration": 1.019405708,
+          "duration": 1.12847325,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3543,7 +3543,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.042604875,
+          "duration": 1.069573791,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3555,7 +3555,7 @@
         },
         {
           "phase": "Test",
-          "duration": 1.019176584,
+          "duration": 1.070169542,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3606,7 +3606,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.116162792,
+          "duration": 1.136792084,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3618,7 +3618,7 @@
         },
         {
           "phase": "Test",
-          "duration": 1.017497459,
+          "duration": 1.128639833,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3669,7 +3669,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.069091042,
+          "duration": 1.017704959,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3681,7 +3681,7 @@
         },
         {
           "phase": "Test",
-          "duration": 1.070288375,
+          "duration": 1.1275302090000001,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3732,7 +3732,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.078607083,
+          "duration": 1.070916333,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3744,7 +3744,7 @@
         },
         {
           "phase": "Test",
-          "duration": 1.079407458,
+          "duration": 1.123598292,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3795,7 +3795,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.07520825,
+          "duration": 1.028504167,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3807,7 +3807,7 @@
         },
         {
           "phase": "Test",
-          "duration": 1.057986917,
+          "duration": 1.064055833,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3858,7 +3858,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.0763156249999999,
+          "duration": 1.076326084,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3870,7 +3870,7 @@
         },
         {
           "phase": "Test",
-          "duration": 1.070955833,
+          "duration": 1.228327666,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3921,7 +3921,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.08249375,
+          "duration": 1.080846333,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3933,7 +3933,7 @@
         },
         {
           "phase": "Test",
-          "duration": 1.064860375,
+          "duration": 1.184953625,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3984,7 +3984,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.06704975,
+          "duration": 1.0238405,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3996,7 +3996,7 @@
         },
         {
           "phase": "Test",
-          "duration": 1.079320833,
+          "duration": 1.174915167,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4047,7 +4047,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.080701208,
+          "duration": 1.063676125,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4059,7 +4059,7 @@
         },
         {
           "phase": "Test",
-          "duration": 1.121012584,
+          "duration": 1.166065583,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4110,7 +4110,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.082398292,
+          "duration": 1.080885167,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4122,7 +4122,7 @@
         },
         {
           "phase": "Test",
-          "duration": 1.078697625,
+          "duration": 1.119033458,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4173,7 +4173,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.078333875,
+          "duration": 1.077052333,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4185,7 +4185,7 @@
         },
         {
           "phase": "Test",
-          "duration": 1.073845,
+          "duration": 1.2341795,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4236,7 +4236,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.065169042,
+          "duration": 1.070884542,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4248,7 +4248,7 @@
         },
         {
           "phase": "Test",
-          "duration": 1.062933083,
+          "duration": 1.1758675,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4299,7 +4299,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.540452208,
+          "duration": 0.488484041,
           "process_status": {
             "Failure": 101
           },
@@ -4353,7 +4353,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.075461209,
+          "duration": 1.014241541,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4365,7 +4365,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.590898,
+          "duration": 0.642788042,
           "process_status": {
             "Failure": 101
           },
@@ -4418,7 +4418,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.965962583,
+          "duration": 1.019516625,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4430,7 +4430,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.592403334,
+          "duration": 0.647154458,
           "process_status": {
             "Failure": 101
           },
@@ -4483,7 +4483,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.966722375,
+          "duration": 1.01753825,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4495,7 +4495,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.592848333,
+          "duration": 0.641171958,
           "process_status": {
             "Failure": 101
           },
@@ -4548,7 +4548,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.586929917,
+          "duration": 0.533175083,
           "process_status": {
             "Failure": 101
           },
@@ -4602,7 +4602,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.06708275,
+          "duration": 1.020846583,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4614,7 +4614,7 @@
         },
         {
           "phase": "Test",
-          "duration": 1.118896834,
+          "duration": 1.177299375,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4665,7 +4665,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.076722375,
+          "duration": 1.121468125,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4677,7 +4677,7 @@
         },
         {
           "phase": "Test",
-          "duration": 1.073652958,
+          "duration": 1.2238335,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4728,7 +4728,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.127027584,
+          "duration": 1.222980292,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4740,7 +4740,7 @@
         },
         {
           "phase": "Test",
-          "duration": 1.122266125,
+          "duration": 1.1830459580000001,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4791,7 +4791,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.135936292,
+          "duration": 1.0743321670000001,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4803,7 +4803,7 @@
         },
         {
           "phase": "Test",
-          "duration": 1.179755583,
+          "duration": 1.130216209,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4854,7 +4854,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.128116875,
+          "duration": 1.131115,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4866,7 +4866,7 @@
         },
         {
           "phase": "Test",
-          "duration": 1.167998959,
+          "duration": 1.229720833,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4917,7 +4917,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.536878958,
+          "duration": 0.539910541,
           "process_status": {
             "Failure": 101
           },
@@ -4971,7 +4971,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.065101167,
+          "duration": 1.017164375,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4983,7 +4983,7 @@
         },
         {
           "phase": "Test",
-          "duration": 1.120498083,
+          "duration": 1.237626542,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -5034,7 +5034,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.074128458,
+          "duration": 1.13225775,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -5046,7 +5046,7 @@
         },
         {
           "phase": "Test",
-          "duration": 1.119926042,
+          "duration": 1.233225708,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -5097,7 +5097,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 2.209698542,
+          "duration": 2.147245125,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -5109,7 +5109,7 @@
         },
         {
           "phase": "Test",
-          "duration": 1.183113334,
+          "duration": 1.12374775,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -5160,7 +5160,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.965608375,
+          "duration": 1.076997375,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -5172,7 +5172,7 @@
         },
         {
           "phase": "Test",
-          "duration": 1.127185708,
+          "duration": 1.279756625,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -5223,7 +5223,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 2.31897425,
+          "duration": 2.191380042,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -5235,7 +5235,7 @@
         },
         {
           "phase": "Test",
-          "duration": 1.278379542,
+          "duration": 1.291557709,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -5286,7 +5286,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.5301055,
+          "duration": 0.484911083,
           "process_status": {
             "Failure": 101
           },
@@ -5340,7 +5340,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.013917,
+          "duration": 1.021738292,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -5352,7 +5352,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.6497085,
+          "duration": 0.651649875,
           "process_status": {
             "Failure": 101
           },
@@ -5405,7 +5405,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.913910416,
+          "duration": 0.960755875,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -5417,7 +5417,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.644333958,
+          "duration": 0.638903958,
           "process_status": {
             "Failure": 101
           },
@@ -5470,7 +5470,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.070262542,
+          "duration": 1.080123583,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -5482,7 +5482,7 @@
         },
         {
           "phase": "Test",
-          "duration": 1.229789125,
+          "duration": 1.319836541,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -5533,7 +5533,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.492937375,
+          "duration": 0.488323959,
           "process_status": {
             "Failure": 101
           },
@@ -5587,7 +5587,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.019379667,
+          "duration": 1.019008083,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -5599,7 +5599,7 @@
         },
         {
           "phase": "Test",
-          "duration": 1.140096583,
+          "duration": 1.225936416,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -5650,7 +5650,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.132432041,
+          "duration": 0.971651666,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -5662,7 +5662,7 @@
         },
         {
           "phase": "Test",
-          "duration": 1.229848375,
+          "duration": 1.240205042,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -5713,7 +5713,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.484087375,
+          "duration": 0.480388583,
           "process_status": {
             "Failure": 101
           },
@@ -5767,7 +5767,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.069481917,
+          "duration": 1.021293042,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -5779,7 +5779,7 @@
         },
         {
           "phase": "Test",
-          "duration": 1.27782775,
+          "duration": 1.128008208,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -5830,7 +5830,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.076657916,
+          "duration": 1.073709958,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -5842,7 +5842,7 @@
         },
         {
           "phase": "Test",
-          "duration": 1.244840958,
+          "duration": 1.17966225,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -5893,7 +5893,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.193299708,
+          "duration": 1.173334917,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -5905,7 +5905,7 @@
         },
         {
           "phase": "Test",
-          "duration": 1.173112459,
+          "duration": 1.2955524999999999,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -5956,7 +5956,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.97077075,
+          "duration": 0.968717417,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -5968,7 +5968,7 @@
         },
         {
           "phase": "Test",
-          "duration": 1.190276458,
+          "duration": 1.295939208,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -6019,7 +6019,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.186680292,
+          "duration": 1.122070167,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -6031,7 +6031,7 @@
         },
         {
           "phase": "Test",
-          "duration": 1.288820417,
+          "duration": 1.333496709,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -6082,7 +6082,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.9220865,
+          "duration": 0.971477583,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -6094,7 +6094,7 @@
         },
         {
           "phase": "Test",
-          "duration": 1.343991875,
+          "duration": 1.231288,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -6145,7 +6145,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.481776458,
+          "duration": 0.482078708,
           "process_status": {
             "Failure": 101
           },
@@ -6193,13 +6193,13 @@
           "genre": "MatchArm"
         }
       },
-      "summary": "MissedMutant",
+      "summary": "CaughtMutant",
       "log_path": "log/src__analysis.rs_line_1332_col_9.log",
       "diff_path": "diff/src__analysis.rs_line_1332_col_9.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.006343667,
+          "duration": 1.022731709,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -6211,8 +6211,10 @@
         },
         {
           "phase": "Test",
-          "duration": 1.182770709,
-          "process_status": "Success",
+          "duration": 0.640326667,
+          "process_status": {
+            "Failure": 101
+          },
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
             "test",
@@ -6224,12 +6226,12 @@
     }
   ],
   "total_mutants": 101,
-  "missed": 44,
-  "caught": 31,
+  "missed": 43,
+  "caught": 32,
   "timeout": 0,
   "unviable": 26,
   "success": 0,
-  "start_time": "2026-08-20T14:03:00.760367Z",
-  "end_time": "2026-08-20T14:05:54.740251Z",
+  "start_time": "2026-08-20T15:54:23.126615Z",
+  "end_time": "2026-08-20T15:57:18.355981Z",
   "cargo_mutants_version": "27.1.0"
 }

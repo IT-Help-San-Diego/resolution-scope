@@ -1596,6 +1596,37 @@ mod tests {
         );
     }
 
+    // --- record_absence_to_dane: the Indet → TransientError boundary ----------
+    // record_absence_to_dane wraps record_absence_verdict for DANE's MX probe.
+    // Its load-bearing arm is `TriState::Indet => TransientError`: a transient
+    // failure must NOT collapse to NoMx (which is a MEASURED absence — "zone
+    // has no MX" — and would falsely read "unroutable mail" for a query that
+    // simply failed). Deleting that arm survives mutation testing; these two
+    // tests pin both directions so it cannot.
+
+    #[test]
+    fn record_absence_to_dane_indet_is_transient_not_nomx() {
+        // SERVFAIL -> record_absence_verdict -> Indet -> TransientError.
+        // If the Indet arm is dropped, Indet falls through to NoMx (measured
+        // absence) — the exact "couldn't measure read as absent" defect.
+        assert_eq!(
+            record_absence_to_dane(&servfail_err(), "example.com"),
+            DaneDisposition::TransientError
+        );
+    }
+
+    #[test]
+    fn record_absence_to_dane_absent_is_nomx() {
+        // NODATA on the zone's own MX -> Absent -> NoMx (measured: no MX).
+        assert_eq!(
+            record_absence_to_dane(
+                &no_records_err(hickory_proto::op::ResponseCode::NoError),
+                "example.com"
+            ),
+            DaneDisposition::NoMx
+        );
+    }
+
     // --- NXDOMAIN SOA disambiguation ------------------------------------------
     // A signed zone that lacks a name returns NXDOMAIN with its OWN SOA in the
     // authority section (proving the zone exists). A nonexistent domain returns
