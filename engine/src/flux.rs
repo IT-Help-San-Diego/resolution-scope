@@ -147,34 +147,30 @@ pub struct FluxObservation {
     pub vantage: FluxVantage,
 }
 
-/// Build one observation: resolve A + AAAA, look up each address's origin
-/// ASN via Team Cymru, classify, and partition into the measurement basis.
-pub async fn observe_flux(resolver: &TokioResolver, domain: &str) -> FluxObservation {
-    let mut addresses: Vec<IpAddr> = Vec::new();
-    let mut min_ttl: Option<u32> = None;
-
-    for rtype in [RecordType::A, RecordType::AAAA] {
-        match resolver.lookup(domain, rtype).await {
-            Ok(resp) => {
-                for rec in resp.answers() {
-                    let ip = match &rec.data {
-                        RData::A(a) => Some(IpAddr::V4(a.0)),
-                        RData::AAAA(a) => Some(IpAddr::V6(a.0)),
-                        _ => None,
-                    };
-                    if let Some(ip) = ip {
-                        addresses.push(ip);
-                        min_ttl = Some(min_ttl.map_or(rec.ttl, |t| t.min(rec.ttl)));
-                    }
-                }
-            }
-            Err(e) => {
-                // NODATA/NXDOMAIN on one family is normal (v4-only zones etc.);
-                // the no-addresses case is judged after both families.
-                warn!(domain, rtype = %rtype, error = %e, "flux address lookup error");
-            }
-        }
+/// Extract an IP from an A/AAAA rdata record. Pure and separate from the
+/// resolver loop so the A/AAAA match arms are unit-testable — mutation testing
+/// flagged them as surviving mutants when they lived inline in the async path.
+pub fn ip_from_rdata(data: &RData) -> Option<IpAddr> {
+    match data {
+        RData::A(a) => Some(IpAddr::V4(a.0)),
+        RData::AAAA(a) => Some(IpAddr::V6(a.0)),
+        _ => None,
     }
+}
+
+/// Pure assembly: resolved addresses (with TTLs) and one Team Cymru TXT result
+/// per address → the observation. Split from the network path for the same
+/// reason as `observation_from_asns` — so the `found` flag and the unresolved
+/// counter are exercised by a test instead of locked behind a live resolver.
+/// This is the seam that turns the seven `observe_flux` mutation misses into
+/// caught.
+fn observation_from_parts(
+    addresses: &[(IpAddr, u32)],
+    origin_txts: &[Result<Vec<String>, ()>],
+) -> FluxObservation {
+    // One origin lookup per address, by construction in observe_flux. A
+    // mismatch would silently drop a lookup — fail loud in debug.
+    debug_assert_eq!(addresses.len(), origin_txts.len());
 
     if addresses.is_empty() {
         return FluxObservation {
@@ -186,35 +182,81 @@ pub async fn observe_flux(resolver: &TokioResolver, domain: &str) -> FluxObserva
         };
     }
 
+    let min_ttl = addresses.iter().map(|(_, ttl)| *ttl).min();
+
     let mut all_asns: BTreeSet<String> = BTreeSet::new();
     let mut unresolved = 0usize;
-    for ip in &addresses {
-        let name = cymru_origin_name(*ip);
-        match resolver.txt_lookup(name.as_str()).await {
-            Ok(rdata) => {
+    for txts in origin_txts {
+        match txts {
+            Ok(strings) => {
                 let mut found = false;
-                for rec in rdata.answers() {
-                    if let RData::TXT(txt) = &rec.data {
-                        for s in &txt.txt_data {
-                            if let Some(origin) = parse_cymru_origin(&String::from_utf8_lossy(s)) {
-                                all_asns.extend(origin.asns);
-                                found = true;
-                            }
-                        }
+                for s in strings {
+                    if let Some(origin) = parse_cymru_origin(s) {
+                        all_asns.extend(origin.asns);
+                        found = true;
                     }
                 }
                 if !found {
                     unresolved += 1;
                 }
             }
-            Err(e) => {
-                warn!(ip = %ip, error = %e, "Team Cymru origin lookup error");
+            Err(()) => {
                 unresolved += 1;
             }
         }
     }
 
     observation_from_asns(all_asns, min_ttl, unresolved)
+}
+
+/// Build one observation: resolve A + AAAA, look up each address's origin
+/// ASN via Team Cymru, classify, and partition into the measurement basis.
+/// The network resolution is thin; the testable logic lives in
+/// `ip_from_rdata` + `observation_from_parts`.
+pub async fn observe_flux(resolver: &TokioResolver, domain: &str) -> FluxObservation {
+    // Resolve A + AAAA → (address, ttl) pairs.
+    let mut addresses: Vec<(IpAddr, u32)> = Vec::new();
+    for rtype in [RecordType::A, RecordType::AAAA] {
+        match resolver.lookup(domain, rtype).await {
+            Ok(resp) => {
+                for rec in resp.answers() {
+                    if let Some(ip) = ip_from_rdata(&rec.data) {
+                        addresses.push((ip, rec.ttl));
+                    }
+                }
+            }
+            Err(e) => {
+                // NODATA/NXDOMAIN on one family is normal (v4-only zones etc.);
+                // the no-addresses case is judged after both families.
+                warn!(domain, rtype = %rtype, error = %e, "flux address lookup error");
+            }
+        }
+    }
+
+    // One Team Cymru origin lookup per address → raw TXT strings (or error).
+    let mut origin_txts: Vec<Result<Vec<String>, ()>> = Vec::with_capacity(addresses.len());
+    for (ip, _) in &addresses {
+        let name = cymru_origin_name(*ip);
+        match resolver.txt_lookup(name.as_str()).await {
+            Ok(rdata) => {
+                let mut strings = Vec::new();
+                for rec in rdata.answers() {
+                    if let RData::TXT(txt) = &rec.data {
+                        for s in &txt.txt_data {
+                            strings.push(String::from_utf8_lossy(s).to_string());
+                        }
+                    }
+                }
+                origin_txts.push(Ok(strings));
+            }
+            Err(e) => {
+                warn!(ip = %ip, error = %e, "Team Cymru origin lookup error");
+                origin_txts.push(Err(()));
+            }
+        }
+    }
+
+    observation_from_parts(&addresses, &origin_txts)
 }
 
 /// Pure partition + vantage decision, split from the network path so every
@@ -649,6 +691,74 @@ mod tests {
             dispersion(&[obs(&["345"], Some(3600))]).transition_rate,
             None
         );
+    }
+
+    // ── The observe_flux seam (ip_from_rdata + observation_from_parts) ──────
+    // These are the tests that flip the seven observe_flux mutation misses to
+    // caught: the A/AAAA match arms and the found/unresolved counters are now
+    // pure functions a unit test can reach, instead of living behind a live
+    // resolver.
+
+    #[test]
+    fn ip_from_rdata_extracts_a_and_aaaa() {
+        use std::net::Ipv4Addr;
+        use std::net::Ipv6Addr;
+        let a = RData::A(hickory_proto::rr::rdata::A(Ipv4Addr::new(1, 2, 3, 4)));
+        assert_eq!(
+            ip_from_rdata(&a),
+            Some(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)))
+        );
+        let aaaa = RData::AAAA(hickory_proto::rr::rdata::AAAA(Ipv6Addr::new(
+            0x2001, 0xdb8, 0, 0, 0, 0, 0, 1,
+        )));
+        assert_eq!(
+            ip_from_rdata(&aaaa),
+            Some(IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1)))
+        );
+    }
+
+    #[test]
+    fn parts_assemble_addresses_and_min_ttl() {
+        use std::net::Ipv4Addr;
+        let addrs = vec![
+            (IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 300),
+            (IpAddr::V4(Ipv4Addr::new(5, 6, 7, 8)), 120),
+        ];
+        let origins = vec![
+            Ok(vec!["14061 | 1.2.3.0/24 | US".to_string()]),
+            Ok(vec!["14061 | 5.6.7.0/24 | US".to_string()]),
+        ];
+        let o = observation_from_parts(&addrs, &origins);
+        assert_eq!(o.vantage, FluxVantage::Observable);
+        assert_eq!(o.origin_asns.iter().collect::<Vec<_>>(), vec!["14061"]);
+        assert_eq!(o.min_ttl, Some(120)); // the fold picked the lower TTL
+        assert_eq!(o.unresolved_addresses, 0);
+    }
+
+    #[test]
+    fn parts_count_unresolved_on_garbage_and_error() {
+        use std::net::Ipv4Addr;
+        let addrs = vec![
+            (IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 300),
+            (IpAddr::V4(Ipv4Addr::new(5, 6, 7, 8)), 300),
+            (IpAddr::V4(Ipv4Addr::new(9, 10, 11, 12)), 300),
+        ];
+        let origins = vec![
+            Ok(vec!["14061 | 1.2.3.0/24 | US".to_string()]), // parses → found
+            Ok(vec!["garbage no pipes here".to_string()]), // !found → unresolved
+            Err(()),                                      // error → unresolved
+        ];
+        let o = observation_from_parts(&addrs, &origins);
+        assert_eq!(o.origin_asns.iter().collect::<Vec<_>>(), vec!["14061"]);
+        assert_eq!(o.unresolved_addresses, 2); // one garbage + one error
+    }
+
+    #[test]
+    fn parts_no_addresses_is_no_addresses() {
+        let o = observation_from_parts(&[], &[]);
+        assert_eq!(o.vantage, FluxVantage::NoAddresses);
+        assert_eq!(o.unresolved_addresses, 0);
+        assert_eq!(o.min_ttl, None);
     }
 
     // ── Live (specimen) ─────────────────────────────────────────────────────
