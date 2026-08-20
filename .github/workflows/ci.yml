@@ -118,9 +118,12 @@ jobs:
 
   # Lean proofs: the scoring doctrine is machine-checked, not just unit-tested.
   # A proof that isn't re-checked on every commit drifts into a claim. This is
-  # the "logic as universal decoder" layer — a reader runs `lean lean/Scoring.lean`
-  # and verifies the doctrine without running (or trusting) the Rust. Pinned via
-  # lean-toolchain so a new Lean version can't silently change what "proved" means.
+  # the "logic as universal decoder" layer — a reader runs
+  # `lean engine/lean/Scoring.lean` and verifies the doctrine without running
+  # (or trusting) the Rust. The spec lives INSIDE the engine crate so the
+  # instrument ships self-contained (no fragile cross-crate include_str path).
+  # Pinned via lean-toolchain so a new Lean version can't silently change what
+  # "proved" means.
   lean-proofs:
     name: Lean proofs — Scoring.lean
     runs-on: ubuntu-latest
@@ -134,4 +137,4 @@ jobs:
             | sh -s -- -y --default-toolchain "$TOOLCHAIN" --no-modify-path
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
       - name: Verify the scoring doctrine
-        run: lean lean/Scoring.lean
+        run: lean engine/lean/Scoring.lean

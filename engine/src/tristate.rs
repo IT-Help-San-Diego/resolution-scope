@@ -40,7 +40,8 @@ mod tests {
     use super::TriState;
 
     /// The Rust TriState variants — the canonical, ordered set. The Lean model
-    /// (lean/Scoring.lean) must declare exactly these four, same names, no
+    /// (lean/Scoring.lean, now inside the crate at engine/lean/Scoring.lean)
+    /// must declare exactly these four, same names, no
     /// more and no fewer. The proofs bind the LEAN model, not this enum — there
     /// is no extraction, codegen, or FFI — so this test is what keeps the two
     /// from drifting apart silently (the correspondence gap Claude Science
@@ -66,7 +67,11 @@ mod tests {
         assert_eq!(debugged, RUST_VARIANTS, "Rust TriState variants drifted");
 
         // The Lean model, read at compile time so removing it breaks the test.
-        let lean = include_str!("../../lean/Scoring.lean");
+        // Path is relative to this source file and resolves INSIDE the crate
+        // (engine/lean/Scoring.lean) — the spec travels with the instrument, so
+        // a copy of just the engine crate stays buildable (and the drift-pin
+        // stays a drift-pin rather than a path-fragility trap).
+        let lean = include_str!("../lean/Scoring.lean");
         let lean_variants = extract_lean_tristate_constructors(lean);
         assert_eq!(
             lean_variants.as_slice(),
