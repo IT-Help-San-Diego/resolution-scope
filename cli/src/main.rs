@@ -116,8 +116,13 @@ async fn main() -> Result<()> {
             for domain in &domains {
                 eprintln!("scanning {domain} …");
                 analyses.push(
-                    analyse_domain_with_selectors(&resolver, domain, &cli.dkim_selector, "cloudflare")
-                        .await?,
+                    analyse_domain_with_selectors(
+                        &resolver,
+                        domain,
+                        &cli.dkim_selector,
+                        "cloudflare",
+                    )
+                    .await?,
                 );
             }
 
@@ -159,7 +164,9 @@ async fn main() -> Result<()> {
                     }
                 }
                 other => {
-                    anyhow::bail!("--format must be 'text', 'summary', 'html', or 'json', got {other:?}")
+                    anyhow::bail!(
+                        "--format must be 'text', 'summary', 'html', or 'json', got {other:?}"
+                    )
                 }
             }
 
