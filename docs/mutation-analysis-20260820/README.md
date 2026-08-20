@@ -14,6 +14,12 @@ carried a full study.
 | `cdc9b6b` | 105 | 36 | 39 | 30 | extract 4 Err-branch wrappers (spf/dmarc/mta_sts/caa) |
 | `17c6aa9` | 109 | 51 | **26** | 32 | extract DKIM per-selector core |
 
+**Only `missed` is comparable across steps.** Extraction creates new pure
+functions, so `total` and `caught` grow (101→109) as the mutable surface expands
+— more functions means more mutants to make. The `missed` count is the one
+figure that tracks progress cleanly: fewer survivors is the goal, and it fell
+44 → 26.
+
 ```
 # current HEAD (17c6aa9)
 cargo-mutants 27.1.0
