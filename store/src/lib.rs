@@ -24,7 +24,7 @@ use tokio_postgres::{Client, NoTls};
 use tracing::{info, warn};
 
 use resolution_scope_engine::flux::{FluxObservation, FluxVantage};
-use resolution_scope_engine::seal::{engine_version, seal_versioned};
+use resolution_scope_engine::seal::{engine_version, seal_versioned, SEAL_SCHEME};
 use resolution_scope_engine::ScoredAnalysis;
 
 // =============================================================================
@@ -34,7 +34,10 @@ use resolution_scope_engine::ScoredAnalysis;
 /// Every migration, in application order. Embedded so the binary IS the
 /// schema authority (no runtime file dependency), ledgered in
 /// `schema_migrations` so re-running is idempotent.
-const MIGRATIONS: &[(i32, &str)] = &[(1, include_str!("../migrations/001_sealed_history.sql"))];
+const MIGRATIONS: &[(i32, &str)] = &[
+    (1, include_str!("../migrations/001_sealed_history.sql")),
+    (2, include_str!("../migrations/002_seal_scheme.sql")),
+];
 
 /// Advisory-lock key for migration serialization — arbitrary but fixed;
 /// shared by every resolution-scope-store instance on a database.
@@ -56,6 +59,13 @@ pub enum SealCheck {
     /// The stored verdict does not hash to the stored seal — the row was
     /// altered after sealing (verdict, seal, or version column).
     Mismatch { stored: String, recomputed: String },
+    /// The row was sealed under a scheme this build cannot re-derive.
+    /// NOT a tamper verdict: recomputing an old-scheme row under a newer
+    /// scheme and calling the difference "Mismatch" would be a false
+    /// accusation — the one failure a tamper-evidence system must never
+    /// produce. Whoever bumps SEAL_SCHEME adds the previous scheme's
+    /// re-derivation arm to verify_scan, keeping old rows verifiable.
+    UnverifiableScheme { stored_scheme: String },
 }
 
 /// One stored scan, read back whole.
@@ -65,6 +75,7 @@ pub struct StoredScan {
     pub domain: String,
     pub engine_version: String,
     pub seal: String,
+    pub seal_scheme: String,
     pub verdict: ScoredAnalysis,
 }
 
@@ -152,9 +163,9 @@ impl Store {
         let row = self
             .client
             .query_one(
-                "INSERT INTO scans (domain, engine_version, seal, verdict)
-                 VALUES ($1, $2, $3, $4) RETURNING id",
-                &[&a.domain, &version, &sealed, &verdict],
+                "INSERT INTO scans (domain, engine_version, seal, seal_scheme, verdict)
+                 VALUES ($1, $2, $3, $4, $5) RETURNING id",
+                &[&a.domain, &version, &sealed, &SEAL_SCHEME, &verdict],
             )
             .await?;
         Ok(row.get(0))
@@ -165,6 +176,13 @@ impl Store {
     /// seal, or version.
     pub async fn verify_scan(&self, id: i64) -> Result<SealCheck> {
         let scan = self.read_scan(id).await?;
+        // Dispatch on the scheme that SEALED the row. A scheme this build
+        // cannot re-derive is UnverifiableScheme, never Mismatch.
+        if scan.seal_scheme != SEAL_SCHEME {
+            return Ok(SealCheck::UnverifiableScheme {
+                stored_scheme: scan.seal_scheme,
+            });
+        }
         let recomputed = seal_versioned(&scan.verdict, &scan.engine_version);
         if recomputed == scan.seal {
             Ok(SealCheck::Verified)
@@ -181,11 +199,12 @@ impl Store {
         let row = self
             .client
             .query_one(
-                "SELECT id, domain, engine_version, seal, verdict FROM scans WHERE id = $1",
+                "SELECT id, domain, engine_version, seal, seal_scheme, verdict
+                 FROM scans WHERE id = $1",
                 &[&id],
             )
             .await?;
-        let verdict_json: serde_json::Value = row.get(4);
+        let verdict_json: serde_json::Value = row.get(5);
         let verdict: ScoredAnalysis = serde_json::from_value(verdict_json)
             .context("store: stored verdict no longer deserializes — schema drift")?;
         Ok(StoredScan {
@@ -193,6 +212,7 @@ impl Store {
             domain: row.get(1),
             engine_version: row.get(2),
             seal: row.get(3),
+            seal_scheme: row.get(4),
             verdict,
         })
     }
@@ -452,7 +472,7 @@ mod tests {
 
         match store.verify_scan(id).await.unwrap() {
             SealCheck::Mismatch { .. } => {}
-            SealCheck::Verified => panic!("a tampered verdict must not verify"),
+            other => panic!("a tampered verdict must read Mismatch, got {other:?}"),
         }
     }
 
@@ -470,9 +490,15 @@ mod tests {
         let row = store
             .client
             .query_one(
-                "INSERT INTO scans (domain, engine_version, seal, verdict)
-                 VALUES ($1, $2, $3, $4) RETURNING id",
-                &[&a.domain, &old_version, &old_seal, &verdict_json],
+                "INSERT INTO scans (domain, engine_version, seal, seal_scheme, verdict)
+                 VALUES ($1, $2, $3, $4, $5) RETURNING id",
+                &[
+                    &a.domain,
+                    &old_version,
+                    &old_seal,
+                    &SEAL_SCHEME,
+                    &verdict_json,
+                ],
             )
             .await
             .unwrap();
@@ -485,9 +511,54 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires RS_STORE_TEST_URL (disposable postgres)"]
+    async fn unknown_scheme_is_unverifiable_never_a_tamper_verdict() {
+        let store = test_store().await;
+        let a = verdict("oldscheme.test");
+        let verdict_json = serde_json::to_value(&a).unwrap();
+        // A row sealed under a scheme this build does not know. Its seal
+        // CANNOT re-derive here — and that must read as "cannot verify",
+        // never as "tampered": a false accusation is the one failure a
+        // tamper-evidence system must never produce.
+        let row = store
+            .client
+            .query_one(
+                "INSERT INTO scans (domain, engine_version, seal, seal_scheme, verdict)
+                 VALUES ($1, $2, $3, $4, $5) RETURNING id",
+                &[
+                    &a.domain,
+                    &"0.1.0",
+                    &"f".repeat(128),
+                    &"resolution-scope-sha3-512-v1",
+                    &verdict_json,
+                ],
+            )
+            .await
+            .unwrap();
+        let id: i64 = row.get(0);
+        match store.verify_scan(id).await.unwrap() {
+            SealCheck::UnverifiableScheme { stored_scheme } => {
+                assert_eq!(stored_scheme, "resolution-scope-sha3-512-v1");
+            }
+            other => panic!("unknown scheme must be UnverifiableScheme, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "requires RS_STORE_TEST_URL (disposable postgres)"]
     async fn flux_history_feeds_dispersion() {
         let store = test_store().await;
         let domain = "fluxloop.test";
+        // Self-cleaning: this test asserts EXACT dispersion numbers, so prior
+        // runs' rows for the specimen domain must not accumulate (a persistent
+        // local database is a supported test target, not just fresh CI ones).
+        store
+            .client
+            .execute(
+                "DELETE FROM flux_observations WHERE domain = $1",
+                &[&domain],
+            )
+            .await
+            .unwrap();
         for asns in [&["14061"][..], &["24940"][..], &["16276"][..]] {
             store
                 .record_flux(domain, &obs(asns), None)
