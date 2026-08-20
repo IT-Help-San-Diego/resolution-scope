@@ -103,6 +103,33 @@ residual. In each, the correct value was one subtraction away and the sentence
 was written first. No exceptions for arithmetic that looks obvious: all three
 looked obvious.
 
+## Limit of the instrument: normalizing calls are invisible to mutation testing
+
+`cargo-mutants` mutates **operators and match arms**. A normalizing method call
+in a comparison path — `trim`, `trim_end_matches`, `to_lowercase`,
+`to_ascii_lowercase`, `canonicalize`, `normalize` — is a method call, not a
+mutable operator, so it is **structurally invisible** to the mutation run. A
+mutation count can be 0-missed while a `trim` that silently breaks every
+comparison sits unguarded one line away.
+
+**Compensating rule: test with the UN-normalised input.** A defence whose test
+feeds it a sanitised input (e.g. a dot-free host against a `trim_end_matches`)
+proves the easy case and says nothing about the case the defence exists for.
+The production shape is the one the normalizer exists to handle, and only it
+fails when the call is removed.
+
+Caught 2026-08-20 in `tlsa_err_to_count`: its host-side `trim_end_matches('.')`
+was the line protecting against the DANE over-correction, but the test passed
+`"mail.example.com"` (already dot-free). Deleting the trim left the test green;
+only the dotted production form (`"mail.example.com."`) fails without it — proven
+by removing the trim and watching the test fail, then restoring it.
+
+This is a stated blind spot of the instrument, not a footnote: the mutation
+count that tracks progress is blind to this whole defect class, so the count
+alone never certifies a normalization edge. Same honesty as the seal
+(tamper-evidence, not proof-of-measurement) and the flux study's
+does-not-establish section — a strong claim states its boundary.
+
 ## What this is and is not
 
 **Is:** raw, re-derivable evidence, one committed `outcomes.json` per step.

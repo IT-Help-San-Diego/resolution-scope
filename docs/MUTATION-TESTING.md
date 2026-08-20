@@ -65,3 +65,11 @@ the network wrapper is not, and that is stated rather than hidden.
   `ip_from_rdata` (the `observe_flux` pure core) are also `missed=0` after the
   seam extraction. The only untested code left in the file is the live-resolver
   wrapper itself — a thin shell, one unviable mutant, stated not hidden.
+- **Limit of the instrument:** cargo-mutants mutates operators and match arms,
+  so a normalizing method call (`trim`, `to_lowercase`, `canonicalize`) in a
+  comparison path is invisible to it. Compensate by testing with the
+  un-normalised input — a defence whose test feeds it a sanitised form proves
+  nothing about the case the normalizer exists for. (Full treatment in
+  docs/mutation-analysis-20260820/README.md — same class as
+  one-assertion-per-source: a check that can pass for a reason other than the
+  one it claims.)
