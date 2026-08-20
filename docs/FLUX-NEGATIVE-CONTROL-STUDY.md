@@ -127,29 +127,43 @@ keys on the COUNT, not the rate. Regression-pinned:
 - **The three 2-address specimens show co-ASN membership, not a characterised
   rotation pool.**
 
-## The multi-vantage arm — a resolver-policy trap to avoid (verified 2026-08-20)
+## The multi-vantage arm — ECS does not deliver it (measured + corrected 2026-08-20)
 
 Separating geographic *steering* from temporal *rotation* needs a second
-vantage. EDNS Client Subnet (RFC 7871) is the cheap mechanism — a single
-resolver can be asked to answer "as if" the query came from a different source
-prefix, no second probe location required. **But ECS is a MAY, not a MUST**:
-RFC 7871 §7.3.2 says the resolver "MAY" use the client-supplied ADDRESS "if the
-local policy allows."
+vantage. EDNS Client Subnet (RFC 7871) looked like the cheap mechanism — a
+single resolver answers "as if" the query came from a different source prefix,
+no second probe location. It is not, and this section records the measured
+reason rather than a policy guess.
 
-**The trap:** Cloudflare's 1.1.1.1 does NOT honor client ECS — its own FAQ
-states "It does not send the EDNS Client Subnet (ECS) header," and the stance is
-privacy-motivated. A query to 1.1.1.1 carrying an ECS option returns the same
-answer as one without it. So if the multi-vantage arm reuses the live test's
-resolver pin (`ResolverConfig::udp_and_tcp(&CLOUDFLARE)` in `flux.rs`), it will
-**silently no-op** — identical answers, falsely read as "no steering," when the
-truth is the resolver ignored the hint.
+**Policy (stands on its own, from the RFC and Cloudflare's FAQ):** ECS is a MAY,
+not a MUST — RFC 7871 §7.3.2 lets the resolver use the client-supplied ADDRESS
+only "if the local policy allows." Cloudflare's 1.1.1.1 FAQ states it does not
+send the ECS header (privacy-motivated). Neither line is a *measurement*; both
+are policy statements, and they are cited here as policy only.
 
-The ECS-honoring public resolver is Google's 8.8.8.8 (one of the few large
-public resolvers that accepts client ECS up to /24 for geo-aware CDN answers).
-The multi-vantage arm must pin an ECS-honoring resolver — and should assert
-non-identity of the two answers against a known-geo-steered control domain
-before concluding any "no steering" result, otherwise it reproduces the exact
-"silent no-op read as a finding" class this document exists to eliminate.
+**Measurement (Claude Science, corrected run, 2026-08-20):** two routable
+subnets (23.0.0.0/24 vs 81.0.0.0/24) against both resolvers, on
+`www.apple.com` and `www.microsoft.com`. **The addresses are identical in all
+four cases** — neither resolver returned a subnet-specific answer for either
+name. The two failures are distinguishable, and the distinction matters: Google
+echoed scope `/0` (the resolver *stating* the answer is not subnet-specific),
+while Cloudflare omitted the field entirely (no signal about whether the hint
+was used at all).
+
+**What this means, stated at the right width:** the ECS route to multi-vantage
+produces no vantage-specific answer through either public resolver for these
+names — a stronger negative than "Cloudflare ignores it." It is *not* evidence
+that Cloudflare ignores ECS (identical addresses are consistent with ignoring,
+but Google returned identical addresses too while accepting the parameter). The
+honest claim is narrower: Cloudflare gives no scope feedback, so an arm built on
+it cannot know whether it measured anything.
+
+**The one durable guardrail:** require a **non-zero echoed scope prefix** before
+treating a client-subnet comparison as a vantage measurement. On this data that
+check fails for both resolvers — correctly, since neither produced a
+vantage-specific answer. **Multi-vantage therefore needs genuinely separate
+probe locations; it is not the cheap arm. The malicious-specimen arm is now the
+cheaper of the two.**
 
 ## Status
 
@@ -159,4 +173,6 @@ benign + 1 multi-operator benign, all correctly quiet on ASN dispersion). The
 per-name scoping rule is recorded and regression-pinned. The rate distinction
 (one transition = `Transient`, not `Dispersing`) is implemented and
 regression-pinned. Remaining open arms: a malicious fast-flux specimen
-(false-negative rate), and multi-vantage separation of steering from rotation.
+(false-negative rate) — now the *cheaper* of the two, and multi-vantage
+separation of steering from rotation, which needs genuinely separate probe
+locations (the ECS route measured dead in the section above).
