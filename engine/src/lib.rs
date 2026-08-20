@@ -45,6 +45,7 @@ pub mod flux;
 pub mod ipc;
 pub mod name_similarity;
 pub mod report;
+pub mod seal;
 pub mod tristate;
 pub mod truth_chain;
 
@@ -58,6 +59,7 @@ pub use analysis::DmarcDisposition;
 pub use analysis::MtaStsDisposition;
 pub use analysis::ScoredAnalysis;
 pub use analysis::SpfDisposition;
+pub use seal::{seal, SEAL_SCHEME};
 pub use tristate::TriState;
 pub use truth_chain::{
     by_severity, truth_chain, Audience, ControlId, ControlReport, Severity, Tally,
