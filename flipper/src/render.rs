@@ -373,6 +373,43 @@ mod tests {
         assert_eq!(seal_check_label(&future), "UNVERIFIABLE (scheme)");
     }
 
+    /// The two tamper directions are distinct failure modes and both must
+    /// read MISMATCH. This one is the realistic attack: rewrite the stored
+    /// VERDICT while leaving the seal it was sealed under intact. A falsifier
+    /// edits the measurement, not the label. The seal check recomputes from
+    /// the (now-altered) verdict, so it diverges from the stale seal.
+    #[test]
+    fn verdict_tamper_reads_mismatch() {
+        let original = fixture("example.test");
+        let good_seal = seal_versioned(&original, "0.1.0");
+
+        // A stored row sealed from the ORIGINAL verdict, but whose verdict
+        // field was rewritten behind the seal's back. Flip a measurement to a
+        // DIFFERENT value than the fixture already holds (the fixture's
+        // dnssec is Unsigned → chain() == Absent, so flip to Present).
+        let mut altered = original.clone();
+        altered.dnssec_chain = TriState::Present; // a real change, not a no-op
+        let row = StoredScan {
+            id: 1,
+            domain: "example.test".to_string(),
+            engine_version: "0.1.0".to_string(),
+            seal: good_seal, // stale: the original verdict's seal
+            seal_scheme: SEAL_SCHEME.to_string(),
+            verdict: altered, // rewritten measurement
+        };
+        assert_eq!(seal_check_label(&row), "MISMATCH");
+    }
+
+    /// The other direction: the SEAL label is altered while the verdict stays.
+    /// Also MISMATCH — but a different failure mode.
+    #[test]
+    fn seal_tamper_reads_mismatch() {
+        let v = fixture("example.test");
+        let _good = seal_versioned(&v, "0.1.0");
+        let tampered = stored("example.test", SEAL_SCHEME, "deadbeef".repeat(64));
+        assert_eq!(seal_check_label(&tampered), "MISMATCH");
+    }
+
     /// The rendered history carries the seal prefix, the verification label,
     /// the re-derived score, and the domain — a reader can confirm the row's
     /// provenance from the listing alone.
