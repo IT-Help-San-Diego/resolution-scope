@@ -1104,28 +1104,36 @@ fn classify_mx(exchanges: &[hickory_proto::rr::Name]) -> MxShape {
     }
 }
 
-/// Pure: the disposition from per-host TLSA answer counts. 0 = no TLSA on
-/// that host; any host with ≥1 → TlsaPublished, else NotConfigured. The
-/// three mutation sites at the old guard (`!resp.answers().is_empty()` —
-/// guard→true, guard→false, delete-!) all reduce to this one `n > 0`
-/// decision, which a count exposes to the mutation tool instead of hiding it
-/// behind a live resolver.
+/// Pure: the disposition from per-host TLSA outcomes. `Some(n)` is a
+/// MEASURED answer count (0 = the host answered "no TLSA records");
+/// `None` is a lookup that ERRORED — nothing was measured for that host.
+/// The type carries the distinction the old `&[usize]` erased: an errored
+/// lookup and a measured-empty answer both arrived as `0`, so when every
+/// host errored the old function returned NotConfigured — a measured
+/// absence — from data that measured nothing. That is the exact conflation
+/// DANE's four-way split exists to prevent.
+///
+/// Decision, in epistemic order:
+///   1. any `Some(n > 0)`  → TlsaPublished — publication was measured;
+///      an error on another host cannot erase a found record.
+///   2. else any `None`    → TransientError (Indet) — at least one host is
+///      unmeasured and no publication was found, so absence is NOT proven
+///      (the same "absence NOT proven" doctrine as the DKIM sweep).
+///   3. else               → NotConfigured — every host measured, all empty:
+///      a real measured absence.
 ///
 /// Publication is the only fact measured here — the SMTP certificate
 /// comparison does not exist in this crate, so Verified must never be
 /// emitted from this site (panel blocker, 2026-08-19). TlsaPublished is the
-/// honest ceiling.
-///
-/// HONESTY NOTE (pre-existing, not introduced here): a TLSA lookup ERROR is
-/// recorded as 0 in the same bucket as a measured empty answer, so a host
-/// whose lookup failed is indistinguishable from one that genuinely publishes
-/// no TLSA. The original `Err => continue` had the same conflation (both fall
-/// through to NotConfigured). Flagged as a follow-up: carry the error as a
-/// distinct outcome so "couldn't measure TLSA" is never reported as "measured
-/// no TLSA" when every host errored.
-fn dane_from_tlsa_counts(counts: &[usize]) -> DaneDisposition {
-    if counts.iter().any(|&n| n > 0) {
+/// honest ceiling. The three mutation sites at the original guard
+/// (`!resp.answers().is_empty()`) all reduce to the `n > 0` decision, which
+/// the count exposes to the mutation tool instead of hiding behind a live
+/// resolver.
+fn dane_from_tlsa_counts(counts: &[Option<usize>]) -> DaneDisposition {
+    if counts.iter().any(|c| matches!(c, Some(n) if *n > 0)) {
         DaneDisposition::TlsaPublished
+    } else if counts.iter().any(|c| c.is_none()) {
+        DaneDisposition::TransientError
     } else {
         DaneDisposition::NotConfigured
     }
@@ -1167,10 +1175,13 @@ async fn score_dane(resolver: &TokioResolver, domain: &str) -> DaneDisposition {
                     for host in &hosts {
                         let tlsa_name = format!("_25._tcp.{}", host);
                         match resolver.lookup(tlsa_name.as_str(), RecordType::TLSA).await {
-                            Ok(resp) => counts.push(resp.answers().len()),
+                            Ok(resp) => counts.push(Some(resp.answers().len())),
                             Err(e) => {
+                                // None = couldn't measure this host — carried
+                                // as a distinct outcome, never folded into
+                                // "measured no TLSA".
                                 warn!(domain, host = %host, error = %e, "SMTP DANE TLSA lookup error");
-                                counts.push(0);
+                                counts.push(None);
                             }
                         }
                     }
@@ -1762,7 +1773,7 @@ mod tests {
 
     #[test]
     fn mx_exchange_from_rdata_extracts_only_mx() {
-        use hickory_proto::rr::rdata::{MX, A};
+        use hickory_proto::rr::rdata::{A, MX};
         use hickory_proto::rr::RData;
         use std::net::Ipv4Addr;
         let mx = RData::MX(MX::new(10, mx_name("mail.example.com.")));
@@ -1783,7 +1794,10 @@ mod tests {
     fn classify_mx_all_root_is_nomail() {
         // Null MX (RFC 7505): a positive "accepts no mail" declaration, NOT
         // "no MX". This is the NotApplicable half of the four-way split.
-        let roots = [hickory_proto::rr::Name::root(), hickory_proto::rr::Name::root()];
+        let roots = [
+            hickory_proto::rr::Name::root(),
+            hickory_proto::rr::Name::root(),
+        ];
         assert_eq!(classify_mx(&roots), MxShape::NoMail);
     }
 
@@ -1794,8 +1808,8 @@ mod tests {
         // filter must strip the null MX and leave the routable host. This is
         // the assertion that kills "delete !" on the filter.
         let mixed = [
-            hickory_proto::rr::Name::root(),                    // null MX
-            mx_name("mail.example.com."),                       // routable host
+            hickory_proto::rr::Name::root(), // null MX
+            mx_name("mail.example.com."),    // routable host
         ];
         assert_eq!(
             classify_mx(&mixed),
@@ -1805,11 +1819,11 @@ mod tests {
 
     #[test]
     fn dane_all_absent_is_notconfigured() {
-        // No host publishes a TLSA → measured absence (NotConfigured). The
-        // all-absent list is its OWN assertion so the "n > 0 → always true"
+        // Every host MEASURED empty → measured absence (NotConfigured). The
+        // all-measured list is its OWN assertion so the "n > 0 → always true"
         // mutant cannot hide behind another host's positive.
         assert_eq!(
-            dane_from_tlsa_counts(&[0, 0, 0]),
+            dane_from_tlsa_counts(&[Some(0), Some(0), Some(0)]),
             DaneDisposition::NotConfigured
         );
     }
@@ -1820,7 +1834,7 @@ mod tests {
         // assertion so the "n > 0 → n > 1" mutant (which would demand two
         // publishers) cannot survive.
         assert_eq!(
-            dane_from_tlsa_counts(&[0, 1]),
+            dane_from_tlsa_counts(&[Some(0), Some(1)]),
             DaneDisposition::TlsaPublished
         );
     }
@@ -1830,7 +1844,42 @@ mod tests {
         // Order matters for the early-return shape: the FIRST host publishing
         // must also yield TlsaPublished, not just a later one.
         assert_eq!(
-            dane_from_tlsa_counts(&[1, 0]),
+            dane_from_tlsa_counts(&[Some(1), Some(0)]),
+            DaneDisposition::TlsaPublished
+        );
+    }
+
+    #[test]
+    fn dane_all_lookups_errored_is_transient_not_notconfigured() {
+        // THE honesty-gap test (Carey ruling, 2026-08-20): every lookup
+        // errored → nothing was measured → TransientError (Indet), never
+        // NotConfigured (a measured absence). One-contributor rule: the list
+        // is ALL-errored — a mixed list would let a measured host mask the
+        // conflation this test exists to forbid.
+        assert_eq!(
+            dane_from_tlsa_counts(&[None, None]),
+            DaneDisposition::TransientError
+        );
+    }
+
+    #[test]
+    fn dane_mixed_error_and_measured_empty_is_transient() {
+        // One host measured empty, one unmeasured → absence NOT proven (the
+        // unmeasured host might publish) → TransientError, not NotConfigured.
+        // Same doctrine as the DKIM sweep's "absence NOT proven".
+        assert_eq!(
+            dane_from_tlsa_counts(&[Some(0), None]),
+            DaneDisposition::TransientError
+        );
+    }
+
+    #[test]
+    fn dane_publication_beats_error() {
+        // A measured publication is a real finding; an error on another host
+        // cannot erase it. [None, Some(2)] → TlsaPublished, not
+        // TransientError — the error only matters when nothing was found.
+        assert_eq!(
+            dane_from_tlsa_counts(&[None, Some(2)]),
             DaneDisposition::TlsaPublished
         );
     }
