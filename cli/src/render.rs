@@ -386,6 +386,60 @@ mod tests {
         assert_eq!(v["dnssec_chain"], "Absent");
     }
 
+    /// The Arm-1 join contract: ALL EIGHT disposition keys and ALL EIGHT
+    /// tri-state keys must be present by their exact field names. The Go-side
+    /// harness reads these names to join the two implementations; a renamed
+    /// field is a silent broken join, not a test failure — so the names are
+    /// the contract, asserted here in full, not a representative sample.
+    #[test]
+    fn json_carries_all_sixteen_verdict_keys() {
+        let a = fixture("example.test");
+        let out = render_json(std::slice::from_ref(&a));
+        let v: serde_json::Value = serde_json::from_str(out.trim()).unwrap();
+
+        // Eight dispositions (the full enum variant name — the WHY).
+        for key in [
+            "dnssec_disposition",
+            "spf_disposition",
+            "dkim_disposition",
+            "dmarc_disposition",
+            "dane_disposition",
+            "mta_sts_disposition",
+            "caa_disposition",
+            "cds_disposition",
+        ] {
+            assert!(v.get(key).is_some(), "missing disposition key {key}");
+            assert!(
+                v[key].is_string(),
+                "disposition {key} is not a string enum name"
+            );
+        }
+
+        // Eight tri-states (the collapse — one of four, never a severity label).
+        let tri_states = ["Present", "Absent", "Indet", "NotApplicable"];
+        for key in [
+            "dnssec_chain",
+            "spf",
+            "dkim",
+            "dmarc",
+            "dane",
+            "mta_sts",
+            "caa",
+            "cds_cdnskey",
+        ] {
+            let val = v
+                .get(key)
+                .unwrap_or_else(|| panic!("missing tri-state key {key}"));
+            let val = val
+                .as_str()
+                .unwrap_or_else(|| panic!("tri-state {key} is not a string"));
+            assert!(
+                tri_states.contains(&val),
+                "tri-state {key} = {val:?} is not one of the four states"
+            );
+        }
+    }
+
     // ── Sealed history ────────────────────────────────────────────────
 
     fn stored(domain: &str, scheme: &str, seal: String) -> StoredScan {

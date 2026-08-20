@@ -99,10 +99,33 @@ measurement instruments do and what no scanner in this field does. That claim is
 worth making *only* once the number exists and is re-derivable — which is the
 whole point of the constraints above.
 
-## Prerequisite for Arm 1 (unresolved)
+## Prerequisite for Arm 1 (RESOLVED — Task Zero, 2026-08-20)
 
-A machine-readable per-control verdict endpoint on the Go tool. Three guessed
-paths (`/api/analyze`, `/api/v1/analyze`, `/analyze.json`) returned HTTP 404 —
-that means the guesses were wrong, **not** that no endpoint exists; the agent
-plugin builds real URLs from `Config.BaseURL`. Identifying the actual surface is
-the first task, and it belongs to whoever owns that repo.
+The Go tool's machine-readable per-control verdict surface is **`GET /api/analysis/:id`**
+(handler `APIAnalysis`, `go-server/internal/handlers/analysis_api.go`; resolved in
+commit `c189754`, `docs/CALIBRATION-STUDY-TASK-ZERO.md`). The three guessed paths
+(`/api/analyze`, `/api/v1/analyze`, `/analyze.json`) 404'd because the API is
+analysis-by-id, not analyze-by-domain: trigger `GET/POST /analyze`, then retrieve
+the record. Its `full_results` member is the per-control map. **Do NOT use
+`/api/replay/:id` for the join** — its `verdicts` value space is
+`info/success/warning/missing` (a severity display map with no indeterminate
+state), which collapses exactly the tri-state the study exists to test.
+
+## The machine-readable format (both sides)
+
+Arm 1 joins two implementations on their per-control verdicts. The format
+contract, both halves:
+
+- **Rust side** — `resolution-scope <domain> --format json` emits **NDJSON**: one
+  `ScoredAnalysis` serialization per line, newline-delimited, so each line is an
+  independently parseable record. It carries all eight disposition enums (the
+  WHY — e.g. `dane_disposition: "NoMx"` vs `"NoMail"`) and all eight tri-states
+  (the collapse — `Present`/`Absent`/`Indet`/`NotApplicable`), never a severity
+  label. The sixteen key names are the join contract, pinned by
+  `json_carries_all_sixteen_verdict_keys`.
+- **Go side** — `/api/analysis/:id`'s `full_results`, the same per-control map.
+  Its response self-content-addresses via `X-SHA3-512` (constraint 4 satisfied
+  by storing bytes + header). The Go reference is itself tri-state
+  (`absent_confirmed` ≠ unmeasured), so constraint 2's binary-reference
+  exclusions do not apply to this pairing.
+
