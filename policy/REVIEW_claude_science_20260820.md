@@ -91,4 +91,14 @@ surface was flagged — `seal.rs` carrying `provenance` ×4 — measured before
 `36095a9` landed; that commit had already retired all four. The last loose
 use in the engine (`report.rs`, "the seal is part of the measurement's
 provenance") is retired alongside this ruling: the seal's vocabulary is
-tamper-evidence + proof-of-measurement, one claim per reader.
+**tamper-evidence** — one claim, one reader.
+
+> **Correction (2026-08-20):** the original ruling wrote the seal vocabulary
+> as "tamper-evidence + proof-of-measurement," presenting BOTH as allowed.
+> That was wrong, and `seal.rs` (the code authority) is unambiguous: the seal
+> is "tamper-evidence, not a proof that a measurement occurred" (seal.rs:6),
+> and "overstating the seal as proof-of-measurement is the one thing this
+> instrument must not do" (seal.rs:15). "Proof-of-measurement" is the
+> FORBIDDEN overstatement, not allowed vocabulary. This ruling now reads
+> tamper-evidence only, matching the code and the site's `verify.sh`
+> forbidden-string list.
