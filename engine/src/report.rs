@@ -19,9 +19,9 @@ pub fn render_text(a: &ScoredAnalysis) -> String {
     out.push_str(&format!("Domain    : {}\n", a.domain));
     out.push_str(&format!("Timestamp : {}\n", a.timestamp_local));
     out.push_str(&format!("Session   : {:016x}\n", a.session_id));
-    // The seal is part of the measurement's provenance, not a footer note:
-    // it is re-derivable from the verdict content below, so anyone holding
-    // this report can confirm the verdict was not altered after measurement.
+    // The seal is tamper-evidence, not a footer note: it is re-derivable
+    // from the verdict content below, so anyone holding this report can
+    // confirm the verdict was not altered after measurement.
     out.push_str(&format!("Seal      : {}\n\n", seal(a)));
 
     // EVERYTHING below the header renders from the truth-chain model — one
