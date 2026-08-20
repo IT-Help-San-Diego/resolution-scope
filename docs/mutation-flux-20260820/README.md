@@ -33,17 +33,38 @@ unchanged since). Re-running against that commit reproduces the numbers.
 
 ```
 cargo-mutants 27.1.0
-total=37 missed=0 caught=31 timeout=0 unviable=6
+total=37 caught=31 missed=0 timeout=0 unviable=6 success=0
 
-function                caught  missed  timeout  unviable
-cymru_origin_name            2       0        0         0
-dispersion                  13       0        0         1
-ip_from_rdata                3       0        0         1
-observation_from_asns        2       0        0         1
-observation_from_parts       5       0        0         1
-observe_flux                 0       0        0         1
-parse_cymru_origin           6       0        0         1
+function                caught  missed  timeout  unviable  success
+cymru_origin_name            2       0        0        0        0
+dispersion                  13       0        0        1        0
+ip_from_rdata                3       0        0        1        0
+observation_from_asns        2       0        0        1        0
+observation_from_parts       5       0        0        1        0
+observe_flux                 0       0        0        1        0
+parse_cymru_origin           6       0        0        1        0
 ```
+
+## Reading the header honestly (the two fields that trip people up)
+
+**`success=0` vs the one `Success` record is not a contradiction.** The
+`Success` record in the array is the unmutated `Scenario::Baseline` run, which
+cargo-mutants pushes into `outcomes` but excludes from every header counter via
+its `is_mutant()` guard. The header's `success` counter instead counts a distinct
+**mutant** edge case (a mutant whose last phase succeeded but was not classified
+caught/missed, because `mutant_caught`/`mutant_missed` both require the last
+phase to be `Test`). It is **not** the survivor count — `missed` is. `success=0`
+means no mutant fell into that edge bucket; it says nothing on its own about
+survivors.
+
+**`timeout=0` is load-bearing for "zero survivors."** A timed-out mutant is
+neither caught nor missed, so a nonzero `timeout` would put an asterisk on the
+"zero survivors" headline — those mutants would be unjudged, not killed. Zero
+means the result has no timeout-shaped hole in it.
+
+**`cargo_mutants_version = 27.1.0` is on the record** (in the JSON and printed
+by the extractor), which is what makes this reproducible rather than merely
+repeatable — a future run can pin the same tool and get the same mutant set.
 
 ## The progression — from 7 misses to 0
 
