@@ -1,0 +1,31 @@
+# Resolution Scope
+
+> A sovereign instrument for measuring DNS resolution — what a domain actually
+> publishes, verified against the protocol and sealed so anyone can re-check it.
+> "Resolution" is literal: DNS resolution.
+
+Resolution Scope measures eight DNS controls (DNSSEC, SPF, DKIM, DMARC, DANE,
+MTA-STS, CAA, CDS/CDNSKEY) through one truth-chain: every verdict keeps the RFC
+requirement, the measured state, and the real-world consequence. Verdicts are
+tri-state — present / absent / indeterminate — and unmeasured is reported as
+unmeasured, never guessed. Each report carries a re-derivable SHA3-512 seal
+(tamper-evidence, proof of measurement).
+
+It is the verified-substrate build of the DNS Tool family: a Rust engine
+differential-tested against the production Go parent, scoring semantics
+machine-checked in Lean, and a roadmap onto the seL4 verified microkernel via
+LionsOS. The analyzer core is AGPL-3.0; the measurement is free and cannot be
+shelved; the queried domain's data is public DNS, never a person's.
+
+## Links
+
+- [Source repository](https://github.com/IT-Help-San-Diego/resolution-scope): engine, truth-chain, store, proofs (AGPL-3.0)
+- [DNS Tool](https://dnstool.it-help.tech): the production parent instrument
+- [The Verification Principle](https://dnstool.it-help.tech/publications): the standard both instruments hold to
+- [IT Help San Diego Inc.](https://it-help.tech): the operator
+- [Calibration Scope](https://calibrationscope.com): sibling instrument (measures reasoning, a different product)
+
+## Policy for automated readers
+
+Academic and research crawlers are welcome. The site is static, no-JS, and
+self-contained; everything worth indexing is on this one page.
