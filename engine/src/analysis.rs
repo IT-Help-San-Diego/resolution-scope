@@ -914,16 +914,11 @@ fn dkim_disposition_from_counts(
     }
 }
 
-/// Score DKIM by probing the 81 default selectors (plus any caller-supplied
-/// selector). This replaces the NotProbed stub: the engine can now honestly
-/// report Verified / KeyMismatch / NotFoundDefaults instead of "not measured".
-async fn score_dkim(
-    resolver: &TokioResolver,
-    domain: &str,
-    extra_selectors: &[String],
-) -> DkimDisposition {
-    // Build the probe list: caller selectors first (normalized to
-    // <selector>._domainkey), then the 81 defaults, deduped.
+/// Pure DKIM selector-list builder: caller selectors first (normalized to
+/// <selector>._domainkey), then the 81 defaults, deduped. Extracted so the
+/// dedup/normalize logic is unit-tested — the two `!selectors.contains` guards
+/// were surviving mutants (deleting them silently dropped/deduped selectors).
+fn build_dkim_selector_list(extra_selectors: &[String]) -> Vec<String> {
     let mut selectors: Vec<String> =
         Vec::with_capacity(DEFAULT_DKIM_SELECTORS.len() + extra_selectors.len());
     for s in extra_selectors {
@@ -942,47 +937,104 @@ async fn score_dkim(
             selectors.push(s);
         }
     }
+    selectors
+}
 
+/// The measured DKIM state of one selector's TXT chunks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DkimKeyState {
+    /// A p= tag with an empty value — key present but revoked (RFC 6376 §3.6.1).
+    Revoked,
+    /// A p= tag with a non-empty value — a usable key.
+    Valid,
+    /// Chunks returned, but no DKIM key (no p= tag).
+    NoKey,
+}
+
+/// Classify one selector's TXT chunks: valid key, revoked key, or no key.
+/// Extracted so the `key_found = true` / `revoked = true` assignments (surviving
+/// mutants) are unit-tested rather than living inline in the async loop.
+fn dkim_key_state(chunks: &[String]) -> DkimKeyState {
+    let mut key_found = false;
+    let mut revoked = false;
+    for s in chunks {
+        if let Some(p) = dkim_p_value(s) {
+            key_found = true;
+            if p.is_empty() {
+                revoked = true;
+            }
+        }
+    }
+    if revoked {
+        DkimKeyState::Revoked
+    } else if key_found {
+        DkimKeyState::Valid
+    } else {
+        DkimKeyState::NoKey
+    }
+}
+
+/// One selector's resolved probe: its TXT chunks, or the tri-state verdict of
+/// a failed lookup (already disambiguated via record_absence_verdict).
+type DkimSelectorProbe = Result<Vec<String>, TriState>;
+
+/// Accumulate per-selector probes into the four counts and apply the DKIM
+/// precedence. Extracted so the counter increments and the branch are
+/// unit-tested — surviving mutants were `+= → -=` on the counters, the
+/// revoked/valid/miss precedence, and the Absent-vs-transient split.
+fn dkim_disposition_from_probes(probes: &[DkimSelectorProbe]) -> DkimDisposition {
     let mut found_valid = 0usize;
     let mut found_revoked = 0usize;
     let mut definitive_miss = 0usize;
     let mut transient = 0usize;
+    for probe in probes {
+        match probe {
+            Ok(chunks) => match dkim_key_state(chunks) {
+                DkimKeyState::Revoked => found_revoked += 1,
+                DkimKeyState::Valid => found_valid += 1,
+                DkimKeyState::NoKey => definitive_miss += 1,
+            },
+            Err(TriState::Absent) => definitive_miss += 1,
+            Err(_) => transient += 1,
+        }
+    }
+    dkim_disposition_from_counts(found_valid, found_revoked, definitive_miss, transient)
+}
 
+/// Score DKIM by probing the 81 default selectors (plus any caller-supplied
+/// selector). This replaces the NotProbed stub: the engine can now honestly
+/// report Verified / KeyMismatch / NotFoundDefaults instead of "not measured".
+async fn score_dkim(
+    resolver: &TokioResolver,
+    domain: &str,
+    extra_selectors: &[String],
+) -> DkimDisposition {
+    let selectors = build_dkim_selector_list(extra_selectors);
+
+    // Resolve every selector to its probe outcome (chunks, or a tri-state
+    // verdict of a failed lookup). The testable logic — classification and
+    // precedence — lives in dkim_key_state + dkim_disposition_from_probes;
+    // only the network resolution stays here.
+    let mut probes: Vec<DkimSelectorProbe> = Vec::with_capacity(selectors.len());
     for sel in &selectors {
         let fqdn = format!("{}.{}", sel, domain);
-        match resolver.txt_lookup(fqdn.as_str()).await {
+        probes.push(match resolver.txt_lookup(fqdn.as_str()).await {
             Ok(rdata) => {
-                let mut key_found = false;
-                let mut revoked = false;
+                let mut chunks = Vec::new();
                 for rec in rdata.answers() {
                     if let hickory_proto::rr::RData::TXT(txt) = &rec.data {
-                        for chunk in &txt.txt_data {
-                            let s = String::from_utf8_lossy(chunk);
-                            if let Some(p) = dkim_p_value(&s) {
-                                key_found = true;
-                                if p.is_empty() {
-                                    revoked = true;
-                                }
-                            }
+                        for c in &txt.txt_data {
+                            chunks.push(String::from_utf8_lossy(c).to_string());
                         }
                     }
                 }
-                if revoked {
-                    found_revoked += 1;
-                } else if key_found {
-                    found_valid += 1;
-                } else {
-                    definitive_miss += 1;
-                }
+                Ok(chunks)
             }
-            Err(e) => match record_absence_verdict(&e, domain) {
-                TriState::Absent => definitive_miss += 1,
-                _ => transient += 1,
-            },
-        }
+            Err(e) => Err(record_absence_verdict(&e, domain)),
+        });
     }
 
-    dkim_disposition_from_counts(found_valid, found_revoked, definitive_miss, transient)
+    dkim_disposition_from_probes(&probes)
 }
 
 /// Pure DMARC policy classifier, extracted so the 2026-08-19 panel fix
@@ -1864,6 +1916,99 @@ mod tests {
         assert_eq!(
             dkim_disposition_from_counts(0, 0, 0, 0),
             DkimDisposition::NotProbed
+        );
+    }
+
+    /// The selector-list builder: caller selectors first, normalized, then the
+    /// 81 defaults, all deduped. Pins the two `!selectors.contains` guards that
+    /// mutation testing showed could be deleted with no test failing.
+    #[test]
+    fn dkim_selector_list_normalizes_and_dedupes() {
+        // A bare selector gets the ._domainkey suffix; a pre-suffixed one is
+        // left alone; a duplicate is dropped. "zzztest" is NOT in the 81
+        // defaults, so it must appear exactly once as a normalized extra.
+        let list = build_dkim_selector_list(&[
+            "zzztest".to_string(),
+            "zzztest._domainkey".to_string(), // duplicate of the normalized form
+        ]);
+        assert_eq!(list.first(), Some(&"zzztest._domainkey".to_string()));
+        // The bare "zzztest" normalized to "zzztest._domainkey"; the second
+        // entry was a duplicate, so it must not appear twice.
+        assert_eq!(
+            list.iter().filter(|s| s.as_str() == "zzztest._domainkey").count(),
+            1
+        );
+        // The 81 defaults are always present, plus exactly one normalized extra.
+        assert_eq!(list.len(), DEFAULT_DKIM_SELECTORS.len() + 1);
+        // A pre-suffixed caller selector is preserved verbatim, not double-suffixed.
+        let list2 = build_dkim_selector_list(&["zzztest._domainkey".to_string()]);
+        assert!(list2.contains(&"zzztest._domainkey".to_string()));
+        assert!(!list2.iter().any(|s| s == "zzztest._domainkey._domainkey"));
+    }
+
+    /// dkim_key_state: the three-way classification of one selector's chunks.
+    #[test]
+    fn dkim_key_state_classifies() {
+        assert_eq!(
+            dkim_key_state(&["v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3".to_string()]),
+            DkimKeyState::Valid
+        );
+        assert_eq!(
+            dkim_key_state(&["v=DKIM1; p=".to_string()]),
+            DkimKeyState::Revoked
+        );
+        assert_eq!(
+            dkim_key_state(&["v=spf1 -all".to_string()]),
+            DkimKeyState::NoKey
+        );
+        assert_eq!(dkim_key_state(&[]), DkimKeyState::NoKey);
+    }
+
+    /// dkim_disposition_from_probes: the per-selector accumulation + precedence,
+    /// with the Absent-vs-transient split. Pins the counter increments and the
+    /// branch that mutation testing showed were un-killed.
+    #[test]
+    fn dkim_probes_accumulate_and_precede() {
+        use DkimSelectorProbe as Probe;
+        // One valid key beats 80 definitive misses.
+        let probes = vec![
+            Ok(vec!["v=DKIM1; p=MIGf".to_string()]), // Valid
+            Err(TriState::Absent),                  // definitive miss
+            Err(TriState::Indet),                   // transient
+        ];
+        assert_eq!(
+            dkim_disposition_from_probes(&probes),
+            DkimDisposition::Verified
+        );
+        // A revoked key beats a valid key (KeyMismatch).
+        let probes2 = vec![
+            Ok(vec!["v=DKIM1; p=".to_string()]), // Revoked
+            Ok(vec!["v=DKIM1; p=MIGf".to_string()]), // Valid
+        ];
+        assert_eq!(
+            dkim_disposition_from_probes(&probes2),
+            DkimDisposition::KeyMismatch
+        );
+        // Only definitive misses → NotFoundDefaults (NOT evidence of absence).
+        // Each miss-SHAPE must be the sole contributor in its own assertion —
+        // combining them lets one site's mutant hide behind the other's count.
+        let probes3: Vec<Probe> = vec![Err(TriState::Absent), Err(TriState::Absent)];
+        assert_eq!(
+            dkim_disposition_from_probes(&probes3),
+            DkimDisposition::NotFoundDefaults
+        );
+        // The NoKey arm is a distinct += site: a single selector whose chunks
+        // hold no key must alone produce a definitive miss (not transient).
+        let probes_no_key: Vec<Probe> = vec![Ok(vec!["v=spf1 -all".to_string()])];
+        assert_eq!(
+            dkim_disposition_from_probes(&probes_no_key),
+            DkimDisposition::NotFoundDefaults
+        );
+        // Only transient → TransientError (couldn't measure).
+        let probes4: Vec<Probe> = vec![Err(TriState::Indet)];
+        assert_eq!(
+            dkim_disposition_from_probes(&probes4),
+            DkimDisposition::TransientError
         );
     }
 
