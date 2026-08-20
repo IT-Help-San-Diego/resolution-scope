@@ -1139,6 +1139,27 @@ fn dane_from_tlsa_counts(counts: &[Option<usize>]) -> DaneDisposition {
     }
 }
 
+/// Pure: map a TLSA lookup error to the per-host outcome it actually
+/// measured. `Some(0)` = a MEASURED absence (NODATA, or an NXDOMAIN whose SOA
+/// is the host's own zone — the host exists, it just publishes no TLSA);
+/// `None` = couldn't measure (transient, or the host's zone is missing).
+///
+/// This is the branch `score_dane` skipped when every other control's Err
+/// path routed through `record_absence_verdict` — the skip folded measured
+/// absence into couldn't-measure, the INVERSE conflation of the original
+/// `&[usize]` bug (which folded couldn't-measure into measured absence).
+/// Both directions lose the distinction DANE's four-way split exists to hold.
+///
+/// The host is passed with its trailing dot trimmed to match
+/// `record_absence_verdict`'s own SOA-side trim (`z.trim_end_matches('.')`);
+/// without the trim, the own-zone comparison never matches a third-party MX.
+fn tlsa_err_to_count(e: &NetError, host: &str) -> Option<usize> {
+    match record_absence_verdict(e, host.trim_end_matches('.')) {
+        TriState::Absent => Some(0), // measured: host exists, no TLSA at _25._tcp.<host>
+        _ => None,                  // Indet (and the unreachable others) — couldn't measure
+    }
+}
+
 async fn score_dane(resolver: &TokioResolver, domain: &str) -> DaneDisposition {
     // DANE for SMTP (RFC 7672): TLSA at _25._tcp.<mx-host> for each MX target.
     // NOT _443._tcp.<domain> — that is HTTPS DANE (RFC 6698 for browsers), the
@@ -1177,11 +1198,12 @@ async fn score_dane(resolver: &TokioResolver, domain: &str) -> DaneDisposition {
                         match resolver.lookup(tlsa_name.as_str(), RecordType::TLSA).await {
                             Ok(resp) => counts.push(Some(resp.answers().len())),
                             Err(e) => {
-                                // None = couldn't measure this host — carried
-                                // as a distinct outcome, never folded into
-                                // "measured no TLSA".
+                                // Route through record_absence_verdict so NODATA
+                                // (the host exists, no TLSA) is a MEASURED
+                                // absence — Some(0) — not "couldn't measure".
+                                // Only transient/zone-missing errors are None.
                                 warn!(domain, host = %host, error = %e, "SMTP DANE TLSA lookup error");
-                                counts.push(None);
+                                counts.push(tlsa_err_to_count(&e, host));
                             }
                         }
                     }
@@ -1882,6 +1904,52 @@ mod tests {
             dane_from_tlsa_counts(&[None, Some(2)]),
             DaneDisposition::TlsaPublished
         );
+    }
+
+    // --- the TLSA error classification (the over-correction fix) ---------------
+    // tlsa_err_to_count routes a TLSA lookup error through
+    // record_absence_verdict so NODATA (the host exists, no TLSA) is a MEASURED
+    // absence — Some(0) — while only transient/zone-missing errors are None.
+    // Without this, every Err became None, and the common "no TLSA on this
+    // host" case (NODATA) was folded into couldn't-measure: the inverse
+    // conflation of the original bug.
+
+    #[test]
+    fn tlsa_err_nodata_is_measured_absence() {
+        // NODATA on _25._tcp.<host>: the host's zone exists, no TLSA → a
+        // measured absence (Some(0)), NOT couldn't-measure.
+        assert_eq!(
+            tlsa_err_to_count(
+                &no_records_err(hickory_proto::op::ResponseCode::NoError),
+                "mail.example.com"
+            ),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn tlsa_err_servfail_is_unmeasured() {
+        // SERVFAIL: nothing was measured → None (couldn't measure).
+        assert_eq!(
+            tlsa_err_to_count(&servfail_err(), "mail.example.com"),
+            None
+        );
+    }
+
+    #[test]
+    fn tlsa_err_nxdomain_own_zone_is_measured_absence() {
+        // NXDOMAIN with the HOST's own zone in the SOA: the host exists, only
+        // _25._tcp.<host> is absent → measured absence. This is the trailing-
+        // dot case — host passed without its dot so the SOA comparison matches.
+        let e = nxdomain_err_with_soa("mail.example.com.");
+        assert_eq!(tlsa_err_to_count(&e, "mail.example.com"), Some(0));
+    }
+
+    #[test]
+    fn tlsa_err_nxdomain_parent_zone_is_unmeasured() {
+        // NXDOMAIN with the parent's SOA: the host itself is missing → Indet.
+        let e = nxdomain_err_with_soa("example.com.");
+        assert_eq!(tlsa_err_to_count(&e, "mail.example.com"), None);
     }
 
     // --- the four extracted Err-branch wrappers: Indet -> TransientError -------
