@@ -75,3 +75,23 @@ jobs:
         with:
           command: check licenses sources
           manifest-path: ${{ matrix.crate }}/Cargo.toml
+
+  # Lean proofs: the scoring doctrine is machine-checked, not just unit-tested.
+  # A proof that isn't re-checked on every commit drifts into a claim. This is
+  # the "logic as universal decoder" layer — a reader runs `lean lean/Scoring.lean`
+  # and verifies the doctrine without running (or trusting) the Rust. Pinned via
+  # lean-toolchain so a new Lean version can't silently change what "proved" means.
+  lean-proofs:
+    name: Lean proofs — Scoring.lean
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Lean (pinned via lean-toolchain)
+        run: |
+          set -euo pipefail
+          TOOLCHAIN=$(cat lean-toolchain)
+          curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf \
+            | sh -s -- -y --default-toolchain "$TOOLCHAIN" --no-modify-path
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+      - name: Verify the scoring doctrine
+        run: lean lean/Scoring.lean
