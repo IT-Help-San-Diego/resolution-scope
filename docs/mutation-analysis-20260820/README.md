@@ -13,6 +13,8 @@ carried a full study.
 | `e1bdd26` | 101 | 32 | 43 | 26 | pin `record_absence_to_dane` Indet→TransientError |
 | `cdc9b6b` | 105 | 36 | 39 | 30 | extract 4 Err-branch wrappers (spf/dmarc/mta_sts/caa) |
 | `17c6aa9` | 109 | 51 | **26** | 32 | extract DKIM per-selector core |
+| `d859be7` | 113 | 58 | **21** | 34 | extract score_dane's cores — DANE path mutation-clean |
+| `88d1095` | 110 | 55 | 21 | 34 | DANE TLSA errors → `Option`: a WRONG-VERDICT fix, so `missed` is rightly unchanged — the new three-way surface introduced zero survivors |
 
 **Only `missed` is comparable across steps.** Extraction creates new pure
 functions, so `total` and `caught` grow (101→109) as the mutable surface expands
