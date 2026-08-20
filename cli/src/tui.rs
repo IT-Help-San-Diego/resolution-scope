@@ -12,7 +12,6 @@ use std::io;
 use std::time::Instant;
 
 use anyhow::Result;
-use clap::Parser;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
@@ -26,34 +25,17 @@ use ratatui::widgets::{Block, Borders, Paragraph, Tabs, Wrap};
 use ratatui::{Frame, Terminal};
 
 use resolution_scope_engine::analysis::analyse_domain_with_selectors;
-use resolution_scope_engine::report::render_text;
 use resolution_scope_engine::truth_chain::{
     by_severity, truth_chain, Audience, ControlId, ControlReport, Severity, Tally,
 };
 use resolution_scope_engine::ScoredAnalysis;
 use resolution_scope_engine::TriState;
 
-use hickory_resolver::config::{ResolverConfig, ResolverOpts};
-use hickory_resolver::net::runtime::TokioRuntimeProvider;
 use hickory_resolver::TokioResolver;
 
 // ── CLI ────────────────────────────────────────────────────────────
-
-#[derive(Parser)]
-#[command(
-    name = "rs",
-    about = "Resolution Scope — DNS security analysis terminal"
-)]
-struct Args {
-    #[arg(short, long)]
-    domains: Vec<String>,
-    #[arg(short, long)]
-    covert: bool,
-    #[arg(short = 't', long)]
-    text: bool,
-    #[arg(long)]
-    dkim_selector: Vec<String>,
-}
+// (The CLI surface lives in main.rs; this module is the interactive
+// dashboard body, invoked by the `tui` subcommand.)
 
 // ── palette ────────────────────────────────────────────────────────
 
@@ -645,46 +627,18 @@ fn handle_input_mode(app: &mut App, code: KeyCode) {
     }
 }
 
-// ── main ───────────────────────────────────────────────────────────
+// ── entry point (invoked by the `tui` subcommand) ──────────────────
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    let args = Args::parse();
-    let domains = if !args.domains.is_empty() {
-        args.domains
-    } else {
-        eprintln!("Usage: rs -d example.com [resolutionscope.com ...]");
-        std::process::exit(1);
-    };
-
-    let mut opts = ResolverOpts::default();
-    opts.validate = true;
-    let resolver = TokioResolver::builder_with_config(
-        ResolverConfig::udp_and_tcp(&hickory_resolver::config::CLOUDFLARE),
-        TokioRuntimeProvider::default(),
-    )
-    .with_options(opts)
-    .build()?;
-
-    if args.text {
-        for domain in &domains {
-            println!(
-                "{}",
-                render_text(
-                    &analyse_domain_with_selectors(
-                        &resolver,
-                        domain,
-                        &args.dkim_selector,
-                        "cloudflare"
-                    )
-                    .await?
-                )
-            );
-        }
-        return Ok(());
-    }
-
-    let mut app = App::new(resolver, domains, args.dkim_selector, args.covert);
+/// Run the interactive dashboard. The resolver and domains are provided by
+/// main.rs; this module owns the terminal session (raw mode, alternate
+/// screen, event loop) and the renderers above.
+pub async fn run(
+    resolver: TokioResolver,
+    domains: Vec<String>,
+    dkim_selector: Vec<String>,
+    covert: bool,
+) -> Result<()> {
+    let mut app = App::new(resolver, domains, dkim_selector, covert);
     app.scan().await?;
 
     enable_raw_mode()?;

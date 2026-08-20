@@ -13,9 +13,10 @@ use resolution_scope_engine::truth_chain::{
 use resolution_scope_engine::{ScoredAnalysis, TriState};
 use resolution_scope_store::StoredScan;
 
-/// Terminal summary: worst-first findings list + score line.
-/// Mirrors the TUI's summary screen but as plain text (no ratatui dependency).
-pub fn render_tui_summary(analyses: &[ScoredAnalysis], audience: Audience) -> String {
+/// Terminal summary: worst-first findings list + score line. The compact
+/// "at a glance" view — distinct from the full text report (which is the
+/// engine's own render_text), but the same truth_chain() path.
+pub fn render_summary(analyses: &[ScoredAnalysis], audience: Audience) -> String {
     let mut s = String::new();
     s.push_str("Resolution Scope \u{2014} Surface Flipper\n");
     s.push_str(&format!("Audience: {}\n\n", audience_label(audience)));
@@ -55,6 +56,21 @@ pub fn render_text_report(analyses: &[ScoredAnalysis]) -> String {
     let mut s = String::new();
     for a in analyses {
         s.push_str(&render_text(a));
+        s.push('\n');
+    }
+    s
+}
+
+/// Machine-readable report — the engine's own serialization, not a severity
+/// map. `ScoredAnalysis` derives Serialize with every disposition enum (the
+/// full tri-state and the WHY) plus the tri-state fields; serializing it whole
+/// is what makes this the instrument half of the calibration study's Arm 1 —
+/// the disposition, not a display label. One JSON object per domain, newline
+/// separated, so `resolution-scope example.com --format json | jq` composes.
+pub fn render_json(analyses: &[ScoredAnalysis]) -> String {
+    let mut s = String::new();
+    for a in analyses {
+        s.push_str(&serde_json::to_string(a).expect("ScoredAnalysis is Serialize"));
         s.push('\n');
     }
     s
@@ -277,7 +293,7 @@ mod tests {
         let a = fixture("example.test");
         let model = truth_chain(&a);
 
-        let tui = render_tui_summary(std::slice::from_ref(&a), Audience::BlueTeam);
+        let tui = render_summary(std::slice::from_ref(&a), Audience::BlueTeam);
         let text = render_text_report(std::slice::from_ref(&a));
         let html = render_html_page(&[a], Audience::BlueTeam);
 
@@ -310,8 +326,8 @@ mod tests {
             .find(|r| r.consequence(Audience::BlueTeam) != r.consequence(Audience::RedTeam))
             .expect("fixture has a disposition with distinct framings");
 
-        let tui_blue = render_tui_summary(std::slice::from_ref(&a), Audience::BlueTeam);
-        let tui_red = render_tui_summary(std::slice::from_ref(&a), Audience::RedTeam);
+        let tui_blue = render_summary(std::slice::from_ref(&a), Audience::BlueTeam);
+        let tui_red = render_summary(std::slice::from_ref(&a), Audience::RedTeam);
         let html_blue = render_html_page(std::slice::from_ref(&a), Audience::BlueTeam);
         let html_red = render_html_page(&[a], Audience::RedTeam);
 
@@ -332,7 +348,7 @@ mod tests {
         let a = fixture("example.test");
         let t = Tally::of(&truth_chain(&a));
 
-        let tui = render_tui_summary(std::slice::from_ref(&a), Audience::BlueTeam);
+        let tui = render_summary(std::slice::from_ref(&a), Audience::BlueTeam);
         let text = render_text_report(std::slice::from_ref(&a));
         let html = render_html_page(&[a], Audience::BlueTeam);
 
@@ -340,6 +356,34 @@ mod tests {
         assert!(tui.contains(&score_str), "tui score");
         assert!(text.contains(&score_str), "text score");
         assert!(html.contains(&score_str), "html score");
+    }
+
+    /// The domain is caller input; it must reach the page escaped.
+    /// (Ported from the retired web crate — its renderer had this test and the
+    /// flipper's did not, though both escape. A renderer that escapes without
+    /// a test proving it is one regression away from an XSS vector.)
+    #[test]
+    fn domain_is_escaped() {
+        let a = fixture("<script>alert(1)</script>.test");
+        let page = render_html_page(std::slice::from_ref(&a), Audience::BlueTeam);
+        assert!(!page.contains("<script>alert"));
+        assert!(page.contains("&lt;script&gt;alert"));
+    }
+
+    /// The JSON surface carries the DISPOSITION and the tri-state, not a
+    /// severity label — the same constraint that disqualified the Go compact
+    /// endpoint. "signed_not_delegated" and "indet" must survive serialization
+    /// because Arm 1 needs the tri-state on both sides.
+    #[test]
+    fn json_carries_disposition_and_tri_state() {
+        let a = fixture("example.test");
+        let out = render_json(std::slice::from_ref(&a));
+        let v: serde_json::Value = serde_json::from_str(out.trim()).unwrap();
+        assert_eq!(v["domain"], "example.test");
+        // The full disposition enum survives (not a severity string).
+        assert_eq!(v["dnssec_disposition"], "Unsigned");
+        // And the tri-state survives alongside it.
+        assert_eq!(v["dnssec_chain"], "Absent");
     }
 
     // ── Sealed history ────────────────────────────────────────────────
