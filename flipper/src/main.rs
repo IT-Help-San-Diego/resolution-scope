@@ -57,11 +57,36 @@ struct Args {
     /// seal itself from the verdict; nothing here can alter it.
     #[arg(long, env = "RS_STORE_URL")]
     store_url: Option<String>,
+
+    /// Show the sealed scan history for the domains from --store-url. Does
+    /// NOT scan — reads what the store already recorded and re-derives each
+    /// row's seal to report VERIFIED / MISMATCH / unverifiable.
+    #[arg(long)]
+    history: bool,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
+
+    // History mode: read the store's sealed history for each domain and
+    // verify every row's seal — no scan, no resolver. This is the store's
+    // memory surfaced; the seal check re-derives from the stored verdict +
+    // stored engine version via the same engine seal function the store uses.
+    if args.history {
+        let url = args
+            .store_url
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("--history requires --store-url (or RS_STORE_URL)"))?;
+        let mut store = resolution_scope_store::Store::connect(url).await?;
+        store.migrate().await?;
+        for domain in &args.domains {
+            let history = store.scan_history(domain).await?;
+            print!("{}", render::render_history(domain, &history));
+        }
+        return Ok(());
+    }
+
     let audience = match args.audience.as_str() {
         "blue" => Audience::BlueTeam,
         "red" => Audience::RedTeam,
