@@ -66,12 +66,25 @@ pub const SEAL_SCHEME: &str = "resolution-scope-sha3-512-v1";
 /// `session_id` or `timestamp_local`. See the module doc for the exact
 /// canonical form.
 pub fn seal(analysis: &ScoredAnalysis) -> String {
+    seal_versioned(analysis, &engine_version())
+}
+
+/// Compute the seal for a verdict produced by a SPECIFIC engine version.
+///
+/// The seal binds the producing engine's version, so verifying a STORED
+/// verdict must hash the version that produced it — not whatever version the
+/// verifier happens to be running. Without this entry point, every engine
+/// release would silently orphan all previously sealed history ("a seal
+/// scheme that drifts is a seal that lies" — this module's own rule). The
+/// store persists `engine_version` beside each verdict and verifies through
+/// here.
+pub fn seal_versioned(analysis: &ScoredAnalysis, produced_by_version: &str) -> String {
     let mut hasher = Sha3_512::new();
     hasher.update(SEAL_SCHEME.as_bytes());
     hasher.update(b"\n");
     hasher.update(analysis.domain.as_bytes());
     hasher.update(b"\n");
-    hasher.update(engine_version().as_bytes());
+    hasher.update(produced_by_version.as_bytes());
     hasher.update(b"\n");
 
     // Fixed order — the canonical form's field order is load-bearing. A
@@ -123,7 +136,9 @@ pub fn seal(analysis: &ScoredAnalysis) -> String {
 /// The engine version that produced a verdict. `CARGO_PKG_VERSION` is the
 /// crate's own identity; a release pipeline may pin a git-derived version
 /// instead (see dns-tool-intel `scripts/version.sh` for the parent pattern).
-fn engine_version() -> String {
+/// Public so the store can persist the producing version beside each verdict
+/// (verification of old rows hashes the stored version, never the current).
+pub fn engine_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 

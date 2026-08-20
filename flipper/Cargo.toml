@@ -8,9 +8,10 @@ repository  = "https://github.com/IT-Help-San-Diego/resolution-scope"
 
 [dependencies]
 resolution-scope-engine = { path = "../engine" }
+resolution-scope-store = { path = "../store" }
 
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 anyhow = "1"
 hickory-resolver = { version = "0.26.1", features = ["dnssec-ring"] }
 
