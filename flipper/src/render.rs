@@ -6,10 +6,12 @@
 // presentation format and calls the shared model.
 
 use resolution_scope_engine::report::render_text;
+use resolution_scope_engine::seal::{seal_versioned, SEAL_SCHEME};
 use resolution_scope_engine::truth_chain::{
     by_severity, truth_chain, Audience, ControlReport, Severity, Tally,
 };
 use resolution_scope_engine::{ScoredAnalysis, TriState};
+use resolution_scope_store::StoredScan;
 
 /// Terminal summary: worst-first findings list + score line.
 /// Mirrors the TUI's summary screen but as plain text (no ratatui dependency).
@@ -47,7 +49,7 @@ pub fn render_tui_summary(analyses: &[ScoredAnalysis], audience: Audience) -> St
     s
 }
 
-/// Plain text report \u{2014} delegates to the engine's own renderer (report.rs).
+/// Plain text report — delegates to the engine's own renderer (report.rs).
 /// Same truth_chain() path, no re-interpretation.
 pub fn render_text_report(analyses: &[ScoredAnalysis]) -> String {
     let mut s = String::new();
@@ -56,6 +58,70 @@ pub fn render_text_report(analyses: &[ScoredAnalysis]) -> String {
         s.push('\n');
     }
     s
+}
+
+/// Sealed-history listing — the store's memory, surfaced.
+///
+/// Every stored scan is a row the store sealed at write time. This view
+/// re-derives each row's seal from its stored verdict + stored engine version
+/// via the SAME engine `seal_versioned` the store uses, so the CHECK column is
+/// a measurement, not an assertion: a row that hashes back to its own seal is
+/// VERIFIED, a drifted one is MISMATCH, and a row sealed under a scheme this
+/// build cannot re-derive is UNVERIFIABLE (never "tampered" — the false-
+/// accusation the store's scheme-dispatch exists to prevent).
+///
+/// The score shown is re-derived from the stored verdict through
+/// `truth_chain()` and `Tally` — the same path as a live scan; history does
+/// not invent a second scoring path.
+pub fn render_history(domain: &str, history: &[StoredScan]) -> String {
+    let mut s = String::new();
+    s.push_str(&format!(
+        "\u{2550}\u{2550} Sealed history \u{2014} {domain} \u{2550}\u{2550}\n"
+    ));
+    if history.is_empty() {
+        s.push_str("  (no stored scans for this domain)\n\n");
+        return s;
+    }
+    s.push_str(&format!(
+        "  {} scan(s), oldest first \u{2014} seal scheme {}\n\n",
+        history.len(),
+        SEAL_SCHEME,
+    ));
+    for h in history {
+        let t = Tally::of(&truth_chain(&h.verdict));
+        let prefix = if h.seal.len() >= 16 {
+            &h.seal[..16]
+        } else {
+            &h.seal[..]
+        };
+        s.push_str(&format!(
+            "  #{:<4} engine {:<8}  score {}/{}  seal {}…  {}\n",
+            h.id,
+            h.engine_version,
+            t.present,
+            t.denominator(),
+            prefix,
+            seal_check_label(h),
+        ));
+    }
+    s.push_str(
+        "\n  measured_at = unix time the scan ran; seal = re-derivable from the stored verdict\n",
+    );
+    s.push_str(
+        "  (the timestamp is provenance, not part of the seal — the seal covers the verdict)\n\n",
+    );
+    s
+}
+
+/// The verification status of one stored scan, re-derived — not asserted.
+fn seal_check_label(s: &StoredScan) -> &'static str {
+    if s.seal_scheme != SEAL_SCHEME {
+        "UNVERIFIABLE (scheme)"
+    } else if seal_versioned(&s.verdict, &s.engine_version) == s.seal {
+        "VERIFIED"
+    } else {
+        "MISMATCH"
+    }
 }
 
 /// Static HTML page \u{2014} replicates the web renderer's structure but lives
@@ -274,5 +340,66 @@ mod tests {
         assert!(tui.contains(&score_str), "tui score");
         assert!(text.contains(&score_str), "text score");
         assert!(html.contains(&score_str), "html score");
+    }
+
+    // ── Sealed history ────────────────────────────────────────────────
+
+    fn stored(domain: &str, scheme: &str, seal: String) -> StoredScan {
+        StoredScan {
+            id: 1,
+            domain: domain.to_string(),
+            engine_version: "0.1.0".to_string(),
+            seal,
+            seal_scheme: scheme.to_string(),
+            verdict: fixture(domain),
+        }
+    }
+
+    /// The seal check re-derives, it does not assert: a row that hashes back
+    /// to its own seal is VERIFIED, a drifted one is MISMATCH, and a row
+    /// under an unknown scheme is UNVERIFIABLE (never "tampered").
+    #[test]
+    fn history_seal_check_three_states() {
+        let v = fixture("example.test");
+        let good = seal_versioned(&v, "0.1.0");
+
+        let ok = stored("example.test", SEAL_SCHEME, good.clone());
+        assert_eq!(seal_check_label(&ok), "VERIFIED");
+
+        let tampered = stored("example.test", SEAL_SCHEME, "deadbeef".repeat(64));
+        assert_eq!(seal_check_label(&tampered), "MISMATCH");
+
+        let future = stored("example.test", "resolution-scope-sha3-512-v3", good);
+        assert_eq!(seal_check_label(&future), "UNVERIFIABLE (scheme)");
+    }
+
+    /// The rendered history carries the seal prefix, the verification label,
+    /// the re-derived score, and the domain — a reader can confirm the row's
+    /// provenance from the listing alone.
+    #[test]
+    fn history_renders_seal_score_and_check() {
+        let v = fixture("example.test");
+        let good = seal_versioned(&v, "0.1.0");
+        let t = Tally::of(&truth_chain(&v));
+
+        let out = render_history(
+            "example.test",
+            &[stored("example.test", SEAL_SCHEME, good.clone())],
+        );
+
+        assert!(out.contains("example.test"), "domain");
+        assert!(out.contains("VERIFIED"), "verification label");
+        assert!(out.contains(&good[..16]), "seal prefix");
+        assert!(
+            out.contains(&format!("{}/{}", t.present, t.denominator())),
+            "re-derived score"
+        );
+    }
+
+    /// Empty history is honest: it says so, it does not fabricate rows.
+    #[test]
+    fn history_empty_is_explicit() {
+        let out = render_history("never-scanned.test", &[]);
+        assert!(out.contains("no stored scans"));
     }
 }
