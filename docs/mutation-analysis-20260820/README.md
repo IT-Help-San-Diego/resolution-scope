@@ -1,62 +1,74 @@
 # Mutation testing — analysis.rs (the verdict file), 2026-08-20
 
-This is the first mutation evidence for `analysis.rs`, the file that holds all
-eight scored controls as disposition enums and produces every verdict that
-reaches a public report. It is the file the calibration-study finding points at:
-until now it carried **zero** mutation evidence while the adjunct signal
-(`flux.rs`, which feeds no score) carried a full study.
+The file that holds all eight scored controls as disposition enums and produces
+every verdict that reaches a public report. Until 2026-08-20 it carried **zero**
+mutation evidence while the adjunct signal (`flux.rs`, which feeds no score)
+carried a full study.
 
-## The baseline, measured
+## The progression (each step's raw `outcomes.json` committed, reproducible)
+
+| source commit | total | caught | missed | unviable | what changed |
+|---|---|---|---|---|---|
+| `b202e74` | 101 | 31 | **44** | 26 | baseline — the gap, first measured |
+| `e1bdd26` | 101 | 32 | 43 | 26 | pin `record_absence_to_dane` Indet→TransientError |
+| `cdc9b6b` | 105 | 36 | 39 | 30 | extract 4 Err-branch wrappers (spf/dmarc/mta_sts/caa) |
+| `17c6aa9` | 109 | 51 | **26** | 32 | extract DKIM per-selector core |
 
 ```
+# current HEAD (17c6aa9)
 cargo-mutants 27.1.0
-total=101 caught=31 missed=44 timeout=0 unviable=26 success=0
+total=109 caught=51 missed=26 timeout=0 unviable=32 success=0
 ```
 
-**44 missed mutants** — versus `flux.rs` at **0 missed** after its seam work.
-The validation gap is real and large.
+## The baseline (44 missed) — where it concentrated
 
-## Where the misses concentrate (read directly off the per-function table)
+`score_dkim` 13 · `score_dane` 5 · `fetch_mta_sts_policy` 3 ·
+`score_caa`/`score_cds_cdnskey`/`score_mta_sts` 2 each ·
+`score_dnssec`/`score_dmarc`/`score_spf`/`record_absence_to_dane`/
+`mta_sts_policy_state` 1 each · 8 × `Display::fmt` + `rand_session_id` +
+`unix_now` = 12 cosmetic.
 
-- **`score_dkim` — 13 missed.** The single largest cluster: the DKIM disposition
-  scoring is almost entirely un-exercised.
-- **`score_dane` — 5 missed.**
-- **`score_caa` / `score_cds_cdnskey` / `score_mta_sts` — 2 each.**
-- **`score_dnssec` / `score_dmarc` / `score_spf` / `record_absence_to_dane` /
-  `mta_sts_policy_state` — 1 each.**
-- **`fetch_mta_sts_policy` — 3 missed** (the HTTP policy fetch; network-path
-  class, same shape as `observe_flux` before its seam).
-- **`rand_session_id` / `unix_now` — 2 each** (time/random; replaced with 0/1).
-- **8 × `Display::fmt` — 1 each** (string formatting for the disposition enums).
+The structural finding: **every survivor was in an `async` function; every
+caught mutant was in a pure sync helper** — the `observe_flux` shape, and the
+remedy is extraction, not mocking.
 
-Every one of the eight scored controls has un-killed mutants in its scoring
-path. The finding "all eight scored controls live in the un-validated file" is
-now a measurement, not an assertion.
+## What has been closed (measured, not asserted)
 
-## The epistemically-load-bearing miss
+- **Five `delete match arm TriState::Indet` mutants — all killed, one per
+  wrapper, exactly five.** The doctrine "couldn't measure ≠ absent" now has a
+  test failing on its deletion in every control that carried it inline:
+  `record_absence_to_dane`, `spf_err_to_disposition`, `dmarc_err_to_disposition`,
+  `mta_sts_err_to_disposition`, `caa_err_to_disposition`.
+- **`score_dkim` 13 → 0** via three extractions with the selector list +
+  per-selector outcomes as inputs: `build_dkim_selector_list`,
+  `dkim_key_state`, `dkim_disposition_from_probes`.
 
-The raw mutant list shows the honest-branch arms are un-tested: "delete match
-arm `TriState::Indet`" survives in `score_mta_sts`, `score_caa`, and
-`record_absence_to_dane`; "delete `!`" survives across `score_dane`,
-`score_mta_sts`, `score_caa`, `score_cds_cdnskey`.
+Scoring-path survivors: 32 → 27 (the five Indet kills, exactly) → 14 (DKIM
+extraction).
 
-`TriState::Indet` is the branch that says **"I could not measure this, so I will
-not report absent."** It is the whole point of the tri-state over a binary — the
-absence-of-evidence-is-not-evidence-of-absence doctrine — and mutation testing
-shows that deleting that arm (silently collapsing indeterminate into absent) is
-caught by **no test**. That is the exact silent-failure class this project has
-spent its life eliminating, sitting unguarded in the file that produces the
-verdicts.
+## What remains (14 scoring-path + 12 cosmetic)
+
+- `score_dane` 5 (MX/TLSA loop — assembly, not decision core)
+- `fetch_mta_sts_policy` 3 (HTTP fetch)
+- `score_cds_cdnskey` 2 (`delete !` on empty-answer guards)
+- `score_caa` 1, `score_dnssec` 1 (inline `!answers.is_empty()`),
+  `score_mta_sts` 1, `mta_sts_policy_state` 1
+- 12 cosmetic (8 `Display::fmt` + `rand_session_id` + `unix_now`)
+
+## Test-authoring rule learned from the mutation tool itself
+
+Combining two miss-SHAPES in one probe list lets one `+=` site's mutant hide
+behind the other's count (the run went *up* before it went down). Each
+miss-arm must be the sole contributor in its own assertion.
 
 ## What this is and is not
 
-**Is:** the raw, re-derivable baseline for the calibration study. Reproduce with
-`cargo mutants --file src/analysis.rs` against source commit `b202e74`, then
-`python3 scripts/mutation_summary.py mutants.out/outcomes.json`.
+**Is:** raw, re-derivable evidence, one committed `outcomes.json` per step.
+Reproduce with `cargo mutants --file src/analysis.rs` against any listed commit,
+then `python3 scripts/mutation_summary.py mutants.out/outcomes.json`.
 
-**Is not:** a fix. Closing these 44 misses correctly requires the study's own
-constraints — RFC known-answer vectors (a shared doctrinal error is invisible to
-an N-version arm), and the reference-uncertainty trap (our tri-state against a
-binary reference). Those constraints live in the study spec, and the test
-vectors must be chosen against them, not invented here. This file records the
-gap; it does not pretend to close it.
+**Is not:** finished. The remaining scoring-path survivors are the assembly
+logic inside async loops; closing them is behaviour-preserving extraction and is
+unblocked without the calibration spec. The spec (RFC known-answer vectors,
+reference-uncertainty handling) is needed only for the calibration arms, not for
+the extraction.
