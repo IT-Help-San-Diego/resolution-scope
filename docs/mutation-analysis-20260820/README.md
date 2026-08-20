@@ -20,14 +20,14 @@ carried a full study.
 functions, so `total` and `caught` grow (101→109) as the mutable surface expands
 — more functions means more mutants to make. The `missed` count is the one
 figure that tracks progress cleanly: fewer survivors is the goal, and it fell
-44 → 26. (The `total` column counts mutant scenarios only — it excludes the one
+44 → 21. (The `total` column counts mutant scenarios only — it excludes the one
 baseline `Success` record, so `total = caught + missed + unviable` on every
 row.)
 
 ```
-# current HEAD (17c6aa9)
+# current HEAD (88d1095)
 cargo-mutants 27.1.0
-total=109 caught=51 missed=26 timeout=0 unviable=32 success=0
+total=110 caught=55 missed=21 timeout=0 unviable=34 success=0
 ```
 
 ## The baseline (44 missed) — where it concentrated
@@ -52,9 +52,14 @@ remedy is extraction, not mocking.
 - **`score_dkim` 13 → 0** via three extractions with the selector list +
   per-selector outcomes as inputs: `build_dkim_selector_list`,
   `dkim_key_state`, `dkim_disposition_from_probes`.
+- **`score_dane` 5 → 0** via three extractions with the MX list + per-host TLSA
+  outcomes as inputs: `mx_exchange_from_rdata`, `classify_mx`,
+  `dane_from_tlsa_counts`. The four-way split (NoMx / NoMail / TlsaPublished /
+  Indet) is pinned, and the TLSA-error honesty gap is fixed (`Option<usize>` —
+  couldn't-measure is never folded into measured-absence).
 
 Scoring-path survivors: 32 → 27 (the five Indet kills, exactly) → 14 (DKIM
-extraction, −13: `score_dkim` 13→0, nothing else moved).
+extraction, −13) → 9 (DANE extraction, −5). Nothing else moved at either step.
 
 The DKIM path is genuinely clean: `dkim_disposition_from_counts` 12/0,
 `dkim_disposition_from_probes` 10/0, `build_dkim_selector_list` 5/0,
@@ -63,9 +68,8 @@ The DKIM path is genuinely clean: `dkim_disposition_from_counts` 12/0,
 longer CONTAINING killable logic** (their only remaining mutants are "unviable"
 — the tool could not compile a testable form). Do not read 0/0 as coverage.
 
-## What remains (14 scoring-path + 12 cosmetic)
+## What remains (9 scoring-path + 12 cosmetic)
 
-- `score_dane` 5 (MX/TLSA loop — assembly, not decision core)
 - `fetch_mta_sts_policy` 3 (HTTP fetch)
 - `score_cds_cdnskey` 2 (`delete !` on empty-answer guards)
 - `score_caa` 1, `score_dnssec` 1 (inline `!answers.is_empty()`),
