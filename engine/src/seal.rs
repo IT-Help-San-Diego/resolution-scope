@@ -1,5 +1,5 @@
 // =============================================================================
-// seal — tamper-evidence for sealed verdicts (NOT provenance)
+// seal — tamper-evidence for sealed verdicts
 // =============================================================================
 //
 // A seal is a deterministic SHA3-512 digest of a measurement's *verdict
@@ -12,7 +12,7 @@
 //
 // The honest claim (the only one this module makes): "anyone can verify this
 // verdict is the one that was sealed." It is NOT "anyone can verify this was
-// measured." Overstating the seal as provenance is the one thing this
+// measured." Overstating the seal as proof-of-measurement is the one thing this
 // instrument must not do.
 //
 // This is the "structure-as-label" property from the Carrier Color deep-time
@@ -27,7 +27,7 @@
 //
 // ── WHAT IS NOT SEALED (run metadata) ─────────────────────────────────────
 //   * session_id   — a per-run random, not part of the verdict
-//   * timestamp    — wall-clock provenance, not part of the verdict
+//   * timestamp    — wall-clock time, not part of the verdict
 //
 // The seal deliberately EXCLUDES run metadata so it is a pure function of the
 // verdict: the same domain analysed by the same engine produces the same
@@ -244,7 +244,7 @@ mod tests {
 
     #[test]
     fn seal_ignores_run_metadata() {
-        // session_id and timestamp are provenance, not verdict — a future
+        // session_id and timestamp are run metadata, not verdict — a future
         // reader must be able to re-derive the seal without knowing them.
         let mut rerun = baseline();
         rerun.session_id = 99_999;

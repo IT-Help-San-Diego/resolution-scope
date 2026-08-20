@@ -46,6 +46,11 @@ mod tests {
     /// from drifting apart silently (the correspondence gap Claude Science
     /// flagged on the machine-checked-doctrine claim). If either side renames,
     /// adds, or removes a state, this fails at build time.
+    ///
+    /// Scope: this pins NAME correspondence only — that the Lean constructors
+    /// and the Rust variants are named identically. It does not pin SEMANTIC
+    /// correspondence (that each variant's behavior matches its constructor's
+    /// meaning); that residual gap is closed when refinement proofs land.
     #[test]
     fn tri_state_matches_lean_model() {
         const RUST_VARIANTS: [&str; 4] = ["Present", "Absent", "Indet", "NotApplicable"];
