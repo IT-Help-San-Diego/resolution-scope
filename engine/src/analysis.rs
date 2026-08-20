@@ -434,6 +434,12 @@ pub struct ScoredAnalysis {
     pub domain: String,
     pub session_id: u64,
     pub timestamp_local: u64,
+    /// Which resolver (vantage) produced this measurement — the observer's
+    /// identity, not the target's. Two scans from different resolvers are
+    /// different measurements even if their verdicts coincide (the
+    /// observation-conditions rule), so this enters the seal. Populated by
+    /// the caller (the flipper/TUI know their own resolver config).
+    pub resolver_identity: String,
 
     // Per-control tri-state scores
     pub dnssec_chain: TriState,
@@ -459,19 +465,25 @@ pub struct ScoredAnalysis {
 // =============================================================================
 
 /// Analyse a domain with the default probe set (no caller-supplied DKIM
-/// selectors). Thin wrapper over [`analyse_domain_with_selectors`].
+/// selectors, default resolver identity). Thin wrapper over
+/// [`analyse_domain_with_selectors`].
 pub async fn analyse_domain(resolver: &TokioResolver, domain: &str) -> Result<ScoredAnalysis> {
-    analyse_domain_with_selectors(resolver, domain, &[]).await
+    analyse_domain_with_selectors(resolver, domain, &[], "default").await
 }
 
 /// Analyse a domain, probing the caller-supplied DKIM selectors in addition
 /// to (and ahead of) the 81 defaults. A user who knows their selector gets a
 /// definitive `Verified` / `KeyMismatch` instead of the sweep's
 /// "absence NOT proven".
+///
+/// `resolver_identity` names the vantage the measurement was taken from
+/// (e.g. "cloudflare") — it is sealed, so two scans from different resolvers
+/// never seal identically, even when their verdicts coincide.
 pub async fn analyse_domain_with_selectors(
     resolver: &TokioResolver,
     domain: &str,
     dkim_selectors: &[String],
+    resolver_identity: &str,
 ) -> Result<ScoredAnalysis> {
     debug!(domain, "starting analysis");
 
@@ -513,6 +525,7 @@ pub async fn analyse_domain_with_selectors(
         domain: domain.to_string(),
         session_id,
         timestamp_local,
+        resolver_identity: resolver_identity.to_string(),
         dnssec_chain,
         dnssec_disposition,
         spf,

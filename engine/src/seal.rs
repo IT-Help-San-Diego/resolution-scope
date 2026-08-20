@@ -19,9 +19,10 @@
 // doctrine — the verification is folded into the shape of the verdict itself,
 // not attached as a separate claim. The seal IS the label.
 //
-// ── WHAT IS SEALED (the verdict) ──────────────────────────────────────────
+// ── WHAT IS SEALED (the verdict + its observation conditions) ─────────────
 //   * the domain under analysis
 //   * the engine version (which verdict logic produced it)
+//   * the resolver identity (which vantage measured it)
 //   * every control's disposition (the *reason*) and tri-state (the *score*)
 //
 // ── WHAT IS NOT SEALED (run metadata) ─────────────────────────────────────
@@ -36,12 +37,13 @@
 // unique and unrecoverable; a verdict seal is reproducible and checkable
 // forever.
 //
-// ── CANONICAL FORM (v1) ────────────────────────────────────────────────────
+// ── CANONICAL FORM (v2) ────────────────────────────────────────────────────
 // The digested byte sequence is, in order, newline-terminated:
 //
-//   resolution-scope-sha3-512-v1
+//   resolution-scope-sha3-512-v2
 //   <domain>
 //   <engine version>
+//   <resolver identity>
 //   dnssec=<disposition>=<tri>
 //   spf=<disposition>=<tri>
 //   dkim=<disposition>=<tri>
@@ -65,7 +67,8 @@ use crate::analysis::ScoredAnalysis;
 /// Versioned identifier for the seal scheme. Changing the canonical form
 /// (field set, order, encoding) MUST bump this string, or old seals silently
 /// become unverifiable — a seal scheme that drifts is a seal that lies.
-pub const SEAL_SCHEME: &str = "resolution-scope-sha3-512-v1";
+/// v2 added `resolver_identity` (the observer's vantage) to the input set.
+pub const SEAL_SCHEME: &str = "resolution-scope-sha3-512-v2";
 
 /// Compute the hex-encoded SHA3-512 seal of a measurement's verdict content.
 ///
@@ -93,6 +96,11 @@ pub fn seal_versioned(analysis: &ScoredAnalysis, produced_by_version: &str) -> S
     hasher.update(analysis.domain.as_bytes());
     hasher.update(b"\n");
     hasher.update(produced_by_version.as_bytes());
+    hasher.update(b"\n");
+    // The observer's vantage: two scans from different resolvers are
+    // different measurements even if their verdicts coincide, so the seal
+    // must bind the resolver identity too (observation-conditions rule).
+    hasher.update(analysis.resolver_identity.as_bytes());
     hasher.update(b"\n");
 
     // Fixed order — the canonical form's field order is load-bearing. A
@@ -184,6 +192,7 @@ mod tests {
             domain: "example.com".to_string(),
             session_id: 1,
             timestamp_local: 1_700_000_000,
+            resolver_identity: "default".to_string(),
             dnssec_chain: TriState::Present,
             dnssec_disposition: crate::analysis::DnssecDisposition::SignedAndDelegated,
             spf: TriState::Present,
@@ -241,6 +250,17 @@ mod tests {
         rerun.session_id = 99_999;
         rerun.timestamp_local = 9_999_999_999;
         assert_eq!(seal(&baseline()), seal(&rerun));
+    }
+
+    #[test]
+    fn seal_changes_when_resolver_identity_changes() {
+        // The observation-conditions rule: the same verdict measured from a
+        // different resolver is a different measurement. The seal must bind
+        // the vantage, or two scans from different resolvers would seal
+        // identically and be conflated.
+        let mut other = baseline();
+        other.resolver_identity = "google".to_string();
+        assert_ne!(seal(&baseline()), seal(&other));
     }
 
     #[test]
