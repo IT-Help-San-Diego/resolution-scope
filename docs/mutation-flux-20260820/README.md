@@ -99,10 +99,13 @@ function.** The seven misses flipped to caught exactly as predicted.
 - The `unviable` mutants (6) are mutants the tool could not compile into a
   testable form — not "caught" and not "missed," a third category. One each in
   `dispersion`/`observation_from_asns`/`observation_from_parts`/`observe_flux`/
-  `parse_cymru_origin`/`ip_from_rdata`, and none is claimed as coverage. In
-  particular, `observe_flux` shows 0 caught because its only mutation the tool
-  could produce was unviable — the live-resolver wrapper itself is still not
-  unit-tested, only its pure core is. That residual is honest and tiny.
+  `parse_cymru_origin`/`ip_from_rdata`, and none is claimed as coverage.
+- **`observe_flux` at 0 caught / 0 missed does NOT mean it is covered.** It
+  means it no longer *contains* killable logic — the mutable code moved out into
+  the pure functions, and one unviable mutant is all the tool can generate
+  against the remaining wrapper. The honest sentence is **"the untestable region
+  shrank," not "the untestable region is tested."** The live-resolver wrapper
+  itself is still not unit-tested; only its pure core is.
 - Mutation testing proves the tests *would catch* the mutants the tool made. It
   does not prove the tests are *complete* — a bug shape the tool does not mutate
   is invisible to it. Same boundary honesty as the seal: tamper-evidence is not
