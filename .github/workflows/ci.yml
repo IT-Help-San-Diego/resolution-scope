@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        crate: [engine, tui, web, flipper]
+        crate: [engine, tui, web, flipper, store]
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -68,13 +68,46 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        crate: [engine, tui, web, flipper, native]
+        crate: [engine, tui, web, flipper, native, store]
     steps:
       - uses: actions/checkout@v5
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check licenses sources
           manifest-path: ${{ matrix.crate }}/Cargo.toml
+
+  # Store integration: the sealed-history contract runs against a REAL
+  # postgres — sealed roundtrip, tamper detection, cross-version
+  # verification, the flux measurement→memory→dispersion loop, migration
+  # idempotence. The tests are #[ignore]d locally (no DB assumed);
+  # --include-ignored here means the gate genuinely executes them — an
+  # env-gated silent skip would be a check that cannot fail.
+  store-integration:
+    name: store — sealed history against live postgres
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: rs
+          POSTGRES_DB: rs_store
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      RS_STORE_TEST_URL: postgres://postgres:rs@localhost:5432/rs_store
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: store
+      - run: cargo test -- --include-ignored
+        working-directory: store
 
   # Lean proofs: the scoring doctrine is machine-checked, not just unit-tested.
   # A proof that isn't re-checked on every commit drifts into a claim. This is

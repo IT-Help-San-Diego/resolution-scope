@@ -51,6 +51,12 @@ struct Args {
     /// Output file path (for html/text; tui always goes to stdout)
     #[arg(short, long)]
     out: Option<String>,
+
+    /// PostgreSQL URL for the sealed-history store (env: RS_STORE_URL).
+    /// When set, every scan is persisted sealed — the store computes the
+    /// seal itself from the verdict; nothing here can alter it.
+    #[arg(long, env = "RS_STORE_URL")]
+    store_url: Option<String>,
 }
 
 #[tokio::main]
@@ -127,6 +133,19 @@ async fn main() -> Result<()> {
             eprintln!("wrote {html_path}");
         }
         other => anyhow::bail!("--format must be 'tui', 'text', 'html', or 'all', got {other:?}"),
+    }
+
+    // Sealed history: when a store is configured, every verdict is persisted
+    // with a store-computed seal (never caller-supplied) and the row id +
+    // seal prefix are echoed so the run is citable.
+    if let Some(url) = &args.store_url {
+        let mut store = resolution_scope_store::Store::connect(url).await?;
+        store.migrate().await?;
+        for a in &analyses {
+            let id = store.record_scan(a).await?;
+            let seal = resolution_scope_engine::seal::seal(a);
+            eprintln!("stored {} as scan #{id} (seal {}…)", a.domain, &seal[..16]);
+        }
     }
 
     Ok(())

@@ -268,3 +268,30 @@ embedded stub). The production path is gated on the human-triggered scan
 (botverify); the local path needs the container pointed at a real upstream
 resolver. Recorded so the recapture is never "completed" from a broken
 resolver and called done.
+
+## Sealed-history store (2026-08-19, foundation layer 7-of-8)
+
+`store/` — the instrument's memory, holding itself to the instrument's
+epistemics: **sealed on write by the store** (`record_scan` computes the seal
+from the verdict it is handed; a caller-supplied seal is never accepted),
+**verifiable on read across versions** (each row persists the producing
+engine's version; `verify_scan` re-derives from stored verdict + stored
+version — `seal_versioned` was added to the engine for exactly this, because
+`seal()` baked in the current build's version and every release would have
+orphaned all prior sealed history), and **Up-only migrations** (no Down
+sections exist — the dns-tool-intel #467 hazard class removed, not guarded).
+Postgres local-first per doctrine; `verdict` is `json` not `jsonb` per the
+2026-08-17 measured ruling. Capability shape: DATABASE_URL only.
+
+Integration-tested against a REAL postgres (7 tests incl. tamper-detection
+via direct SQL mutation behind the seal's back, cross-version verification,
+migration idempotence, and the full flux loop: engine measures → store
+remembers → engine's pure dispersion() reads the memory back). CI runs them
+against a postgres service container with --include-ignored — an env-gated
+silent skip would be a check that cannot fail. Found-by-testing: concurrent
+migrators raced on CREATE TABLE (five parallel tests on a fresh database,
+four failed) — fixed with a pg_advisory_lock, which is the production fix,
+not a test accommodation. Firing path: `rs-flip --store-url` (env
+RS_STORE_URL) persists every scan sealed and echoes the citable row id;
+end-to-end verified by DB census (row's seal == report's seal, byte-equal
+across runs — determinism observed live).
