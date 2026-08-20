@@ -8,7 +8,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 12.394206375,
+          "duration": 11.827651625,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -20,7 +20,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.757655125,
+          "duration": 0.811762042,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -71,7 +71,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.018763083,
+          "duration": 0.963097917,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -83,7 +83,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.540341167,
+          "duration": 0.484073,
           "process_status": {
             "Failure": 101
           },
@@ -136,7 +136,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.810546625,
+          "duration": 0.815356,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -148,7 +148,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.492710708,
+          "duration": 0.483883667,
           "process_status": {
             "Failure": 101
           },
@@ -201,7 +201,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.06658725,
+          "duration": 1.0843582920000001,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -213,7 +213,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.4869125,
+          "duration": 0.480946417,
           "process_status": {
             "Failure": 101
           },
@@ -266,7 +266,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.378894209,
+          "duration": 0.372255667,
           "process_status": {
             "Failure": 101
           },
@@ -320,7 +320,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.019619167,
+          "duration": 1.069061917,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -332,7 +332,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.533187917,
+          "duration": 0.539054042,
           "process_status": {
             "Failure": 101
           },
@@ -385,7 +385,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.851118209,
+          "duration": 0.793626708,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -397,7 +397,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.542687417,
+          "duration": 0.536183458,
           "process_status": {
             "Failure": 101
           },
@@ -450,7 +450,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.864937541,
+          "duration": 0.811178208,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -462,7 +462,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.535848416,
+          "duration": 0.538984375,
           "process_status": {
             "Failure": 101
           },
@@ -515,7 +515,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.86583,
+          "duration": 0.804615667,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -527,7 +527,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.535560709,
+          "duration": 0.544586958,
           "process_status": {
             "Failure": 101
           },
@@ -580,7 +580,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.812395125,
+          "duration": 0.863778667,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -592,7 +592,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.540337417,
+          "duration": 0.541204375,
           "process_status": {
             "Failure": 101
           },
@@ -608,30 +608,279 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/flux.rs:153:5: replace observe_flux -> FluxObservation with Default::default()",
+          "name": "src/flux.rs:154:5: replace ip_from_rdata -> Option<IpAddr> with None",
           "package": "resolution-scope-engine",
           "file": "src/flux.rs",
           "function": {
-            "function_name": "observe_flux",
-            "return_type": "-> FluxObservation",
+            "function_name": "ip_from_rdata",
+            "return_type": "-> Option<IpAddr>",
             "span": {
               "start": {
                 "line": 150,
                 "column": 1
               },
               "end": {
-                "line": 218,
+                "line": 159,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 153,
+              "line": 154,
               "column": 5
             },
             "end": {
-              "line": 217,
+              "line": 158,
+              "column": 6
+            }
+          },
+          "replacement": "None",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__flux.rs_line_154_col_5.log",
+      "diff_path": "diff/src__flux.rs_line_154_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.857417417,
+          "process_status": "Success",
+          "argv": [
+            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=resolution-scope-engine@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.540223583,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=resolution-scope-engine@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/flux.rs:154:5: replace ip_from_rdata -> Option<IpAddr> with Some(Default::default())",
+          "package": "resolution-scope-engine",
+          "file": "src/flux.rs",
+          "function": {
+            "function_name": "ip_from_rdata",
+            "return_type": "-> Option<IpAddr>",
+            "span": {
+              "start": {
+                "line": 150,
+                "column": 1
+              },
+              "end": {
+                "line": 159,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 154,
+              "column": 5
+            },
+            "end": {
+              "line": 158,
+              "column": 6
+            }
+          },
+          "replacement": "Some(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__flux.rs_line_154_col_5_001.log",
+      "diff_path": "diff/src__flux.rs_line_154_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.3751295,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=resolution-scope-engine@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/flux.rs:155:9: delete match arm RData::A(a) in ip_from_rdata",
+          "package": "resolution-scope-engine",
+          "file": "src/flux.rs",
+          "function": {
+            "function_name": "ip_from_rdata",
+            "return_type": "-> Option<IpAddr>",
+            "span": {
+              "start": {
+                "line": 150,
+                "column": 1
+              },
+              "end": {
+                "line": 159,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 155,
+              "column": 9
+            },
+            "end": {
+              "line": 155,
+              "column": 46
+            }
+          },
+          "replacement": "",
+          "genre": "MatchArm"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__flux.rs_line_155_col_9.log",
+      "diff_path": "diff/src__flux.rs_line_155_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.853602958,
+          "process_status": "Success",
+          "argv": [
+            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=resolution-scope-engine@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.549413959,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=resolution-scope-engine@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/flux.rs:156:9: delete match arm RData::AAAA(a) in ip_from_rdata",
+          "package": "resolution-scope-engine",
+          "file": "src/flux.rs",
+          "function": {
+            "function_name": "ip_from_rdata",
+            "return_type": "-> Option<IpAddr>",
+            "span": {
+              "start": {
+                "line": 150,
+                "column": 1
+              },
+              "end": {
+                "line": 159,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 156,
+              "column": 9
+            },
+            "end": {
+              "line": 156,
+              "column": 49
+            }
+          },
+          "replacement": "",
+          "genre": "MatchArm"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__flux.rs_line_156_col_9.log",
+      "diff_path": "diff/src__flux.rs_line_156_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.804588,
+          "process_status": "Success",
+          "argv": [
+            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=resolution-scope-engine@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.531724334,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=resolution-scope-engine@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/flux.rs:173:5: replace observation_from_parts -> FluxObservation with Default::default()",
+          "package": "resolution-scope-engine",
+          "file": "src/flux.rs",
+          "function": {
+            "function_name": "observation_from_parts",
+            "return_type": "-> FluxObservation",
+            "span": {
+              "start": {
+                "line": 161,
+                "column": 1
+              },
+              "end": {
+                "line": 210,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 173,
+              "column": 5
+            },
+            "end": {
+              "line": 209,
               "column": 57
             }
           },
@@ -640,12 +889,12 @@
         }
       },
       "summary": "Unviable",
-      "log_path": "log/src__flux.rs_line_153_col_5.log",
-      "diff_path": "diff/src__flux.rs_line_153_col_5.diff",
+      "log_path": "log/src__flux.rs_line_173_col_5.log",
+      "diff_path": "diff/src__flux.rs_line_173_col_5.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.424015375,
+          "duration": 0.431885583,
           "process_status": {
             "Failure": 101
           },
@@ -662,156 +911,30 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/flux.rs:161:25: delete match arm RData::A(a) in observe_flux",
+          "name": "src/flux.rs:199:20: delete ! in observation_from_parts",
           "package": "resolution-scope-engine",
           "file": "src/flux.rs",
           "function": {
-            "function_name": "observe_flux",
+            "function_name": "observation_from_parts",
             "return_type": "-> FluxObservation",
             "span": {
               "start": {
-                "line": 150,
+                "line": 161,
                 "column": 1
               },
               "end": {
-                "line": 218,
+                "line": 210,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 161,
-              "column": 25
-            },
-            "end": {
-              "line": 161,
-              "column": 62
-            }
-          },
-          "replacement": "",
-          "genre": "MatchArm"
-        }
-      },
-      "summary": "MissedMutant",
-      "log_path": "log/src__flux.rs_line_161_col_25.log",
-      "diff_path": "diff/src__flux.rs_line_161_col_25.diff",
-      "phase_results": [
-        {
-          "phase": "Build",
-          "duration": 0.805933375,
-          "process_status": "Success",
-          "argv": [
-            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
-            "test",
-            "--no-run",
-            "--verbose",
-            "--package=resolution-scope-engine@0.1.0"
-          ]
-        },
-        {
-          "phase": "Test",
-          "duration": 0.915355167,
-          "process_status": "Success",
-          "argv": [
-            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
-            "test",
-            "--verbose",
-            "--package=resolution-scope-engine@0.1.0"
-          ]
-        }
-      ]
-    },
-    {
-      "scenario": {
-        "Mutant": {
-          "name": "src/flux.rs:162:25: delete match arm RData::AAAA(a) in observe_flux",
-          "package": "resolution-scope-engine",
-          "file": "src/flux.rs",
-          "function": {
-            "function_name": "observe_flux",
-            "return_type": "-> FluxObservation",
-            "span": {
-              "start": {
-                "line": 150,
-                "column": 1
-              },
-              "end": {
-                "line": 218,
-                "column": 2
-              }
-            }
-          },
-          "span": {
-            "start": {
-              "line": 162,
-              "column": 25
-            },
-            "end": {
-              "line": 162,
-              "column": 65
-            }
-          },
-          "replacement": "",
-          "genre": "MatchArm"
-        }
-      },
-      "summary": "MissedMutant",
-      "log_path": "log/src__flux.rs_line_162_col_25.log",
-      "diff_path": "diff/src__flux.rs_line_162_col_25.diff",
-      "phase_results": [
-        {
-          "phase": "Build",
-          "duration": 0.867763667,
-          "process_status": "Success",
-          "argv": [
-            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
-            "test",
-            "--no-run",
-            "--verbose",
-            "--package=resolution-scope-engine@0.1.0"
-          ]
-        },
-        {
-          "phase": "Test",
-          "duration": 0.851140083,
-          "process_status": "Success",
-          "argv": [
-            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
-            "test",
-            "--verbose",
-            "--package=resolution-scope-engine@0.1.0"
-          ]
-        }
-      ]
-    },
-    {
-      "scenario": {
-        "Mutant": {
-          "name": "src/flux.rs:206:20: delete ! in observe_flux",
-          "package": "resolution-scope-engine",
-          "file": "src/flux.rs",
-          "function": {
-            "function_name": "observe_flux",
-            "return_type": "-> FluxObservation",
-            "span": {
-              "start": {
-                "line": 150,
-                "column": 1
-              },
-              "end": {
-                "line": 218,
-                "column": 2
-              }
-            }
-          },
-          "span": {
-            "start": {
-              "line": 206,
+              "line": 199,
               "column": 20
             },
             "end": {
-              "line": 206,
+              "line": 199,
               "column": 21
             }
           },
@@ -819,13 +942,13 @@
           "genre": "UnaryOperator"
         }
       },
-      "summary": "MissedMutant",
-      "log_path": "log/src__flux.rs_line_206_col_20.log",
-      "diff_path": "diff/src__flux.rs_line_206_col_20.diff",
+      "summary": "CaughtMutant",
+      "log_path": "log/src__flux.rs_line_199_col_20.log",
+      "diff_path": "diff/src__flux.rs_line_199_col_20.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.849475792,
+          "duration": 0.815251125,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -837,8 +960,10 @@
         },
         {
           "phase": "Test",
-          "duration": 0.857387958,
-          "process_status": "Success",
+          "duration": 0.538502625,
+          "process_status": {
+            "Failure": 101
+          },
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
             "test",
@@ -851,30 +976,30 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/flux.rs:207:32: replace += with -= in observe_flux",
+          "name": "src/flux.rs:200:32: replace += with -= in observation_from_parts",
           "package": "resolution-scope-engine",
           "file": "src/flux.rs",
           "function": {
-            "function_name": "observe_flux",
+            "function_name": "observation_from_parts",
             "return_type": "-> FluxObservation",
             "span": {
               "start": {
-                "line": 150,
+                "line": 161,
                 "column": 1
               },
               "end": {
-                "line": 218,
+                "line": 210,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 207,
+              "line": 200,
               "column": 32
             },
             "end": {
-              "line": 207,
+              "line": 200,
               "column": 34
             }
           },
@@ -882,13 +1007,13 @@
           "genre": "BinaryOperator"
         }
       },
-      "summary": "MissedMutant",
-      "log_path": "log/src__flux.rs_line_207_col_32.log",
-      "diff_path": "diff/src__flux.rs_line_207_col_32.diff",
+      "summary": "CaughtMutant",
+      "log_path": "log/src__flux.rs_line_200_col_32.log",
+      "diff_path": "diff/src__flux.rs_line_200_col_32.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.857947,
+          "duration": 0.85828625,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -900,8 +1025,10 @@
         },
         {
           "phase": "Test",
-          "duration": 0.85868675,
-          "process_status": "Success",
+          "duration": 0.532771916,
+          "process_status": {
+            "Failure": 101
+          },
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
             "test",
@@ -914,30 +1041,30 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/flux.rs:207:32: replace += with *= in observe_flux",
+          "name": "src/flux.rs:200:32: replace += with *= in observation_from_parts",
           "package": "resolution-scope-engine",
           "file": "src/flux.rs",
           "function": {
-            "function_name": "observe_flux",
+            "function_name": "observation_from_parts",
             "return_type": "-> FluxObservation",
             "span": {
               "start": {
-                "line": 150,
+                "line": 161,
                 "column": 1
               },
               "end": {
-                "line": 218,
+                "line": 210,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 207,
+              "line": 200,
               "column": 32
             },
             "end": {
-              "line": 207,
+              "line": 200,
               "column": 34
             }
           },
@@ -945,13 +1072,13 @@
           "genre": "BinaryOperator"
         }
       },
-      "summary": "MissedMutant",
-      "log_path": "log/src__flux.rs_line_207_col_32_001.log",
-      "diff_path": "diff/src__flux.rs_line_207_col_32_001.diff",
+      "summary": "CaughtMutant",
+      "log_path": "log/src__flux.rs_line_200_col_32_001.log",
+      "diff_path": "diff/src__flux.rs_line_200_col_32_001.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.805266667,
+          "duration": 0.851967333,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -963,8 +1090,10 @@
         },
         {
           "phase": "Test",
-          "duration": 0.901579667,
-          "process_status": "Success",
+          "duration": 0.535955458,
+          "process_status": {
+            "Failure": 101
+          },
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
             "test",
@@ -977,30 +1106,30 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/flux.rs:212:28: replace += with -= in observe_flux",
+          "name": "src/flux.rs:204:28: replace += with -= in observation_from_parts",
           "package": "resolution-scope-engine",
           "file": "src/flux.rs",
           "function": {
-            "function_name": "observe_flux",
+            "function_name": "observation_from_parts",
             "return_type": "-> FluxObservation",
             "span": {
               "start": {
-                "line": 150,
+                "line": 161,
                 "column": 1
               },
               "end": {
-                "line": 218,
+                "line": 210,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 212,
+              "line": 204,
               "column": 28
             },
             "end": {
-              "line": 212,
+              "line": 204,
               "column": 30
             }
           },
@@ -1008,13 +1137,13 @@
           "genre": "BinaryOperator"
         }
       },
-      "summary": "MissedMutant",
-      "log_path": "log/src__flux.rs_line_212_col_28.log",
-      "diff_path": "diff/src__flux.rs_line_212_col_28.diff",
+      "summary": "CaughtMutant",
+      "log_path": "log/src__flux.rs_line_204_col_28.log",
+      "diff_path": "diff/src__flux.rs_line_204_col_28.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.802002458,
+          "duration": 0.857358625,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1026,8 +1155,10 @@
         },
         {
           "phase": "Test",
-          "duration": 0.866383375,
-          "process_status": "Success",
+          "duration": 0.537749542,
+          "process_status": {
+            "Failure": 101
+          },
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
             "test",
@@ -1040,30 +1171,30 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/flux.rs:212:28: replace += with *= in observe_flux",
+          "name": "src/flux.rs:204:28: replace += with *= in observation_from_parts",
           "package": "resolution-scope-engine",
           "file": "src/flux.rs",
           "function": {
-            "function_name": "observe_flux",
+            "function_name": "observation_from_parts",
             "return_type": "-> FluxObservation",
             "span": {
               "start": {
-                "line": 150,
+                "line": 161,
                 "column": 1
               },
               "end": {
-                "line": 218,
+                "line": 210,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 212,
+              "line": 204,
               "column": 28
             },
             "end": {
-              "line": 212,
+              "line": 204,
               "column": 30
             }
           },
@@ -1071,13 +1202,13 @@
           "genre": "BinaryOperator"
         }
       },
-      "summary": "MissedMutant",
-      "log_path": "log/src__flux.rs_line_212_col_28_001.log",
-      "diff_path": "diff/src__flux.rs_line_212_col_28_001.diff",
+      "summary": "CaughtMutant",
+      "log_path": "log/src__flux.rs_line_204_col_28_001.log",
+      "diff_path": "diff/src__flux.rs_line_204_col_28_001.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.862254166,
+          "duration": 0.8594175,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1089,8 +1220,10 @@
         },
         {
           "phase": "Test",
-          "duration": 0.916655375,
-          "process_status": "Success",
+          "duration": 0.545866667,
+          "process_status": {
+            "Failure": 101
+          },
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
             "test",
@@ -1103,7 +1236,61 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/flux.rs:227:5: replace observation_from_asns -> FluxObservation with Default::default()",
+          "name": "src/flux.rs:218:5: replace observe_flux -> FluxObservation with Default::default()",
+          "package": "resolution-scope-engine",
+          "file": "src/flux.rs",
+          "function": {
+            "function_name": "observe_flux",
+            "return_type": "-> FluxObservation",
+            "span": {
+              "start": {
+                "line": 212,
+                "column": 1
+              },
+              "end": {
+                "line": 260,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 218,
+              "column": 5
+            },
+            "end": {
+              "line": 259,
+              "column": 53
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__flux.rs_line_218_col_5.log",
+      "diff_path": "diff/src__flux.rs_line_218_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.481320334,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=resolution-scope-engine@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/flux.rs:269:5: replace observation_from_asns -> FluxObservation with Default::default()",
           "package": "resolution-scope-engine",
           "file": "src/flux.rs",
           "function": {
@@ -1111,22 +1298,22 @@
             "return_type": "-> FluxObservation",
             "span": {
               "start": {
-                "line": 220,
+                "line": 262,
                 "column": 1
               },
               "end": {
-                "line": 261,
+                "line": 303,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 227,
+              "line": 269,
               "column": 5
             },
             "end": {
-              "line": 260,
+              "line": 302,
               "column": 6
             }
           },
@@ -1135,12 +1322,12 @@
         }
       },
       "summary": "Unviable",
-      "log_path": "log/src__flux.rs_line_227_col_5.log",
-      "diff_path": "diff/src__flux.rs_line_227_col_5.diff",
+      "log_path": "log/src__flux.rs_line_269_col_5.log",
+      "diff_path": "diff/src__flux.rs_line_269_col_5.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.425131333,
+          "duration": 0.427536833,
           "process_status": {
             "Failure": 101
           },
@@ -1157,7 +1344,7 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/flux.rs:241:22: delete ! in observation_from_asns",
+          "name": "src/flux.rs:283:22: delete ! in observation_from_asns",
           "package": "resolution-scope-engine",
           "file": "src/flux.rs",
           "function": {
@@ -1165,22 +1352,22 @@
             "return_type": "-> FluxObservation",
             "span": {
               "start": {
-                "line": 220,
+                "line": 262,
                 "column": 1
               },
               "end": {
-                "line": 261,
+                "line": 303,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 241,
+              "line": 283,
               "column": 22
             },
             "end": {
-              "line": 241,
+              "line": 283,
               "column": 23
             }
           },
@@ -1189,12 +1376,12 @@
         }
       },
       "summary": "CaughtMutant",
-      "log_path": "log/src__flux.rs_line_241_col_22.log",
-      "diff_path": "diff/src__flux.rs_line_241_col_22.diff",
+      "log_path": "log/src__flux.rs_line_283_col_22.log",
+      "diff_path": "diff/src__flux.rs_line_283_col_22.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.808429208,
+          "duration": 0.797870875,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1206,7 +1393,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.532887833,
+          "duration": 0.537022625,
           "process_status": {
             "Failure": 101
           },
@@ -1222,7 +1409,7 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/flux.rs:247:30: replace == with != in observation_from_asns",
+          "name": "src/flux.rs:289:30: replace == with != in observation_from_asns",
           "package": "resolution-scope-engine",
           "file": "src/flux.rs",
           "function": {
@@ -1230,22 +1417,22 @@
             "return_type": "-> FluxObservation",
             "span": {
               "start": {
-                "line": 220,
+                "line": 262,
                 "column": 1
               },
               "end": {
-                "line": 261,
+                "line": 303,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 247,
+              "line": 289,
               "column": 30
             },
             "end": {
-              "line": 247,
+              "line": 289,
               "column": 32
             }
           },
@@ -1254,12 +1441,12 @@
         }
       },
       "summary": "CaughtMutant",
-      "log_path": "log/src__flux.rs_line_247_col_30.log",
-      "diff_path": "diff/src__flux.rs_line_247_col_30.diff",
+      "log_path": "log/src__flux.rs_line_289_col_30.log",
+      "diff_path": "diff/src__flux.rs_line_289_col_30.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.857048542,
+          "duration": 0.902587875,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1271,7 +1458,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.540809292,
+          "duration": 0.54049875,
           "process_status": {
             "Failure": 101
           },
@@ -1287,7 +1474,7 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/flux.rs:324:5: replace dispersion -> FluxSignal with Default::default()",
+          "name": "src/flux.rs:366:5: replace dispersion -> FluxSignal with Default::default()",
           "package": "resolution-scope-engine",
           "file": "src/flux.rs",
           "function": {
@@ -1295,22 +1482,22 @@
             "return_type": "-> FluxSignal",
             "span": {
               "start": {
-                "line": 320,
+                "line": 362,
                 "column": 1
               },
               "end": {
-                "line": 369,
+                "line": 411,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 324,
+              "line": 366,
               "column": 5
             },
             "end": {
-              "line": 368,
+              "line": 410,
               "column": 6
             }
           },
@@ -1319,12 +1506,12 @@
         }
       },
       "summary": "Unviable",
-      "log_path": "log/src__flux.rs_line_324_col_5.log",
-      "diff_path": "diff/src__flux.rs_line_324_col_5.diff",
+      "log_path": "log/src__flux.rs_line_366_col_5.log",
+      "diff_path": "diff/src__flux.rs_line_366_col_5.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.38021225,
+          "duration": 0.429819458,
           "process_status": {
             "Failure": 101
           },
@@ -1341,7 +1528,7 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/flux.rs:326:31: replace == with != in dispersion",
+          "name": "src/flux.rs:368:31: replace == with != in dispersion",
           "package": "resolution-scope-engine",
           "file": "src/flux.rs",
           "function": {
@@ -1349,22 +1536,22 @@
             "return_type": "-> FluxSignal",
             "span": {
               "start": {
-                "line": 320,
+                "line": 362,
                 "column": 1
               },
               "end": {
-                "line": 369,
+                "line": 411,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 326,
+              "line": 368,
               "column": 31
             },
             "end": {
-              "line": 326,
+              "line": 368,
               "column": 33
             }
           },
@@ -1373,12 +1560,12 @@
         }
       },
       "summary": "CaughtMutant",
-      "log_path": "log/src__flux.rs_line_326_col_31.log",
-      "diff_path": "diff/src__flux.rs_line_326_col_31.diff",
+      "log_path": "log/src__flux.rs_line_368_col_31.log",
+      "diff_path": "diff/src__flux.rs_line_368_col_31.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.861324959,
+          "duration": 0.866642375,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1390,7 +1577,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.537692667,
+          "duration": 0.6012305,
           "process_status": {
             "Failure": 101
           },
@@ -1406,7 +1593,7 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/flux.rs:335:38: replace != with == in dispersion",
+          "name": "src/flux.rs:377:38: replace != with == in dispersion",
           "package": "resolution-scope-engine",
           "file": "src/flux.rs",
           "function": {
@@ -1414,22 +1601,22 @@
             "return_type": "-> FluxSignal",
             "span": {
               "start": {
-                "line": 320,
+                "line": 362,
                 "column": 1
               },
               "end": {
-                "line": 369,
+                "line": 411,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 335,
+              "line": 377,
               "column": 38
             },
             "end": {
-              "line": 335,
+              "line": 377,
               "column": 40
             }
           },
@@ -1438,12 +1625,12 @@
         }
       },
       "summary": "CaughtMutant",
-      "log_path": "log/src__flux.rs_line_335_col_38.log",
-      "diff_path": "diff/src__flux.rs_line_335_col_38.diff",
+      "log_path": "log/src__flux.rs_line_377_col_38.log",
+      "diff_path": "diff/src__flux.rs_line_377_col_38.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.913241917,
+          "duration": 0.918308458,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1455,7 +1642,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.592356333,
+          "duration": 0.543199791,
           "process_status": {
             "Failure": 101
           },
@@ -1471,7 +1658,7 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/flux.rs:339:46: replace <= with > in dispersion",
+          "name": "src/flux.rs:381:46: replace <= with > in dispersion",
           "package": "resolution-scope-engine",
           "file": "src/flux.rs",
           "function": {
@@ -1479,22 +1666,22 @@
             "return_type": "-> FluxSignal",
             "span": {
               "start": {
-                "line": 320,
+                "line": 362,
                 "column": 1
               },
               "end": {
-                "line": 369,
+                "line": 411,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 339,
+              "line": 381,
               "column": 46
             },
             "end": {
-              "line": 339,
+              "line": 381,
               "column": 48
             }
           },
@@ -1503,12 +1690,12 @@
         }
       },
       "summary": "CaughtMutant",
-      "log_path": "log/src__flux.rs_line_339_col_46.log",
-      "diff_path": "diff/src__flux.rs_line_339_col_46.diff",
+      "log_path": "log/src__flux.rs_line_381_col_46.log",
+      "diff_path": "diff/src__flux.rs_line_381_col_46.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.909492792,
+          "duration": 0.865558167,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1520,7 +1707,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.589083333,
+          "duration": 0.540699375,
           "process_status": {
             "Failure": 101
           },
@@ -1536,7 +1723,7 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/flux.rs:341:42: replace < with == in dispersion",
+          "name": "src/flux.rs:383:42: replace < with == in dispersion",
           "package": "resolution-scope-engine",
           "file": "src/flux.rs",
           "function": {
@@ -1544,22 +1731,22 @@
             "return_type": "-> FluxSignal",
             "span": {
               "start": {
-                "line": 320,
+                "line": 362,
                 "column": 1
               },
               "end": {
-                "line": 369,
+                "line": 411,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 341,
+              "line": 383,
               "column": 42
             },
             "end": {
-              "line": 341,
+              "line": 383,
               "column": 43
             }
           },
@@ -1568,12 +1755,12 @@
         }
       },
       "summary": "CaughtMutant",
-      "log_path": "log/src__flux.rs_line_341_col_42.log",
-      "diff_path": "diff/src__flux.rs_line_341_col_42.diff",
+      "log_path": "log/src__flux.rs_line_383_col_42.log",
+      "diff_path": "diff/src__flux.rs_line_383_col_42.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.860261875,
+          "duration": 0.858454625,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1585,7 +1772,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.59153325,
+          "duration": 0.586757708,
           "process_status": {
             "Failure": 101
           },
@@ -1601,7 +1788,7 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/flux.rs:341:42: replace < with > in dispersion",
+          "name": "src/flux.rs:383:42: replace < with > in dispersion",
           "package": "resolution-scope-engine",
           "file": "src/flux.rs",
           "function": {
@@ -1609,22 +1796,22 @@
             "return_type": "-> FluxSignal",
             "span": {
               "start": {
-                "line": 320,
+                "line": 362,
                 "column": 1
               },
               "end": {
-                "line": 369,
+                "line": 411,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 341,
+              "line": 383,
               "column": 42
             },
             "end": {
-              "line": 341,
+              "line": 383,
               "column": 43
             }
           },
@@ -1633,12 +1820,12 @@
         }
       },
       "summary": "CaughtMutant",
-      "log_path": "log/src__flux.rs_line_341_col_42_001.log",
-      "diff_path": "diff/src__flux.rs_line_341_col_42_001.diff",
+      "log_path": "log/src__flux.rs_line_383_col_42_001.log",
+      "diff_path": "diff/src__flux.rs_line_383_col_42_001.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.85246175,
+          "duration": 0.866394541,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1650,7 +1837,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.58880025,
+          "duration": 0.542242709,
           "process_status": {
             "Failure": 101
           },
@@ -1666,7 +1853,7 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/flux.rs:341:42: replace < with <= in dispersion",
+          "name": "src/flux.rs:383:42: replace < with <= in dispersion",
           "package": "resolution-scope-engine",
           "file": "src/flux.rs",
           "function": {
@@ -1674,22 +1861,22 @@
             "return_type": "-> FluxSignal",
             "span": {
               "start": {
-                "line": 320,
+                "line": 362,
                 "column": 1
               },
               "end": {
-                "line": 369,
+                "line": 411,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 341,
+              "line": 383,
               "column": 42
             },
             "end": {
-              "line": 341,
+              "line": 383,
               "column": 43
             }
           },
@@ -1698,12 +1885,12 @@
         }
       },
       "summary": "CaughtMutant",
-      "log_path": "log/src__flux.rs_line_341_col_42_002.log",
-      "diff_path": "diff/src__flux.rs_line_341_col_42_002.diff",
+      "log_path": "log/src__flux.rs_line_383_col_42_002.log",
+      "diff_path": "diff/src__flux.rs_line_383_col_42_002.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.918036042,
+          "duration": 0.895252167,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1715,7 +1902,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.576782125,
+          "duration": 0.538616167,
           "process_status": {
             "Failure": 101
           },
@@ -1731,7 +1918,7 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/flux.rs:343:27: replace == with != in dispersion",
+          "name": "src/flux.rs:385:27: replace == with != in dispersion",
           "package": "resolution-scope-engine",
           "file": "src/flux.rs",
           "function": {
@@ -1739,22 +1926,22 @@
             "return_type": "-> FluxSignal",
             "span": {
               "start": {
-                "line": 320,
+                "line": 362,
                 "column": 1
               },
               "end": {
-                "line": 369,
+                "line": 411,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 343,
+              "line": 385,
               "column": 27
             },
             "end": {
-              "line": 343,
+              "line": 385,
               "column": 29
             }
           },
@@ -1763,12 +1950,12 @@
         }
       },
       "summary": "CaughtMutant",
-      "log_path": "log/src__flux.rs_line_343_col_27.log",
-      "diff_path": "diff/src__flux.rs_line_343_col_27.diff",
+      "log_path": "log/src__flux.rs_line_385_col_27.log",
+      "diff_path": "diff/src__flux.rs_line_385_col_27.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.914495875,
+          "duration": 0.848735333,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1780,7 +1967,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.589727708,
+          "duration": 0.584764833,
           "process_status": {
             "Failure": 101
           },
@@ -1796,7 +1983,7 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/flux.rs:345:27: replace == with != in dispersion",
+          "name": "src/flux.rs:387:27: replace == with != in dispersion",
           "package": "resolution-scope-engine",
           "file": "src/flux.rs",
           "function": {
@@ -1804,22 +1991,22 @@
             "return_type": "-> FluxSignal",
             "span": {
               "start": {
-                "line": 320,
+                "line": 362,
                 "column": 1
               },
               "end": {
-                "line": 369,
+                "line": 411,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 345,
+              "line": 387,
               "column": 27
             },
             "end": {
-              "line": 345,
+              "line": 387,
               "column": 29
             }
           },
@@ -1828,12 +2015,12 @@
         }
       },
       "summary": "CaughtMutant",
-      "log_path": "log/src__flux.rs_line_345_col_27.log",
-      "diff_path": "diff/src__flux.rs_line_345_col_27.diff",
+      "log_path": "log/src__flux.rs_line_387_col_27.log",
+      "diff_path": "diff/src__flux.rs_line_387_col_27.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.964298541,
+          "duration": 0.868799208,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1845,7 +2032,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.587681709,
+          "duration": 0.599685459,
           "process_status": {
             "Failure": 101
           },
@@ -1861,7 +2048,7 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/flux.rs:350:47: replace >= with < in dispersion",
+          "name": "src/flux.rs:392:47: replace >= with < in dispersion",
           "package": "resolution-scope-engine",
           "file": "src/flux.rs",
           "function": {
@@ -1869,22 +2056,22 @@
             "return_type": "-> FluxSignal",
             "span": {
               "start": {
-                "line": 320,
+                "line": 362,
                 "column": 1
               },
               "end": {
-                "line": 369,
+                "line": 411,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 350,
+              "line": 392,
               "column": 47
             },
             "end": {
-              "line": 350,
+              "line": 392,
               "column": 49
             }
           },
@@ -1893,12 +2080,12 @@
         }
       },
       "summary": "CaughtMutant",
-      "log_path": "log/src__flux.rs_line_350_col_47.log",
-      "diff_path": "diff/src__flux.rs_line_350_col_47.diff",
+      "log_path": "log/src__flux.rs_line_392_col_47.log",
+      "diff_path": "diff/src__flux.rs_line_392_col_47.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.865956542,
+          "duration": 0.890425459,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1910,7 +2097,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.588592625,
+          "duration": 0.591605375,
           "process_status": {
             "Failure": 101
           },
@@ -1926,7 +2113,7 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/flux.rs:356:33: replace / with % in dispersion",
+          "name": "src/flux.rs:398:33: replace / with % in dispersion",
           "package": "resolution-scope-engine",
           "file": "src/flux.rs",
           "function": {
@@ -1934,22 +2121,22 @@
             "return_type": "-> FluxSignal",
             "span": {
               "start": {
-                "line": 320,
+                "line": 362,
                 "column": 1
               },
               "end": {
-                "line": 369,
+                "line": 411,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 356,
+              "line": 398,
               "column": 33
             },
             "end": {
-              "line": 356,
+              "line": 398,
               "column": 34
             }
           },
@@ -1958,12 +2145,12 @@
         }
       },
       "summary": "CaughtMutant",
-      "log_path": "log/src__flux.rs_line_356_col_33.log",
-      "diff_path": "diff/src__flux.rs_line_356_col_33.diff",
+      "log_path": "log/src__flux.rs_line_398_col_33.log",
+      "diff_path": "diff/src__flux.rs_line_398_col_33.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.903680833,
+          "duration": 0.904434959,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1975,7 +2162,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.579684667,
+          "duration": 0.593918458,
           "process_status": {
             "Failure": 101
           },
@@ -1991,7 +2178,7 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/flux.rs:356:33: replace / with * in dispersion",
+          "name": "src/flux.rs:398:33: replace / with * in dispersion",
           "package": "resolution-scope-engine",
           "file": "src/flux.rs",
           "function": {
@@ -1999,22 +2186,22 @@
             "return_type": "-> FluxSignal",
             "span": {
               "start": {
-                "line": 320,
+                "line": 362,
                 "column": 1
               },
               "end": {
-                "line": 369,
+                "line": 411,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 356,
+              "line": 398,
               "column": 33
             },
             "end": {
-              "line": 356,
+              "line": 398,
               "column": 34
             }
           },
@@ -2023,12 +2210,12 @@
         }
       },
       "summary": "CaughtMutant",
-      "log_path": "log/src__flux.rs_line_356_col_33_001.log",
-      "diff_path": "diff/src__flux.rs_line_356_col_33_001.diff",
+      "log_path": "log/src__flux.rs_line_398_col_33_001.log",
+      "diff_path": "diff/src__flux.rs_line_398_col_33_001.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.86577325,
+          "duration": 0.8645475,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -2040,7 +2227,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.53768525,
+          "duration": 0.590656583,
           "process_status": {
             "Failure": 101
           },
@@ -2056,7 +2243,7 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/flux.rs:356:53: replace - with + in dispersion",
+          "name": "src/flux.rs:398:53: replace - with + in dispersion",
           "package": "resolution-scope-engine",
           "file": "src/flux.rs",
           "function": {
@@ -2064,22 +2251,22 @@
             "return_type": "-> FluxSignal",
             "span": {
               "start": {
-                "line": 320,
+                "line": 362,
                 "column": 1
               },
               "end": {
-                "line": 369,
+                "line": 411,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 356,
+              "line": 398,
               "column": 53
             },
             "end": {
-              "line": 356,
+              "line": 398,
               "column": 54
             }
           },
@@ -2088,12 +2275,12 @@
         }
       },
       "summary": "CaughtMutant",
-      "log_path": "log/src__flux.rs_line_356_col_53.log",
-      "diff_path": "diff/src__flux.rs_line_356_col_53.diff",
+      "log_path": "log/src__flux.rs_line_398_col_53.log",
+      "diff_path": "diff/src__flux.rs_line_398_col_53.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.861235583,
+          "duration": 0.900722166,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -2105,7 +2292,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.594374625,
+          "duration": 0.58344775,
           "process_status": {
             "Failure": 101
           },
@@ -2121,7 +2308,7 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/flux.rs:356:53: replace - with / in dispersion",
+          "name": "src/flux.rs:398:53: replace - with / in dispersion",
           "package": "resolution-scope-engine",
           "file": "src/flux.rs",
           "function": {
@@ -2129,22 +2316,22 @@
             "return_type": "-> FluxSignal",
             "span": {
               "start": {
-                "line": 320,
+                "line": 362,
                 "column": 1
               },
               "end": {
-                "line": 369,
+                "line": 411,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 356,
+              "line": 398,
               "column": 53
             },
             "end": {
-              "line": 356,
+              "line": 398,
               "column": 54
             }
           },
@@ -2153,12 +2340,12 @@
         }
       },
       "summary": "CaughtMutant",
-      "log_path": "log/src__flux.rs_line_356_col_53_001.log",
-      "diff_path": "diff/src__flux.rs_line_356_col_53_001.diff",
+      "log_path": "log/src__flux.rs_line_398_col_53_001.log",
+      "diff_path": "diff/src__flux.rs_line_398_col_53_001.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.903270166,
+          "duration": 0.862326958,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -2170,7 +2357,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.59103475,
+          "duration": 0.596517417,
           "process_status": {
             "Failure": 101
           },
@@ -2184,13 +2371,13 @@
       ]
     }
   ],
-  "total_mutants": 34,
-  "missed": 7,
-  "caught": 23,
+  "total_mutants": 37,
+  "missed": 0,
+  "caught": 31,
   "timeout": 0,
-  "unviable": 4,
+  "unviable": 6,
   "success": 0,
-  "start_time": "2026-08-20T12:35:03.78741Z",
-  "end_time": "2026-08-20T12:36:05.130022Z",
+  "start_time": "2026-08-20T12:48:15.271793Z",
+  "end_time": "2026-08-20T12:49:15.804369Z",
   "cargo_mutants_version": "27.1.0"
 }

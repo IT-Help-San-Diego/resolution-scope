@@ -42,25 +42,26 @@ The 9 misses split into two classes:
    `cymru_parse_rejects_two_part_line` (2-part rejected).
 
 2. **`observe_flux` (7)** — the async network path (A/AAAA match arms,
-   `!found`, `unresolved +=`). These miss not because network code is
-   intrinsically untestable, but as a **coverage fact**: the only test covering
-   this path is the `#[ignore]`'d live test, which never runs in `cargo test`,
-   so the mutations are unobserved. The fix is a mock-resolver seam — inject a
-   fake `TokioResolver` or an address→ASN lookup fn — so the A/AAAA extraction
-   and the unresolved counter are unit-tested offline. Actionable, not a
-   permanent exemption: the moment that seam lands, these mutants flip from
-   "missed" to "caught."
+   `!found`, `unresolved +=`). These missed as a **coverage fact**: the only
+   test covering this path was the `#[ignore]`'d live test, which never runs in
+   `cargo test`, so the mutations were unobserved. **Fixed** by extracting the
+   pure core into `ip_from_rdata` (the A/AAAA match arms) + `observation_from_parts`
+   (the found/unresolved/min-TTL assembly), leaving `observe_flux` a thin
+   network wrapper. Four unit tests now reach that logic.
 
-**Re-run after the parser-boundary fix:** `34 mutants tested: 7 missed,
-23 caught, 4 unviable`. The two parser misses are gone; the remaining seven are
-all `observe_flux` (the I/O seam above).
+**Re-run after the seam landed:** `37 mutants tested: 31 caught, 6 unviable,
+0 missed`. Every function is now `missed=0` — the seven `observe_flux` misses
+flipped to caught exactly as predicted. The only residual is one unviable
+mutant in `observe_flux` itself (the tool could not compile a testable form for
+the live-resolver wrapper), which is honest and tiny: the pure core is covered,
+the network wrapper is not, and that is stated rather than hidden.
 
 ## Durable doctrine
 
 - Mutation testing is the tool for the "are these tests real?" question that
   the 106-test count cannot answer. Run it on a file when that file's verdict
   logic is frozen — not before (a moving file produces churn, not signal).
-- `dispersion()` is now proven mutation-clean; `observe_flux`'s 7 misses are a
-  coverage gap (the only covering test is `#[ignore]`'d), not a property of
-  network code — and the fix is a seam injection, not more tests against a
-  network.
+- `dispersion()` is now proven mutation-clean; `observation_from_parts` and
+  `ip_from_rdata` (the `observe_flux` pure core) are also `missed=0` after the
+  seam extraction. The only untested code left in the file is the live-resolver
+  wrapper itself — a thin shell, one unviable mutant, stated not hidden.
