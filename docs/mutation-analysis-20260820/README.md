@@ -18,7 +18,9 @@ carried a full study.
 functions, so `total` and `caught` grow (101→109) as the mutable surface expands
 — more functions means more mutants to make. The `missed` count is the one
 figure that tracks progress cleanly: fewer survivors is the goal, and it fell
-44 → 26.
+44 → 26. (The `total` column counts mutant scenarios only — it excludes the one
+baseline `Success` record, so `total = caught + missed + unviable` on every
+row.)
 
 ```
 # current HEAD (17c6aa9)
