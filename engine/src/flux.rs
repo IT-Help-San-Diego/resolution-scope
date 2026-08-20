@@ -505,6 +505,35 @@ mod tests {
         assert_eq!(s.assessment, FluxAssessment::Stable);
     }
 
+    #[test]
+    fn stable_multi_operator_partition_reads_stable_not_dispersing() {
+        // nsa.gov mail infrastructure (Claude Science negative-control,
+        // 2026-08-20): two origin ASNs (AS345, AS5374) across the MX set, but
+        // a STABLE per-host partition — each named host sits in exactly one
+        // ASN and never moves. This is multi-operator ARCHITECTURE, not
+        // fast-flux: fast-flux is ONE name whose addresses move between
+        // operators over time.
+        //
+        // Dispersion is a claim about CHANGE, so the assessment keys on
+        // transitions (the set changing between consecutive observations),
+        // never on the union count. The set {345, 5374} is stable across
+        // samples, so it must read Stable.
+        let h = vec![
+            obs(&["345", "5374"], Some(3600)),
+            obs(&["345", "5374"], Some(3600)),
+            obs(&["345", "5374"], Some(3600)),
+        ];
+        let s = dispersion(&h);
+        assert_eq!(s.assessment, FluxAssessment::Stable);
+        assert_eq!(s.transitions, 0);
+        assert!(!s.short_ttl_seen);
+        // The union count reports 2 — this is the number a naive
+        // ">1 ASN → Dispersing" rule would falsely fire on. It is a REPORTED
+        // shape (distinct_origin_asns), never an assessment input; the guard
+        // is that the assessment reads transitions, not this count.
+        assert_eq!(s.distinct_origin_asns, 2);
+    }
+
     // ── Live (specimen) ─────────────────────────────────────────────────────
 
     #[tokio::test]
