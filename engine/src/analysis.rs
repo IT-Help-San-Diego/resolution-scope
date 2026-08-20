@@ -1935,7 +1935,9 @@ mod tests {
         // The bare "zzztest" normalized to "zzztest._domainkey"; the second
         // entry was a duplicate, so it must not appear twice.
         assert_eq!(
-            list.iter().filter(|s| s.as_str() == "zzztest._domainkey").count(),
+            list.iter()
+                .filter(|s| s.as_str() == "zzztest._domainkey")
+                .count(),
             1
         );
         // The 81 defaults are always present, plus exactly one normalized extra.
@@ -1973,8 +1975,8 @@ mod tests {
         // One valid key beats 80 definitive misses.
         let probes = vec![
             Ok(vec!["v=DKIM1; p=MIGf".to_string()]), // Valid
-            Err(TriState::Absent),                  // definitive miss
-            Err(TriState::Indet),                   // transient
+            Err(TriState::Absent),                   // definitive miss
+            Err(TriState::Indet),                    // transient
         ];
         assert_eq!(
             dkim_disposition_from_probes(&probes),
@@ -1982,7 +1984,7 @@ mod tests {
         );
         // A revoked key beats a valid key (KeyMismatch).
         let probes2 = vec![
-            Ok(vec!["v=DKIM1; p=".to_string()]), // Revoked
+            Ok(vec!["v=DKIM1; p=".to_string()]),     // Revoked
             Ok(vec!["v=DKIM1; p=MIGf".to_string()]), // Valid
         ];
         assert_eq!(

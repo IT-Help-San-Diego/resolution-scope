@@ -745,8 +745,8 @@ mod tests {
         ];
         let origins = vec![
             Ok(vec!["14061 | 1.2.3.0/24 | US".to_string()]), // parses → found
-            Ok(vec!["garbage no pipes here".to_string()]), // !found → unresolved
-            Err(()),                                      // error → unresolved
+            Ok(vec!["garbage no pipes here".to_string()]),   // !found → unresolved
+            Err(()),                                         // error → unresolved
         ];
         let o = observation_from_parts(&addrs, &origins);
         assert_eq!(o.origin_asns.iter().collect::<Vec<_>>(), vec!["14061"]);
