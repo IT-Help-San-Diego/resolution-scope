@@ -15,6 +15,8 @@ carried a full study.
 | `17c6aa9` | 109 | 51 | **26** | 32 | extract DKIM per-selector core |
 | `d859be7` | 113 | 58 | **21** | 34 | extract score_dane's cores — DANE path mutation-clean |
 | `88d1095` | 110 | 55 | 21 | 34 | DANE TLSA errors → `Option`: a WRONG-VERDICT fix, so `missed` is rightly unchanged — the new three-way surface introduced zero survivors |
+| `f8dd0db` | 114 | 59 | 21 | 34 | close the over-correction: `tlsa_err_to_count` routes NODATA→measured (new function, 4 caught/0 missed — a wrong-verdict fix, so `missed` unchanged) |
+| `cdeecf8` | 114 | 59 | 21 | 34 | docs + the trailing-dot test now in production shape (test-only; `missed` and `total` unchanged) |
 
 **Only `missed` is comparable across steps.** Extraction creates new pure
 functions, so `total` and `caught` grow (101→109) as the mutable surface expands
@@ -25,9 +27,9 @@ baseline `Success` record, so `total = caught + missed + unviable` on every
 row.)
 
 ```
-# current HEAD (88d1095)
+# current HEAD (cdeecf8)
 cargo-mutants 27.1.0
-total=110 caught=55 missed=21 timeout=0 unviable=34 success=0
+total=114 caught=59 missed=21 timeout=0 unviable=34 success=0
 ```
 
 ## The baseline (44 missed) — where it concentrated
