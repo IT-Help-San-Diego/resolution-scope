@@ -1,8 +1,8 @@
 [package]
-name        = "resolution-scope-flipper"
+name        = "resolution-scope-cli"
 version     = "0.1.0"
 edition     = "2021"
-description = "Resolution Scope surface flipper — scan once, render in any surface"
+description = "Resolution Scope CLI — scan once, render in any surface (text/html/json) or run the interactive dashboard"
 license     = "AGPL-3.0"
 repository  = "https://github.com/IT-Help-San-Diego/resolution-scope"
 
@@ -10,11 +10,16 @@ repository  = "https://github.com/IT-Help-San-Diego/resolution-scope"
 resolution-scope-engine = { path = "../engine" }
 resolution-scope-store = { path = "../store" }
 
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1", features = ["full"] }
 clap = { version = "4", features = ["derive", "env"] }
 anyhow = "1"
 hickory-resolver = { version = "0.26.1", features = ["dnssec-ring"] }
+serde_json = "1"
+
+# Interactive dashboard (the folded TUI) — ratatui + crossterm.
+ratatui = "0.30"
+crossterm = "0.28"
 
 [[bin]]
-name = "rs-flip"
+name = "resolution-scope"
 path = "src/main.rs"

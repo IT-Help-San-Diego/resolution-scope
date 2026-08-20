@@ -24,14 +24,15 @@ jobs:
   # One matrix for every host crate — a new renderer is a ONE-TOKEN addition
   # here, not a copied job (the hand-maintained-mirror lesson: flipper shipped
   # with no CI job because the per-crate jobs were copies). native is separate
-  # below: its contract is --lib only.
+  # below: its contract is --lib only. The three surface crates (tui/web/flipper)
+  # collapsed into `cli` on 2026-08-20 — one binary, subcommands.
   crates:
     name: ${{ matrix.crate }} — fmt, test, strict clippy
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        crate: [engine, tui, web, flipper, store]
+        crate: [engine, cli, store]
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -75,7 +76,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        crate: [engine, tui, web, flipper, native, store]
+        crate: [engine, cli, native, store]
     steps:
       - uses: actions/checkout@v5
       - uses: EmbarkStudios/cargo-deny-action@v2

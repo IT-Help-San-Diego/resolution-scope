@@ -291,7 +291,7 @@ against a postgres service container with --include-ignored — an env-gated
 silent skip would be a check that cannot fail. Found-by-testing: concurrent
 migrators raced on CREATE TABLE (five parallel tests on a fresh database,
 four failed) — fixed with a pg_advisory_lock, which is the production fix,
-not a test accommodation. Firing path: `rs-flip --store-url` (env
+not a test accommodation. Firing path: `resolution-scope -d <domain> --store-url` (env
 RS_STORE_URL) persists every scan sealed and echoes the citable row id;
 end-to-end verified by DB census (row's seal == report's seal, byte-equal
 across runs — determinism observed live).
