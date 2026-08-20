@@ -413,6 +413,25 @@ mod tests {
     }
 
     #[test]
+    fn cymru_parse_minimal_three_part_line() {
+        // The parser's < 3 guard is the exact boundary: a 3-part record (no
+        // registry/date tail) is ACCEPTED, while < 3 is rejected. Mutation
+        // testing flagged < 3 → == 3 and < 3 → <= 3 as surviving because no
+        // test fed a 3-part record — this closes that boundary.
+        let o = parse_cymru_origin("13335 | 1.1.1.0/24 | US").unwrap();
+        assert_eq!(o.asns, vec!["13335"]);
+        assert_eq!(o.prefix, "1.1.1.0/24");
+        assert_eq!(o.country, "US");
+    }
+
+    #[test]
+    fn cymru_parse_rejects_two_part_line() {
+        // The other side of the boundary: two fields is below the 3-part
+        // minimum and must be rejected (not parsed with a missing country).
+        assert_eq!(parse_cymru_origin("13335 | 1.1.1.0/24"), None);
+    }
+
+    #[test]
     fn cymru_parse_multi_origin_prefix() {
         // Multi-origin prefixes return several ASNs in the first field.
         let o = parse_cymru_origin("13335 209242 | 1.1.1.0/24 | US | arin | 2010").unwrap();
