@@ -53,16 +53,27 @@ jobs:
           echo "Headers policy synced."
 
       - name: Upload immutable assets (long cache)
-        # Exclude HTML, all *.txt, xml, and .well-known — those get short-cache
-        # + correct content-type below. verify.sh must never ship.
+        # Exclude HTML, CSS, all *.txt, xml, and .well-known — those get
+        # short-cache + correct content-type below. style.css is NOT
+        # content-hashed, so an immutable TTL would strand browsers on a
+        # stale sheet for a year (invalidation clears the edge, not browser
+        # caches). verify.sh must never ship.
         run: |
           aws s3 sync site/ "s3://$BUCKET/" \
             --exclude "*.sh" --exclude "*.md" \
             --exclude ".DS_Store" --exclude "**/.DS_Store" \
-            --exclude "*.html" --exclude "*.txt" --exclude "*.xml" \
+            --exclude "*.html" --exclude "*.css" \
+            --exclude "*.txt" --exclude "*.xml" \
             --exclude ".well-known/*" \
             --cache-control "public,max-age=31536000,immutable" \
             --metadata-directive REPLACE --delete
+
+      - name: Upload CSS (short cache — not content-hashed)
+        run: |
+          aws s3 cp site/style.css "s3://$BUCKET/style.css" \
+            --content-type "text/css; charset=utf-8" \
+            --cache-control "public,max-age=3600,stale-while-revalidate=86400" \
+            --metadata-directive REPLACE
 
       - name: Upload HTML (short cache)
         run: |
