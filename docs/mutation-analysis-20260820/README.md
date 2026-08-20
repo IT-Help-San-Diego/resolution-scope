@@ -89,6 +89,14 @@ cannot distinguish its own sources (`all()` over an empty set, a comparator that
 included its own metadata). One control: make the check unable to pass for a
 reason other than the one it claims.
 
+**Rule: any claim of the form "X = Y + Z" gets computed and printed before it
+appears in prose.** Three consecutive corrections this session were arithmetic
+asserted without being subtracted — a stale baseline echoed over a fresh number,
+a delta credited as extra kills when it was the targeted kill, and an invented
+residual. In each, the correct value was one subtraction away and the sentence
+was written first. No exceptions for arithmetic that looks obvious: all three
+looked obvious.
+
 ## What this is and is not
 
 **Is:** raw, re-derivable evidence, one committed `outcomes.json` per step.
