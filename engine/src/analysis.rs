@@ -1060,6 +1060,77 @@ fn dmarc_disposition_from_record(record: &str) -> DmarcDisposition {
     }
 }
 
+/// Extract the MX exchange from an rdata record, if it is one. Pure so the
+/// MX match arm is unit-tested: deleting it (mutation 1089) would drop every
+/// MX record and misread a mail domain as "no MX".
+fn mx_exchange_from_rdata(data: &hickory_proto::rr::RData) -> Option<&hickory_proto::rr::Name> {
+    match data {
+        hickory_proto::rr::RData::MX(m) => Some(&m.exchange),
+        _ => None,
+    }
+}
+
+/// The measured MX shape — the first half of the DANE decision. Three-way
+/// because "no MX" and "null MX" are DIFFERENT measurements, and only the
+/// third carries routable hosts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum MxShape {
+    /// No MX answers (NODATA in disguise) — a domain with no MX can still be
+    /// spoofed FROM, a real finding. → NoMx (Absent).
+    NoMx,
+    /// Every MX is a null MX (RFC 7505 "MX 0 .") — an explicit "accepts no
+    /// mail" declaration, a positive measurement. → NoMail (NotApplicable).
+    NoMail,
+    /// At least one routable host; carries the non-root exchanges.
+    Hosts(Vec<String>),
+}
+
+/// Classify the extracted MX exchanges. Pure so the empty / all-root /
+/// non-root-filter decisions are unit-tested. Mutation 1109 (delete the `!`
+/// in the filter) would keep ONLY null-MX entries and read a mixed set as
+/// hostless — the mixed test pins that the filter does real work.
+fn classify_mx(exchanges: &[hickory_proto::rr::Name]) -> MxShape {
+    if exchanges.is_empty() {
+        MxShape::NoMx
+    } else if exchanges.iter().all(|e| e.is_root()) {
+        MxShape::NoMail
+    } else {
+        let hosts = exchanges
+            .iter()
+            .filter(|e| !e.is_root())
+            .map(|e| e.to_ascii())
+            .collect();
+        MxShape::Hosts(hosts)
+    }
+}
+
+/// Pure: the disposition from per-host TLSA answer counts. 0 = no TLSA on
+/// that host; any host with ≥1 → TlsaPublished, else NotConfigured. The
+/// three mutation sites at the old guard (`!resp.answers().is_empty()` —
+/// guard→true, guard→false, delete-!) all reduce to this one `n > 0`
+/// decision, which a count exposes to the mutation tool instead of hiding it
+/// behind a live resolver.
+///
+/// Publication is the only fact measured here — the SMTP certificate
+/// comparison does not exist in this crate, so Verified must never be
+/// emitted from this site (panel blocker, 2026-08-19). TlsaPublished is the
+/// honest ceiling.
+///
+/// HONESTY NOTE (pre-existing, not introduced here): a TLSA lookup ERROR is
+/// recorded as 0 in the same bucket as a measured empty answer, so a host
+/// whose lookup failed is indistinguishable from one that genuinely publishes
+/// no TLSA. The original `Err => continue` had the same conflation (both fall
+/// through to NotConfigured). Flagged as a follow-up: carry the error as a
+/// distinct outcome so "couldn't measure TLSA" is never reported as "measured
+/// no TLSA" when every host errored.
+fn dane_from_tlsa_counts(counts: &[usize]) -> DaneDisposition {
+    if counts.iter().any(|&n| n > 0) {
+        DaneDisposition::TlsaPublished
+    } else {
+        DaneDisposition::NotConfigured
+    }
+}
+
 async fn score_dane(resolver: &TokioResolver, domain: &str) -> DaneDisposition {
     // DANE for SMTP (RFC 7672): TLSA at _25._tcp.<mx-host> for each MX target.
     // NOT _443._tcp.<domain> — that is HTTPS DANE (RFC 6698 for browsers), the
@@ -1078,59 +1149,34 @@ async fn score_dane(resolver: &TokioResolver, domain: &str) -> DaneDisposition {
     //                    ("we know why DANE doesn't apply"), not "couldn't
     //                    measure".
     //   Indet          — domain missing (NXDOMAIN) or transient lookup error.
-    use hickory_proto::rr::{RData, RecordType};
+    use hickory_proto::rr::RecordType;
 
     match resolver.lookup(domain, RecordType::MX).await {
         Ok(mx) => {
-            let all_mx: Vec<&hickory_proto::rr::rdata::MX> = mx
+            let exchanges: Vec<hickory_proto::rr::Name> = mx
                 .answers()
                 .iter()
-                .filter_map(|r| match &r.data {
-                    RData::MX(m) => Some(m),
-                    _ => None,
-                })
+                .filter_map(|r| mx_exchange_from_rdata(&r.data).cloned())
                 .collect();
 
-            if all_mx.is_empty() {
-                // Defensive: an Ok with no MX answers is NODATA in disguise.
-                // NoMx (Absent), NOT NoMail — a zone with no mail routing can
-                // still be spoofed FROM; only a null MX declares "no mail".
-                return DaneDisposition::NoMx;
-            }
-
-            // RFC 7505 null MX ("MX 0 .") = explicit "accepts no mail" — a
-            // measured declaration, so DANE is NotApplicable, not Absent/Indet.
-            if all_mx.iter().all(|m| m.exchange.is_root()) {
-                return DaneDisposition::NoMail;
-            }
-
-            let exchanges: Vec<String> = all_mx
-                .iter()
-                .filter(|m| !m.exchange.is_root())
-                .map(|m| m.exchange.to_ascii())
-                .collect();
-
-            for host in exchanges {
-                let tlsa_name = format!("_25._tcp.{}", host);
-                match resolver.lookup(tlsa_name.as_str(), RecordType::TLSA).await {
-                    // Publication is the only fact measured here — the SMTP
-                    // certificate comparison does not exist in this crate, so
-                    // Verified must never be emitted from this site (panel
-                    // blocker, 2026-08-19).
-                    Ok(resp) if !resp.answers().is_empty() => {
-                        return DaneDisposition::TlsaPublished
+            match classify_mx(&exchanges) {
+                MxShape::NoMx => DaneDisposition::NoMx,
+                MxShape::NoMail => DaneDisposition::NoMail,
+                MxShape::Hosts(hosts) => {
+                    let mut counts = Vec::with_capacity(hosts.len());
+                    for host in &hosts {
+                        let tlsa_name = format!("_25._tcp.{}", host);
+                        match resolver.lookup(tlsa_name.as_str(), RecordType::TLSA).await {
+                            Ok(resp) => counts.push(resp.answers().len()),
+                            Err(e) => {
+                                warn!(domain, host = %host, error = %e, "SMTP DANE TLSA lookup error");
+                                counts.push(0);
+                            }
+                        }
                     }
-                    // No TLSA on this host (its zone exists — the MX host is
-                    // already established by the successful MX lookup, so
-                    // NXDOMAIN here means "record absent", not "host missing").
-                    Ok(_) => continue,
-                    Err(e) => {
-                        warn!(domain, host = %host, error = %e, "SMTP DANE TLSA lookup error");
-                        continue;
-                    }
+                    dane_from_tlsa_counts(&counts)
                 }
             }
-            DaneDisposition::NotConfigured // MX exists, no TLSA on any MX host
         }
         Err(e) => {
             // NODATA (no MX) -> NoMx; NXDOMAIN (domain missing) -> Indet.
@@ -1699,6 +1745,93 @@ mod tests {
                 "example.com"
             ),
             DaneDisposition::NoMx
+        );
+    }
+
+    // --- the DANE core extraction (score_dane's three epistemic distinctions) --
+    // DANE is the one control that holds a four-way split (Present / Absent /
+    // NotApplicable / Indet) plus publication-not-verification honesty. These
+    // tests pin the three pure functions the extraction produced, one
+    // contributor per assertion (the masking trap: an all-absent list and a
+    // single-publishing list must be SEPARATE assertions, or the guard mutant
+    // hides behind the other host's positive).
+
+    fn mx_name(s: &str) -> hickory_proto::rr::Name {
+        hickory_proto::rr::Name::from_ascii(s).unwrap()
+    }
+
+    #[test]
+    fn mx_exchange_from_rdata_extracts_only_mx() {
+        use hickory_proto::rr::rdata::{MX, A};
+        use hickory_proto::rr::RData;
+        use std::net::Ipv4Addr;
+        let mx = RData::MX(MX::new(10, mx_name("mail.example.com.")));
+        assert_eq!(
+            mx_exchange_from_rdata(&mx),
+            Some(&mx_name("mail.example.com."))
+        );
+        let a = RData::A(A(Ipv4Addr::new(1, 2, 3, 4)));
+        assert_eq!(mx_exchange_from_rdata(&a), None);
+    }
+
+    #[test]
+    fn classify_mx_no_answers_is_nomx() {
+        assert_eq!(classify_mx(&[]), MxShape::NoMx);
+    }
+
+    #[test]
+    fn classify_mx_all_root_is_nomail() {
+        // Null MX (RFC 7505): a positive "accepts no mail" declaration, NOT
+        // "no MX". This is the NotApplicable half of the four-way split.
+        let roots = [hickory_proto::rr::Name::root(), hickory_proto::rr::Name::root()];
+        assert_eq!(classify_mx(&roots), MxShape::NoMail);
+    }
+
+    #[test]
+    fn classify_mx_mixed_keeps_only_routable_hosts() {
+        // A mixed set (null MX + a real host) is the ONLY case where the
+        // non-root filter does real work — `all(is_root)` is false, so the
+        // filter must strip the null MX and leave the routable host. This is
+        // the assertion that kills "delete !" on the filter.
+        let mixed = [
+            hickory_proto::rr::Name::root(),                    // null MX
+            mx_name("mail.example.com."),                       // routable host
+        ];
+        assert_eq!(
+            classify_mx(&mixed),
+            MxShape::Hosts(vec!["mail.example.com.".to_string()])
+        );
+    }
+
+    #[test]
+    fn dane_all_absent_is_notconfigured() {
+        // No host publishes a TLSA → measured absence (NotConfigured). The
+        // all-absent list is its OWN assertion so the "n > 0 → always true"
+        // mutant cannot hide behind another host's positive.
+        assert_eq!(
+            dane_from_tlsa_counts(&[0, 0, 0]),
+            DaneDisposition::NotConfigured
+        );
+    }
+
+    #[test]
+    fn dane_single_publishing_host_is_tlsa_published() {
+        // One host publishes → TlsaPublished. A single positive is its OWN
+        // assertion so the "n > 0 → n > 1" mutant (which would demand two
+        // publishers) cannot survive.
+        assert_eq!(
+            dane_from_tlsa_counts(&[0, 1]),
+            DaneDisposition::TlsaPublished
+        );
+    }
+
+    #[test]
+    fn dane_first_host_publishing_is_tlsa_published() {
+        // Order matters for the early-return shape: the FIRST host publishing
+        // must also yield TlsaPublished, not just a later one.
+        assert_eq!(
+            dane_from_tlsa_counts(&[1, 0]),
+            DaneDisposition::TlsaPublished
         );
     }
 
