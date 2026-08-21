@@ -295,3 +295,34 @@ not a test accommodation. Firing path: `resolution-scope -d <domain> --store-url
 RS_STORE_URL) persists every scan sealed and echoes the citable row id;
 end-to-end verified by DB census (row's seal == report's seal, byte-equal
 across runs — determinism observed live).
+
+## Commit discipline (2026-08-20): a gate is only a gate if someone reads it
+
+Two red-CI episodes shipped unnoticed because doc/evidence commits skip the
+local gate and nobody read the red `CI` run — it was masked in the mixed-status
+commit view by green CodeQL/Deploy runs (display-vs-state, the third instance
+of that shape). Measured history:
+
+| commit | CI |
+|---|---|
+| `d36ff770` | **failure** |
+| `88d10957e` → `0b967ca2d` | success (self-healed — nobody fixed it) |
+| `f8dd0db9e` → `af8df7d28` | **failure** (five commits) |
+| `043263dce` | success |
+
+**The mechanical fix** is `.githooks/pre-push`, which fires on every push and
+cannot be skipped:
+
+1. **Local gate (unconditional)** — `cargo fmt --check`, `cargo test`, and
+   `cargo clippy --all-targets -- -D warnings` on every crate CI formats
+   (`engine`, `cli`, `store`). A doc/evidence commit skips the local gate by
+   nature; this restores it, so drift is caught before it can ship.
+2. **Parent-CI gate (main pushes only)** — the commit being built ON must not
+   already be red. Fail-open on tooling (gh absent / no run found); fail-closed
+   on a found red parent.
+
+Install per clone with `scripts/install-hooks.sh` (`core.hooksPath` is a
+per-clone setting, so each lane runs it once). The durable rule it encodes:
+**a doc/evidence commit must check CI on its parent before landing** — those
+commits don't run the local gate and are exactly where drift accumulates.
+

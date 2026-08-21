@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# Pre-push gate: make "a gate is only a gate if someone reads it" mechanical,
+# so it cannot be skipped by an inattentive commit.
+#
+# The two red-CI episodes (d36ff770, and f8dd0db9e→af8df7d28) each started on a
+# commit that skipped the local gate and stayed red because nobody read the red
+# CI — it was masked in the mixed-status commit view by green CodeQL/Deploy
+# runs (display-vs-state: two green workflows ≠ a green CI).
+#
+# Two checks, fired automatically on every push:
+#   1. LOCAL GATE (unconditional): fmt + test + strict clippy on every crate the
+#      CI `crates` matrix gates (engine, cli, store). Doc/evidence commits skip
+#      the local gate by nature; this restores it, so fmt drift is caught before
+#      it can ship instead of surfacing as a red CI nobody reads.
+#   2. PARENT CI (only for pushes to main): the commit being built ON must not
+#      already be red. Fail-open on tooling (gh absent / no run found) so the
+#      hook never blocks for a reason it cannot prove; fail-closed on a FOUND
+#      red parent.
+set -u
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+# --- 1) local gate (unconditional) ------------------------------------------
+gate_fail=0
+for crate in engine cli store; do
+  if [ ! -f "$crate/Cargo.toml" ]; then
+    continue
+  fi
+  if ! (cd "$crate" && cargo fmt --check); then
+    echo "PRE-PUSH: cargo fmt --check failed in $crate — run 'cargo fmt' and re-commit." >&2
+    gate_fail=1
+  fi
+  if ! (cd "$crate" && cargo test --quiet); then
+    echo "PRE-PUSH: cargo test failed in $crate." >&2
+    gate_fail=1
+  fi
+  if ! (cd "$crate" && cargo clippy --all-targets --quiet -- -D warnings); then
+    echo "PRE-PUSH: cargo clippy --all-targets -D warnings failed in $crate." >&2
+    gate_fail=1
+  fi
+done
+if [ "$gate_fail" -ne 0 ]; then
+  echo "PRE-PUSH: local gate red — the push would land a commit that CI would fail." >&2
+  exit 1
+fi
+
+# --- 2) parent-CI gate (only for pushes to main) ----------------------------
+remote_sha=""
+while read -r _local remote _refname; do
+  [ "$_refname" = "refs/heads/main" ] && remote_sha="$remote"
+done
+[ -n "$remote_sha" ] || exit 0
+
+if ! command -v gh >/dev/null 2>&1; then
+  echo "PRE-PUSH: gh not found — skipping parent-CI check (fail-open)." >&2
+  exit 0
+fi
+
+red_count="$(gh run list --commit "$remote_sha" \
+  --json workflowName,conclusion \
+  --jq '[.[] | select(.workflowName=="CI" and .conclusion=="failure")] | length' \
+  2>/dev/null || echo 0)"
+
+if [ -n "$red_count" ] && [ "$red_count" != "0" ]; then
+  echo "PRE-PUSH: parent $remote_sha has a RED CI run on main." >&2
+  echo "You are stacking a commit on a broken parent. Fix CI (or run the local" >&2
+  echo "gate to confirm it is already green) before pushing." >&2
+  exit 1
+fi
+
+exit 0
