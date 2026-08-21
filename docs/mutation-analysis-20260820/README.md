@@ -17,19 +17,20 @@ carried a full study.
 | `88d1095` | 110 | 55 | 21 | 34 | DANE TLSA errors → `Option`: a WRONG-VERDICT fix, so `missed` is rightly unchanged — the new three-way surface introduced zero survivors |
 | `f8dd0db` | 114 | 59 | 21 | 34 | close the over-correction: `tlsa_err_to_count` routes NODATA→measured (new function, 4 caught/0 missed — a wrong-verdict fix, so `missed` unchanged) |
 | `cdeecf8` | 114 | 59 | 21 | 34 | docs + the trailing-dot test now in production shape (test-only; `missed` and `total` unchanged) |
+| `85a87ae` | 115 | 68 | **12** | 35 | close the nine scoring-path survivors: centralize the four `!is_empty()` gates into `answers_present`, extract `mta_sts_absent_without_hint` + `mta_sts_policy_from_response` (fetch inlined — no `Result`-returning async helper left to fabricate), pin `mta_sts_policy_state`'s testing-or-none arm — the 12 left are all cosmetic |
 
 **Only `missed` is comparable across steps.** Extraction creates new pure
 functions, so `total` and `caught` grow (101→109) as the mutable surface expands
 — more functions means more mutants to make. The `missed` count is the one
 figure that tracks progress cleanly: fewer survivors is the goal, and it fell
-44 → 21. (The `total` column counts mutant scenarios only — it excludes the one
+44 → 12. (The `total` column counts mutant scenarios only — it excludes the one
 baseline `Success` record, so `total = caught + missed + unviable` on every
 row.)
 
 ```
-# current HEAD (cdeecf8)
+# current HEAD (85a87ae)
 cargo-mutants 27.1.0
-total=114 caught=59 missed=21 timeout=0 unviable=34 success=0
+total=115 caught=68 missed=12 timeout=0 unviable=35 success=0
 ```
 
 ## The baseline (44 missed) — where it concentrated
