@@ -363,6 +363,18 @@ fn dkim_report(d: DkimDisposition) -> ControlReport {
             "A DKIM selector exists but its published key does not validate — signed mail from this domain fails verification right now. Fix or rotate the published key.",
             "Signatures from this domain fail verification: receivers see broken DKIM, and DMARC alignment on the DKIM leg cannot pass.",
         ),
+        DkimDisposition::Revoked => (
+            "key revoked — selector publishes an empty p= (RFC 6376)",
+            Severity::High,
+            "The published key is revoked — an empty p= means the key was deliberately withdrawn, so no signature under it verifies. Mail from this domain is unsigned in practice, leaving spoofers the same surface as a domain with no DKIM. Re-publish a valid key to resume signing.",
+            "The selector's key is withdrawn, so DKIM cannot vouch for this domain's mail — spoofing is unopposed until a new key is published.",
+        ),
+        DkimDisposition::Wildcard => (
+            "wildcard *._domainkey — the selector sweep proves nothing",
+            Severity::Unmeasured,
+            "A nonexistent selector name resolved, so this domain publishes a wildcard and the 81-selector sweep is not probative — every probe \"resolves\" against it. Provide your actual selector (the s= tag in any outbound DKIM-Signature header) to measure DKIM definitively.",
+            "DKIM could not be measured: the wildcard masks whether a real key exists. A specific selector is required to tell signed from unsigned.",
+        ),
     };
     ControlReport {
         control: ControlId::Dkim,

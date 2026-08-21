@@ -106,6 +106,14 @@ pub enum DkimDisposition {
     TransientError,
     /// Selector resolved but key validation failed.
     KeyMismatch,
+    /// Selector resolves to an EMPTY p= — the key is revoked (RFC 6376 §3.6.1),
+    /// a deliberate withdrawal, not a misconfiguration. Collapses to Absent
+    /// (no signature verifies) at a lower severity than KeyMismatch.
+    Revoked,
+    /// A nonexistent selector name resolved to TXT — the domain publishes a
+    /// wildcard `*._domainkey`, so the 81-selector sweep proves nothing.
+    /// Collapses to Indet (honest uncertainty), not a key verdict.
+    Wildcard,
 }
 
 impl DkimDisposition {
@@ -117,6 +125,8 @@ impl DkimDisposition {
             DkimDisposition::NoMailDomain => TriState::NotApplicable,
             DkimDisposition::TransientError => TriState::Indet,
             DkimDisposition::KeyMismatch => TriState::Absent,
+            DkimDisposition::Revoked => TriState::Absent,
+            DkimDisposition::Wildcard => TriState::Indet,
         }
     }
 }
@@ -130,6 +140,8 @@ impl std::fmt::Display for DkimDisposition {
             DkimDisposition::NoMailDomain => write!(f, "no-mail-domain"),
             DkimDisposition::TransientError => write!(f, "transient-error"),
             DkimDisposition::KeyMismatch => write!(f, "key-mismatch"),
+            DkimDisposition::Revoked => write!(f, "key-revoked"),
+            DkimDisposition::Wildcard => write!(f, "wildcard"),
         }
     }
 }
@@ -853,6 +865,12 @@ pub(crate) const DEFAULT_DKIM_SELECTORS: [&str; 81] = [
     "drip._domainkey",
 ];
 
+/// The sentinel selector for wildcard detection. A nonexistent name that
+/// nonetheless resolves to TXT is a wildcard `*._domainkey` synthesis — the
+/// 81-selector sweep proves nothing against it. High-entropy and clearly a
+/// probe so a legitimate selector cannot collide with it.
+pub(crate) const WILDCARD_PROBE_SELECTOR: &str = "resolutionscope-wildcard-probe._domainkey";
+
 /// Pure DKIM key-record extractor: returns the `p=` value if `record` is a
 /// DKIM key, else None.
 ///
@@ -891,11 +909,12 @@ fn dkim_p_value(record: &str) -> Option<&str> {
 ///   definitive_miss — selectors that answered NODATA / own-zone NXDOMAIN
 ///   transient       — selectors that SERVFAILed / timed out
 ///
-/// Precedence: revoked beats valid (a revoked key on ANY selector means mail
-/// cannot verify through it — deployed-but-wrong, Critical); a valid key
-/// beats "not found"; a definitive miss beats transient (we DID probe, nothing
-/// matched — NotFoundDefaults, NOT evidence of absence); only when every
-/// selector failed transiently do we say we couldn't measure at all.
+/// Precedence: revoked beats valid (an empty p= on ANY selector means mail
+/// cannot verify through it — but a revoked key is a deliberate withdrawal, not
+/// a misconfiguration, so it collapses to Absent at High, not Critical); a valid
+/// key beats "not found"; a definitive miss beats transient (we DID probe,
+/// nothing matched — NotFoundDefaults, NOT evidence of absence); only when
+/// every selector failed transiently do we say we couldn't measure at all.
 fn dkim_disposition_from_counts(
     found_valid: usize,
     found_revoked: usize,
@@ -903,7 +922,7 @@ fn dkim_disposition_from_counts(
     transient: usize,
 ) -> DkimDisposition {
     if found_revoked > 0 {
-        DkimDisposition::KeyMismatch
+        DkimDisposition::Revoked
     } else if found_valid > 0 {
         DkimDisposition::Verified
     } else if definitive_miss > 0 {
@@ -1006,12 +1025,26 @@ fn dkim_disposition_from_probes(probes: &[DkimSelectorProbe]) -> DkimDisposition
 
 /// Score DKIM by probing the 81 default selectors (plus any caller-supplied
 /// selector). This replaces the NotProbed stub: the engine can now honestly
-/// report Verified / KeyMismatch / NotFoundDefaults instead of "not measured".
+/// report Verified / Revoked / KeyMismatch / NotFoundDefaults / Wildcard.
 async fn score_dkim(
     resolver: &TokioResolver,
     domain: &str,
     extra_selectors: &[String],
 ) -> DkimDisposition {
+    // Wildcard detection FIRST (2026-08-21 ruling): if a nonexistent selector
+    // name resolves to TXT, the domain publishes `*._domainkey` and the sweep
+    // proves nothing — every probe "resolves" against the wildcard, so the
+    // honest NotFoundDefaults uncertainty is structurally unreachable. That is
+    // its own disposition, not a key verdict.
+    let sentinel = format!("{}.{}", WILDCARD_PROBE_SELECTOR, domain);
+    let sentinel_probe: DkimSelectorProbe = match resolver.txt_lookup(&sentinel).await {
+        Ok(rdata) => Ok(dkim_txt_chunks(rdata.answers())),
+        Err(e) => Err(record_absence_verdict(&e, domain)),
+    };
+    if dkim_wildcard_detected(&sentinel_probe) {
+        return DkimDisposition::Wildcard;
+    }
+
     let selectors = build_dkim_selector_list(extra_selectors);
 
     // Resolve every selector to its probe outcome (chunks, or a tri-state
@@ -1022,22 +1055,31 @@ async fn score_dkim(
     for sel in &selectors {
         let fqdn = format!("{}.{}", sel, domain);
         probes.push(match resolver.txt_lookup(fqdn.as_str()).await {
-            Ok(rdata) => {
-                let mut chunks = Vec::new();
-                for rec in rdata.answers() {
-                    if let hickory_proto::rr::RData::TXT(txt) = &rec.data {
-                        for c in &txt.txt_data {
-                            chunks.push(String::from_utf8_lossy(c).to_string());
-                        }
-                    }
-                }
-                Ok(chunks)
-            }
+            Ok(rdata) => Ok(dkim_txt_chunks(rdata.answers())),
             Err(e) => Err(record_absence_verdict(&e, domain)),
         });
     }
 
     dkim_disposition_from_probes(&probes)
+}
+
+/// Collect TXT strings from a resolved DKIM lookup's answer records.
+fn dkim_txt_chunks(answers: &[hickory_proto::rr::Record]) -> Vec<String> {
+    let mut chunks = Vec::new();
+    for rec in answers {
+        if let hickory_proto::rr::RData::TXT(txt) = &rec.data {
+            for c in &txt.txt_data {
+                chunks.push(String::from_utf8_lossy(c).to_string());
+            }
+        }
+    }
+    chunks
+}
+
+/// A nonexistent selector name resolving to non-empty TXT data is a wildcard
+/// `*._domainkey` synthesis — the sweep proves nothing.
+fn dkim_wildcard_detected(probe: &DkimSelectorProbe) -> bool {
+    matches!(probe, Ok(chunks) if !chunks.is_empty())
 }
 
 /// Pure DMARC policy classifier, extracted so the 2026-08-19 panel fix
@@ -2208,10 +2250,11 @@ mod tests {
     /// revoked > valid > definitive-miss > transient > empty.
     #[test]
     fn dkim_disposition_precedence() {
-        // Revoked key beats a valid key (deployed-but-wrong, Critical).
+        // Revoked key beats a valid key (an empty p= is a withdrawal, not a
+        // misconfiguration — Revoked, not KeyMismatch).
         assert_eq!(
             dkim_disposition_from_counts(1, 1, 0, 0),
-            DkimDisposition::KeyMismatch
+            DkimDisposition::Revoked
         );
         // A valid key beats "not found".
         assert_eq!(
@@ -2282,6 +2325,24 @@ mod tests {
         assert_eq!(dkim_key_state(&[]), DkimKeyState::NoKey);
     }
 
+    /// dkim_wildcard_detected: only a non-empty TXT synthesis on a sentinel
+    /// name is a wildcard; an empty answer or a failed lookup is not.
+    #[test]
+    fn dkim_wildcard_detected_classifies() {
+        assert!(dkim_wildcard_detected(&Ok(vec!["v=DKIM1; p=".to_string()])));
+        assert!(!dkim_wildcard_detected(&Ok(vec![])));
+        assert!(!dkim_wildcard_detected(&Err(TriState::Absent)));
+        assert!(!dkim_wildcard_detected(&Err(TriState::Indet)));
+    }
+
+    /// Revoked and Wildcard collapse to the tri-state the ruling fixed:
+    /// Revoked→Absent (no signature verifies), Wildcard→Indet (unmeasured).
+    #[test]
+    fn dkim_revoked_and_wildcard_collapse() {
+        assert_eq!(DkimDisposition::Revoked.chain(), TriState::Absent);
+        assert_eq!(DkimDisposition::Wildcard.chain(), TriState::Indet);
+    }
+
     /// dkim_disposition_from_probes: the per-selector accumulation + precedence,
     /// with the Absent-vs-transient split. Pins the counter increments and the
     /// branch that mutation testing showed were un-killed.
@@ -2298,14 +2359,14 @@ mod tests {
             dkim_disposition_from_probes(&probes),
             DkimDisposition::Verified
         );
-        // A revoked key beats a valid key (KeyMismatch).
+        // A revoked key beats a valid key (Revoked, not KeyMismatch).
         let probes2 = vec![
             Ok(vec!["v=DKIM1; p=".to_string()]),     // Revoked
             Ok(vec!["v=DKIM1; p=MIGf".to_string()]), // Valid
         ];
         assert_eq!(
             dkim_disposition_from_probes(&probes2),
-            DkimDisposition::KeyMismatch
+            DkimDisposition::Revoked
         );
         // Only definitive misses → NotFoundDefaults (NOT evidence of absence).
         // Each miss-SHAPE must be the sole contributor in its own assertion —
