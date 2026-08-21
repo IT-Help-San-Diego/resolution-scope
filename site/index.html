@@ -59,14 +59,16 @@
   <div class="wrap">
     <h2>A real measurement, not a brochure</h2>
     <p>This is the engine's verbatim output for the domain you are reading right now — captured
-    2026-08-19, seal included. The instrument does not flatter its operator: the failures below
+    2026-08-21 (UTC), seal included. The instrument does not flatter its operator: the failures below
     are real, and the domain publishes them anyway.</p>
     <div class="report-frame">
 <pre class="report">Resolution Scope — DNS Analysis Report
 Domain    : resolutionscope.com
-Timestamp : 1787199371
-Session   : 8ff3a16cef15e7d0
-Seal      : <span class="seal">f67270bedcb7f2b68e421937759e146f8cc7ffc209fbf4c1f319d67764ebcdc7d97e1bc62cffb08d122cb3074e35b667bb427d0ff20b0cacd01261e2021cae42</span>
+Engine    : 0.1.0
+Resolver  : cloudflare
+Timestamp : 1787321382 (unix epoch seconds, UTC)
+Session   : 61297f021125e559
+Seal      : <span class="seal">23d87f17178da9bf1e0c908ded244cfe556e955868218400d1c42c29329ec431264de122a003abbf6dc77ed99f0dd22accd3e3759dd84bc3ea6046a1e3178992</span>
 
 Control         Score    Measured
 ──────────────  ───────  ────────
@@ -79,11 +81,28 @@ MTA-STS           <span class="fail">FAIL</span>     record absent — zone exis
 CAA               <span class="pass">PASS</span>     configured — issuance restricted to named CAs
 CDS/CDNSKEY       <span class="fail">FAIL</span>     not published — zone exists, no CDS/CDNSKEY
 
-Score: 4/7 (57%)  |  unmeasured: 0  |  not-applicable: 1</pre>
+Score: 4/7 (57%)  |  unmeasured: 0  |  not-applicable: 1
+
+<span class="rederive">── Re-derive the seal (SHA3-512 of these exact bytes) ──
+resolution-scope-sha3-512-v2
+resolutionscope.com
+0.1.0
+cloudflare
+dnssec=SignedAndDelegated=Present
+spf=HardFail=Present
+dkim=KeyMismatch=Absent
+dmarc=Reject=Present
+dane=NoMail=NotApplicable
+mta_sts=RecordAbsent=Absent
+caa=Configured=Present
+cds=NotPublished=Absent
+──────────────────────────────────────────────────────────</span></pre>
     </div>
     <p class="specimen-note">This domain declares no mail (null MX, RFC 7505) — so DANE is honestly
     not-applicable rather than silently passed, and the DKIM failure is the domain's own email-lockdown
-    record measured exactly as published. Unmeasured is reported as unmeasured, never guessed.</p>
+    record measured exactly as published. Unmeasured is reported as unmeasured, never guessed.
+    The block beneath the score is the seal's complete input: hash those exact bytes with SHA3-512
+    and you re-derive the seal above — the tamper-evidence claim, performable by anyone.</p>
   </div>
 </section>
 
