@@ -23,7 +23,20 @@ zones would be rolling keys simultaneously; they are not. **Publication is a
 standing declaration of the desired DS state enabling automated
 maintenance** — which is what the code's own `measured` text already says
 (`Published` → "automated DS maintenance signaled"; `NotPublished` → "DS
-updates at the parent are manual"). Both are standing-state descriptions.
+`NotPublished` → "DS updates at the parent are manual"). Both are standing-state descriptions.
+
+**Operator-clustering correction (added by the instrument lane, 2026-08-21):**
+the "6 of 16 zones" count overstates independence. Four of the six
+CDS-publishing zones — `ietf.org`, `cloudflare.com`, `internetsociety.org`,
+`whitehouse.gov` — share **byte-identical KSK material** (key tag 2371, same
+DNSKEY public key `mdsswUyr3DPW132m…`, four different DS digests because the
+digest binds the owner name). That is one operator's default policy observed
+four times, not four zone-owner decisions. The honest figure is **3
+independent operators** (Cloudflare ×4 zones, `isc.org`, `iis.se`). The
+conclusion is unaffected and in fact stronger: a hosting provider does not
+put every customer zone into permanent rollover, so Cloudflare publishing CDS
+as a standing default is the cleanest demonstration that publication is not a
+rollover-in-progress signal.
 
 **The optionality argument proves too much.** All eight `rfc_requirement`
 strings begin "Optional" (verified: exactly 8 in `truth_chain.rs`). "Optional
