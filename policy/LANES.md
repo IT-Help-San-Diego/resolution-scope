@@ -12,7 +12,7 @@ already reach (see transport matrix below).
 |---|---|---|---|---|
 | `hermes` | this agent (Carey's Mac) | git read+write (push) | yes | self |
 | `claude-code` | Anthropic CLI (same Mac) | git read+write (commits as Carey) | yes | hooks + MCP |
-| `claude-science` | Operon CLI sandbox bot (same Mac, `localhost:8765`) | git read+write (working tree); push path unresolved (see note) | **no** (bind/connect/AF_UNIX all denied) | self-measured (see note) |
+| `claude-science` | Operon CLI sandbox bot (same Mac; its daemon serves `:8765` for a browser) | git read+write (working tree); push path unresolved (see note) | **no** (bind/connect/AF_UNIX all denied) | self-measured (see note) |
 | `scispace` | SciSpace cloud assistant (remote) | **read-only** (no push path) | **no** (separate network) | SCISPACE-CAPABILITY-REPORT.md |
 
 **`claude-science` and `scispace` are TWO different lanes, not one.** `claude-science`
@@ -27,7 +27,9 @@ SciSpace's self-disclosure, not a description of `claude-science`.
 Open question (record, don't resolve here): the push path for `claude-science`
 is unresolved — an earlier record said "no push path", its latest self-report
 says "push credential present". Until a committing lane confirms, its writes are
-relayed by Carey.
+relayed by Carey. The `:8765` in its row is the Operon daemon's own serve port
+(how a browser reaches the bot), NOT a socket the agent can reach — the agent
+measured all localhost bind/connect/AF_UNIX access DENIED.
 
 ## Routing invariant — the arrow never points left
 
