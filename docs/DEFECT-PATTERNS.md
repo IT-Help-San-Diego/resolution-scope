@@ -114,3 +114,26 @@ false when read.
 
 Counter-discipline: timestamp measurements against commits; re-measure at the
 ref you are reporting on, not the ref you remember.
+
+## 8. The instrument's blind spot
+
+A defect the measurement tool itself cannot see, reported as if the tool's
+green meant the edge was covered.
+
+- `cargo-mutants` mutates operators and match arms, so a normalizing method
+  call in a comparison path — `trim`, `trim_end_matches`, `to_lowercase`,
+  `canonicalize` — is structurally invisible to it. The DANE host-side
+  `trim_end_matches('.')` shipped with a test that fed a dot-free host, so
+  deleting the trim left every test green. A mutation count can be 0-missed
+  while a normalizer silently breaks every comparison it guards. Recorded in
+  `docs/mutation-analysis-20260820/README.md` under "Limit of the instrument:
+  normalizing calls are invisible to mutation testing".
+
+Counter-discipline: any normalizing call in a comparison path needs a test fed
+the UN-normalized input, because no mutation run will ever tell you it is
+missing. Prove it by negative control — delete the normalizer and watch the
+test fail, then restore it.
+
+This one is load-bearing for the rest of the file: patterns 2, 4 and 5 cite
+mutation results as their evidence, so a catalogue whose counter-disciplines
+rest on an instrument must name what that instrument cannot see.
