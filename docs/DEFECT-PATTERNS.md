@@ -81,7 +81,26 @@ other's contribution.
 Counter-discipline: each assertable source is the sole contributor in its own
 assertion.
 
-## 6. The stale measurement
+## 6. The assumed-uniform interface
+
+Two producers treated as one because they carry the same data — the defect
+lives in the consumer that assumes a single shape, and it fires at parse time,
+before any semantic comparison can even be wrong.
+
+- The two halves of Arm 1 emit different wire shapes: the Rust engine emits
+  NDJSON (one object per line), the Go reference one object per
+  `/api/analysis/:id` response — recorded with the pin-it-in-the-first-test
+  instruction in `docs/CALIBRATION-STUDY-TASK-ZERO.md` ("the join's
+  parse-time trap"). Contributed by the hook lane, 2026-08-20.
+- The same pairing also differs in vocabulary (`present`/`absent_confirmed`
+  vs `Present`/`Absent`/`Indet`) — bridged explicitly by `go_to_tri` in
+  `scripts/full_arm_differential.py` rather than assumed identical.
+
+Counter-discipline: name each producer's shape where the consumer is
+specified, and pin the asymmetry in the consumer's first test — a join that
+has never parsed both real shapes has never run.
+
+## 7. The stale measurement
 
 A finding measured before a fix landed, reported after — true when measured,
 false when read.
