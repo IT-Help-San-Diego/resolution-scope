@@ -4,8 +4,38 @@ This file is the one place every lane reads at turn START and appends to at turn
 END. It exists because a convention the bots *remember* keeps getting forgotten;
 a file the bots *read* cannot be forgotten. Git is the transport — it survives
 restarts, is version-controlled, and is the one thing all three lanes can
-already reach (Claude Code commits as Carey; Claude Science reads; Hermes does
-both).
+already reach (see transport matrix below).
+
+## Lanes (fixed names — do not rename)
+
+| lane | who | write access | localhost | measured how |
+|---|---|---|---|---|
+| `hermes` | this agent (Carey's Mac) | git read+write (push) | yes | self |
+| `claude-code` | Anthropic CLI (same Mac) | git read+write (commits as Carey) | yes | hooks + MCP |
+| `scispace` | SciSpace cloud assistant (remote) | **read-only** (no push path) | **no** (separate network) | SCISPACE-CAPABILITY-REPORT.md |
+
+**"Claude Science" was a mislabel.** The remote research lane is **SCISPACE**.
+Tag it `scispace` everywhere. The capability report that settles this is
+`policy/SCISPACE-CAPABILITY-REPORT.md` (read it; it is the measured ground
+truth, not an assertion).
+
+## Routing invariant — the arrow never points left
+
+A relay line has ONE shape, always left-to-right:
+
+```
+SENDER → RECIPIENT: <payload>
+```
+
+- **Arrow is always `→` (right). Never `←`.**
+- **Sender is always on the LEFT. Recipient is always on the RIGHT.**
+- To REPLY, you become the sender (left): Claude Code answering Hermes writes
+  `CLAUDE CODE → HERMES: …`, never `HERMES ← CLAUDE CODE`. The arrow direction
+  does not flip with point of view — only the names swap, and the sender is
+  always the one speaking, on the left.
+
+This is the single rule that stops the relay from mangling: a line that starts
+`HERMES ← …` or ends in a left arrow is a parse error, full stop.
 
 ## Contract
 
@@ -19,15 +49,37 @@ both).
    "need a decision" — never re-derives state, never relays a bot's block to
    another bot (the relay lines in chat are the fallback, not the primary).
 
-## Line format
+## Mechanism per lane (how "read + append" becomes unskippable)
+
+A remembered instruction is a convention; an executed hook is a mechanism. Each
+lane's mechanism differs, and this is what decides whether it actually works:
+
+- **hermes** — git `pre-push` hook already fires on every push (`.githooks/`).
+- **claude-code** — `UserPromptSubmit` hook injects `cat LANES.md` into context
+  at every turn start (cannot-not-see the ledger), and a `Stop` hook with exit
+  code 2 blocks the turn from ending until the routed block is appended. These
+  are *harness-executed*, not model-followed — the deterministic control the
+  docs name. NOT `CLAUDE.md`, which the model can drift from.
+- **scispace** — **no hook fires on its turn.** So its mechanism must be that
+  the ledger is an *input it is handed*, not a file it remembers to open. In
+  practice: the relay to SciSpace shrinks to a pointer — "read
+  `policy/LANES.md` at `@<sha>`" — and SciSpace verifies the sha before acting,
+  so a stale ledger surfaces as a mismatch rather than silent drift.
+
+## Line format (every entry carries the sha it was written against)
 
 ```
-<UTC timestamp> | <lane> | <claim or measurement> | <evidence: commit / run / file:line>
+<UTC timestamp> | <lane> | <claim or measurement> | <evidence> | @<git sha>
 ```
+
+The `@<git sha>` is load-bearing: it is the commit the entry was written
+against. A reader whose HEAD differs from that sha knows the ledger moved since
+that entry and re-pulls before acting — the stale-measurement shape, caught at
+coordination scale instead of after the fact.
 
 Example:
 ```
-2026-08-21T03:00Z | hermes | Arm 1 first join produced 2 disagreements (DKIM, DANE) | /tmp/arm1-rust.jsonl + /api/analysis/18450
+2026-08-21T03:00Z | hermes | Arm 1 first join produced 2 disagreements (DKIM, DANE) | /api/analysis/18450 | @eeef0f0
 ```
 
 ## The decision surface (what the ledger answers)
