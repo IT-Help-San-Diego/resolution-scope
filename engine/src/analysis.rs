@@ -1241,6 +1241,49 @@ fn zone_contains_host(host: &str, zone: &str) -> bool {
     z.contains('.') && (h == z || h.ends_with(&format!(".{}", z)))
 }
 
+/// Derive the zone apex that CONTAINS `name` by asking for the SOA and reading
+/// its owner. The SOA owner name is, by definition, the zone cut — this is what
+/// separates `smtp.google.com` (apex `google.com`) from `mail.example.com`
+/// (apex `example.com`) without a PSL table. `None` when the lookup errored
+/// (couldn't measure the zone, not \"no zone\").
+async fn zone_apex_of(resolver: &TokioResolver, name: &str) -> Option<String> {
+    use hickory_proto::rr::RecordType;
+    // Ask the resolver for SOA at `name`. If `name` is itself the apex, the
+    // SOA comes back in the answer; if it is a leaf, the SOA arrives in the
+    // authority section (NoRecordsFound with `soa` populated).
+    match resolver.lookup(name, RecordType::SOA).await {
+        Ok(resp) => {
+            // SOA in the answer section: `name` is the apex.
+            resp.answers()
+                .iter()
+                .find(|r| matches!(&r.data, hickory_proto::rr::RData::SOA(_)))
+                .map(|r| r.name.to_ascii())
+        }
+        Err(e) => {
+            // SOA in the authority section (leaf name): the containing zone.
+            use hickory_resolver::net::DnsError;
+            if let NetError::Dns(DnsError::NoRecordsFound(nr)) = &e {
+                nr.soa.as_ref().map(|s| s.name.to_ascii())
+            } else {
+                None
+            }
+        }
+    }
+}
+
+/// Pure gate: does an MX host's zone DNSSEC state force `DnssecRequired`?
+/// Extracted so the host-zone decision is unit-pinned without a mock resolver
+/// (the async `score_dane` can't be — same pattern as `dane_from_tlsa_counts`).
+/// Fires on `Unsigned` (no DNSKEY) and `NoZone` (zone missing) — both mean
+/// "this host's zone cannot carry a trustable TLSA." `SignedAndDelegated`,
+/// `SignedNotDelegated` (island — still signed), `BrokenChain`, and
+/// `ChainUnverified` pass through to the TLSA loop, which measures the host's
+/// own answer. `Unreachable` also passes through (couldn't measure the zone →
+/// let the TLSA lookup report its own outcome).
+fn dane_host_zone_requires_dnssec(d: DnssecDisposition) -> bool {
+    matches!(d, DnssecDisposition::Unsigned | DnssecDisposition::NoZone)
+}
+
 async fn score_dane(resolver: &TokioResolver, domain: &str) -> DaneDisposition {
     // DANE for SMTP (RFC 7672): TLSA at _25._tcp.<mx-host> for each MX target.
     // NOT _443._tcp.<domain> — that is HTTPS DANE (RFC 6698 for browsers), the
@@ -1273,6 +1316,35 @@ async fn score_dane(resolver: &TokioResolver, domain: &str) -> DaneDisposition {
                 MxShape::NoMx => DaneDisposition::NoMx,
                 MxShape::NoMail => DaneDisposition::NoMail,
                 MxShape::Hosts(hosts) => {
+                    // ── DNSSEC precondition gate (Claude Science 2026-08-21) ──
+                    // DANE's TLSA lives in the MX HOST's zone, not the mail
+                    // domain's apex. A host in an UNSIGNED zone cannot carry a
+                    // trustable TLSA (RFC 7672 requires DNSSEC). Emit
+                    // DnssecRequired — a real finding (severity Low, Indet, out
+                    // of the denominator) — when ANY MX host's zone is unsigned.
+                    // The specimen that separates this from an apex gate is
+                    // it-help.tech: apex DS=1 (signed) but MX smtp.google.com
+                    // lives in google.com, which is UNSIGNED. An apex gate would
+                    // report Absent (a measured failure attributed to the wrong
+                    // party); the host-zone gate reports DnssecRequired.
+                    for host in &hosts {
+                        if let Some(apex) = zone_apex_of(resolver, host).await {
+                            let d = score_dnssec(resolver, &apex).await;
+                            if dane_host_zone_requires_dnssec(d) {
+                                warn!(
+                                    domain,
+                                    host = %host,
+                                    apex = %apex,
+                                    "SMTP DANE host zone unsigned — DnssecRequired"
+                                );
+                                return DaneDisposition::DnssecRequired;
+                            }
+                        }
+                        // zone_apex_of None = couldn't measure the host zone;
+                        // fall through to the TLSA loop, which will report the
+                        // host's own lookup outcome honestly.
+                    }
+
                     let mut counts = Vec::with_capacity(hosts.len());
                     for host in &hosts {
                         let tlsa_name = format!("_25._tcp.{}", host);
@@ -2118,6 +2190,42 @@ mod tests {
         assert!(zone_contains_host("example.com", "example.com"));
         assert!(!zone_contains_host("mail.example.com", "com"));
         assert!(!zone_contains_host("example.com", "com"));
+    }
+
+    // --- the DANE host-zone DNSSEC gate (Claude Science 2026-08-21) -----------
+    // DnssecRequired was declared-and-never-emitted. The gate fires when an MX
+    // HOST's zone is unsigned — not the mail domain's apex. The discriminating
+    // specimen is it-help.tech (apex signed, MX smtp.google.com in UNSIGNED
+    // google.com): an apex gate reports Absent, the host gate reports
+    // DnssecRequired. Pinned as a pure predicate — one assertion per source.
+
+    #[test]
+    fn dane_host_zone_unsigned_requires_dnssec() {
+        assert!(dane_host_zone_requires_dnssec(DnssecDisposition::Unsigned));
+        assert!(dane_host_zone_requires_dnssec(DnssecDisposition::NoZone));
+    }
+
+    #[test]
+    fn dane_host_zone_signed_passes_gate() {
+        // Signed (delegated OR island — still signs its records) and the other
+        // states must NOT fire the gate; they fall through to the TLSA loop.
+        // One-contributor rule: each pass-through is its own assertion so a
+        // gate-that-always-fires cannot survive by one arm doing the work.
+        assert!(!dane_host_zone_requires_dnssec(
+            DnssecDisposition::SignedAndDelegated
+        ));
+        assert!(!dane_host_zone_requires_dnssec(
+            DnssecDisposition::SignedNotDelegated
+        ));
+        assert!(!dane_host_zone_requires_dnssec(
+            DnssecDisposition::BrokenChain
+        ));
+        assert!(!dane_host_zone_requires_dnssec(
+            DnssecDisposition::ChainUnverified
+        ));
+        assert!(!dane_host_zone_requires_dnssec(
+            DnssecDisposition::Unreachable
+        ));
     }
 
     // --- the four extracted Err-branch wrappers: Indet -> TransientError -------
