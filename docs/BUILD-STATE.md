@@ -296,6 +296,39 @@ RS_STORE_URL) persists every scan sealed and echoes the citable row id;
 end-to-end verified by DB census (row's seal == report's seal, byte-equal
 across runs — determinism observed live).
 
+## CDS/CDNSKEY ruling (2026-08-21): leave the collapse alone — premise falsified
+
+A morning question asked whether `NotPublished → Absent → FAIL` mislabels a
+signed+delegated zone with no rollover. The framing was that CDS/CDNSKEY
+publication signals a rollover *in progress*, so absence is the healthy
+resting state. **Measured against the code and live DNS, that premise is
+false:**
+
+- The code's own `measured` text already uses standing-state language:
+  `Published` → "automated DS maintenance signaled", `NotPublished` → "DS
+  updates at the parent are manual" — both standing descriptions, not event
+  descriptions (`truth_chain.rs` cds_report).
+- Live: 6 of 16 sampled signed zones publish CDS/CDNSKEY **at rest** —
+  ietf.org, cloudflare.com, internetsociety.org, isc.org, iis.se,
+  whitehouse.gov (all key tag 2371). If publication meant mid-rollover, six
+  major zones would be rolling keys simultaneously. It is a standing
+  declaration of the desired DS state that enables automated maintenance.
+
+**Ruling (Claude Science, accepted): option (c), leave it.** Neither relabel
+to NotApplicable (which means "no surface to measure" — a signed zone has the
+surface) nor relabel FAIL to "not a defect" (arithmetic penalty with words
+denying it). The optionality argument proves too much: all eight
+`rfc_requirement` strings read "Optional"; "optional therefore shouldn't dock"
+would empty the denominator every scan.
+
+**The genuine open item (deferred, NOT CDS-specific):** severity already
+differentiates absence — DNSSEC/SPF/DMARC/MTA-STS absent = High, DANE/CAA/CDS
+absent = Low — but the score does not: `Tally` counts `present/(present+absent)`
+with no severity weighting, so a Low costs exactly what a High costs. This
+spans three controls, not one. The honest form, if ever taken: a
+severity-weighted score reported ALONGSIDE the unweighted one, never replacing
+it. Held for Carey's decision; no unilateral `truth_chain.rs` change.
+
 ## Commit discipline (2026-08-20): a gate is only a gate if someone reads it
 
 Two red-CI episodes shipped unnoticed because doc/evidence commits skip the
