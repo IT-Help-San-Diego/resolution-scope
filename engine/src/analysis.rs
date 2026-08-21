@@ -648,7 +648,7 @@ async fn score_dnssec(resolver: &TokioResolver, domain: &str) -> DnssecDispositi
     match resolver.lookup(domain, RecordType::DNSKEY).await {
         Ok(resp) => {
             let answers = resp.answers();
-            dnssec_disposition_from_answer(!answers.is_empty(), answers.first().map(|r| r.proof))
+            dnssec_disposition_from_answer(answers_present(answers), answers.first().map(|r| r.proof))
         }
         Err(e) => {
             warn!(domain, error = %e, "DNSSEC DNSKEY lookup error");
@@ -1246,8 +1246,8 @@ async fn score_mta_sts(resolver: &TokioResolver, domain: &str) -> MtaStsDisposit
         }
     };
 
-    if !has_hint {
-        return MtaStsDisposition::RecordAbsent; // no discovery record
+    if let Some(disposition) = mta_sts_absent_without_hint(has_hint) {
+        return disposition; // no discovery record → measured absence
     }
 
     // ── Step 2: fetch + parse the policy ─────────────────────────────────────
@@ -1256,7 +1256,21 @@ async fn score_mta_sts(resolver: &TokioResolver, domain: &str) -> MtaStsDisposit
     // here on (a hint without a servable policy is the T1-1 measured absence,
     // which is what PolicyInvalid's chain() encodes).
     let policy_url = format!("https://mta-sts.{}/.well-known/mta-sts.txt", domain);
-    match fetch_mta_sts_policy(&policy_url).await {
+    // The HTTP I/O lives inline here (it is async glue, not a decision); the
+    // status→ok/err decision is the pure `mta_sts_policy_from_response` below,
+    // so the `!status.is_success()` gate and the body passthrough are unit-pinned
+    // rather than hidden behind a live request. A Result-returning fetch helper
+    // was the one place whose FnValue mutants (return fabricated Ok(empty) bytes)
+    // survived mutation testing.
+    let policy_result: anyhow::Result<String> = async {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()?;
+        let resp = client.get(&policy_url).send().await?;
+        mta_sts_policy_from_response(resp.status(), resp.text().await?)
+    }
+    .await;
+    match policy_result {
         Ok(policy) => match mta_sts_policy_state(&policy) {
             MtaStsPolicyState::Enforce => MtaStsDisposition::Enforced,
             // Valid policy, mode testing/none — deployed, not enforcing (§8).
@@ -1273,19 +1287,36 @@ async fn score_mta_sts(resolver: &TokioResolver, domain: &str) -> MtaStsDisposit
     }
 }
 
-/// Fetch an MTA-STS policy over HTTPS (RFC 8461). The TLS cert must validate
-/// against the public trust store — a policy served over broken TLS is not a
-/// valid MTA-STS policy (reqwest/rustls enforces this).
-async fn fetch_mta_sts_policy(url: &str) -> anyhow::Result<String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()?;
-    let resp = client.get(url).send().await?;
-    let status = resp.status();
+/// Pure: the HTTP status gate for an MTA-STS policy fetch. A non-2xx response
+/// is a failed fetch (the advertised policy is not servable), never a valid
+/// policy. Extracted so the `!status.is_success()` gate is unit-pinned:
+/// deleting the `!` accepts a 404/500 error page as a fetched MTA-STS policy.
+/// This is the pure half of the fetch — the HTTP I/O lives inline in
+/// `score_mta_sts`, because a `Result<String>`-returning async helper was the
+/// one site whose FnValue mutants (return fabricated `Ok(empty)` bytes) were
+/// viable and survived mutation testing.
+fn mta_sts_policy_from_response(
+    status: reqwest::StatusCode,
+    body: String,
+) -> anyhow::Result<String> {
     if !status.is_success() {
         anyhow::bail!("HTTP {}", status);
     }
-    Ok(resp.text().await?)
+    Ok(body)
+}
+
+/// Pure: the discovery-hint gate. A missing `_mta-sts.<domain>` TXT hint is a
+/// measured absence (RecordAbsent) — return `Some(RecordAbsent)` to
+/// short-circuit; a present hint returns `None` (continue to fetch the policy).
+/// Extracted so the `!has_hint` negation is unit-pinned: deleting the `!`
+/// short-circuits on a PRESENT hint and proceeds to fetch on an ABSENT one,
+/// inverting the entire control flow.
+fn mta_sts_absent_without_hint(has_hint: bool) -> Option<MtaStsDisposition> {
+    if !has_hint {
+        Some(MtaStsDisposition::RecordAbsent)
+    } else {
+        None
+    }
 }
 
 /// The measured state of a fetched MTA-STS policy text. Three-way, because
@@ -1342,7 +1373,7 @@ async fn score_caa(resolver: &TokioResolver, domain: &str) -> CaaDisposition {
 
     match resolver.lookup(domain, RecordType::CAA).await {
         Ok(resp) => {
-            if !resp.answers().is_empty() {
+            if answers_present(resp.answers()) {
                 CaaDisposition::Configured
             } else {
                 CaaDisposition::NotConfigured
@@ -1372,7 +1403,7 @@ async fn score_cds_cdnskey(resolver: &TokioResolver, domain: &str) -> CdsDisposi
     // ── CDS (type 59) ────────────────────────────────────────────────────────
     let cds_absent = match resolver.lookup(domain, RecordType::CDS).await {
         Ok(resp) => {
-            if !resp.answers().is_empty() {
+            if answers_present(resp.answers()) {
                 return CdsDisposition::Published; // CDS record found
             }
             true // empty answer section → absent, check CDNSKEY
@@ -1394,7 +1425,7 @@ async fn score_cds_cdnskey(resolver: &TokioResolver, domain: &str) -> CdsDisposi
     // ── CDNSKEY (type 60) ────────────────────────────────────────────────────
     match resolver.lookup(domain, RecordType::CDNSKEY).await {
         Ok(resp) => {
-            if !resp.answers().is_empty() {
+            if answers_present(resp.answers()) {
                 CdsDisposition::Published
             } else if cds_absent {
                 CdsDisposition::NotPublished // both empty
@@ -1422,6 +1453,16 @@ async fn score_cds_cdnskey(resolver: &TokioResolver, domain: &str) -> CdsDisposi
 // =============================================================================
 // Helpers
 // =============================================================================
+
+/// Pure: does an answer section contain at least one record? Centralized so the
+/// `!is_empty()` presence gate is unit-pinned at ONE site instead of being
+/// repeated at four call sites where mutation testing showed `delete !` could
+/// survive — DNSSEC, CAA, CDS and CDNSKEY each read an empty answer section as
+/// a PRESENT measurement when the `!` was dropped, fabricating DNSKEY material,
+/// a CAA policy, or a rollover signal from a lookup that measured nothing.
+fn answers_present(answers: &[hickory_proto::rr::Record]) -> bool {
+    !answers.is_empty()
+}
 
 fn rand_session_id() -> u64 {
     // Use std thread_rng for a local-only nonce; this never leaves the box.
@@ -1791,6 +1832,27 @@ mod tests {
 
     fn mx_name(s: &str) -> hickory_proto::rr::Name {
         hickory_proto::rr::Name::from_ascii(s).unwrap()
+    }
+
+    fn one_record() -> hickory_proto::rr::Record {
+        use hickory_proto::rr::rdata::A;
+        use hickory_proto::rr::RData;
+        use std::net::Ipv4Addr;
+        hickory_proto::rr::Record::from_rdata(
+            mx_name("example.com."),
+            300,
+            RData::A(A(Ipv4Addr::new(1, 2, 3, 4))),
+        )
+    }
+
+    #[test]
+    fn answers_present_distinguishes_empty_from_nonempty() {
+        // The presence gate's `!is_empty()` is pinned in both directions: the
+        // empty assertion catches `delete !` (and FnValue `true`), the non-empty
+        // assertion catches FnValue `false`. Four call sites (DNSSEC, CAA, CDS,
+        // CDNSKEY) all read an empty answer section as present when the `!` goes.
+        assert!(!answers_present(&[]));
+        assert!(answers_present(&[one_record()]));
     }
 
     #[test]
@@ -2323,6 +2385,60 @@ mod tests {
         let policy =
             "version: STSv1\r\nmode: enforce\r\nmx: smtp.example.com\r\nmax_age: 86400\r\n";
         assert!(mta_sts_enforced(policy));
+    }
+
+    // --- the discovery-hint gate (the `!has_hint` mutation survivor) -----------
+    #[test]
+    fn mta_sts_absent_without_hint_pins_the_negation() {
+        // No hint → short-circuit with RecordAbsent (measured absence). Deleting
+        // the `!` inverts this: it would short-circuit on a PRESENT hint and
+        // proceed to fetch on an ABSENT one. Both directions are pinned.
+        assert_eq!(
+            mta_sts_absent_without_hint(false),
+            Some(MtaStsDisposition::RecordAbsent)
+        );
+        assert_eq!(mta_sts_absent_without_hint(true), None);
+    }
+
+    // --- the HTTP status gate (the `!status.is_success()` + FnValue survivors) -
+    #[test]
+    fn mta_sts_policy_from_response_status_gate() {
+        // A 2xx passes the body through; a 404/500 is a failed fetch, never a
+        // policy. The body-passthrough assertion catches the FnValue mutants
+        // (return fabricated Ok(empty)/Ok("xyzzy") bytes); the 404 assertion
+        // catches `delete !` (which would accept the error page as a policy).
+        let body = "version: STSv1\nmode: enforce\nmx: smtp.example.com\n".to_string();
+        assert_eq!(
+            mta_sts_policy_from_response(reqwest::StatusCode::OK, body.clone()).unwrap(),
+            body
+        );
+        assert!(mta_sts_policy_from_response(reqwest::StatusCode::NOT_FOUND, body).is_err());
+        // Empty body on 2xx passes through — the parse step (mta_sts_policy_state)
+        // rejects it, not the fetch.
+        assert_eq!(
+            mta_sts_policy_from_response(reqwest::StatusCode::OK, String::new()).unwrap(),
+            ""
+        );
+    }
+
+    // --- the policy-state three-way split (the MatchArm mutation survivor) -----
+    #[test]
+    fn mta_sts_policy_state_distinguishes_testing_and_none_from_invalid() {
+        // The `(true, Some("testing"), true) | (true, Some("none"), true)` arm is
+        // the distinction between a VALID deployed policy (mode testing/none) and
+        // a fetched-but-invalid one. The `mta_sts_enforced` shim only checks
+        // `== Enforce`, so deleting the arm (collapsing testing/none into Invalid)
+        // passed every shim test — both are "not Enforce". These direct state
+        // assertions pin the three-way split itself.
+        let testing = "version: STSv1\nmode: testing\nmx: smtp.example.com\n";
+        assert_eq!(mta_sts_policy_state(testing), MtaStsPolicyState::TestingOrNone);
+        let none = "version: STSv1\nmode: none\nmx: smtp.example.com\n";
+        assert_eq!(mta_sts_policy_state(none), MtaStsPolicyState::TestingOrNone);
+        let enforce = "version: STSv1\nmode: enforce\nmx: smtp.example.com\n";
+        assert_eq!(mta_sts_policy_state(enforce), MtaStsPolicyState::Enforce);
+        // Contrast: garbage is Invalid, not TestingOrNone — the arm must not
+        // absorb it either direction.
+        assert_eq!(mta_sts_policy_state("hello world"), MtaStsPolicyState::Invalid);
     }
 
     // -------------------------------------------------------------------------

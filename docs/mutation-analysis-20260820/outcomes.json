@@ -8,7 +8,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 12.972300416,
+          "duration": 11.096727916,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -20,7 +20,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.797656125,
+          "duration": 0.863605167,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -71,7 +71,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.520393459,
+          "duration": 0.487554709,
           "process_status": {
             "Failure": 101
           },
@@ -125,7 +125,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.086642458,
+          "duration": 0.979685,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -137,7 +137,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.818621417,
+          "duration": 0.826551958,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -188,7 +188,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.57678725,
+          "duration": 0.543912583,
           "process_status": {
             "Failure": 101
           },
@@ -242,7 +242,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.042566416,
+          "duration": 1.032212458,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -254,7 +254,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.788998,
+          "duration": 0.756070125,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -305,7 +305,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.408901375,
+          "duration": 0.387608,
           "process_status": {
             "Failure": 101
           },
@@ -359,7 +359,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.066619583,
+          "duration": 1.038026833,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -371,7 +371,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.820552666,
+          "duration": 0.803895166,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -422,7 +422,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.401342584,
+          "duration": 0.388551,
           "process_status": {
             "Failure": 101
           },
@@ -476,7 +476,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.8658195,
+          "duration": 0.837496041,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -488,7 +488,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.800514792,
+          "duration": 0.761132333,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -539,7 +539,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.57910825,
+          "duration": 0.523451167,
           "process_status": {
             "Failure": 101
           },
@@ -593,7 +593,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.115394875,
+          "duration": 1.056265542,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -605,7 +605,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.808210083,
+          "duration": 0.816646333,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -656,7 +656,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.523850125,
+          "duration": 0.556854542,
           "process_status": {
             "Failure": 101
           },
@@ -710,7 +710,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.093456291,
+          "duration": 0.990029583,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -722,7 +722,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.81517125,
+          "duration": 0.751943666,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -773,7 +773,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.564465958,
+          "duration": 0.518815459,
           "process_status": {
             "Failure": 101
           },
@@ -827,7 +827,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.055774708,
+          "duration": 1.043448458,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -839,7 +839,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.808202,
+          "duration": 0.815205917,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -890,7 +890,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.4107975,
+          "duration": 0.391887083,
           "process_status": {
             "Failure": 101
           },
@@ -944,7 +944,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.905808375,
+          "duration": 0.858528625,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -956,7 +956,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.804499333,
+          "duration": 0.812701541,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1007,7 +1007,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.568140167,
+          "duration": 0.516735875,
           "process_status": {
             "Failure": 101
           },
@@ -1061,7 +1061,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.507979958,
+          "duration": 0.454746625,
           "process_status": {
             "Failure": 101
           },
@@ -1115,7 +1115,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.558407458,
+          "duration": 0.511377625,
           "process_status": {
             "Failure": 101
           },
@@ -1169,7 +1169,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.19519125,
+          "duration": 1.102108625,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1181,7 +1181,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.52707175,
+          "duration": 0.587217375,
           "process_status": {
             "Failure": 101
           },
@@ -1234,7 +1234,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.11538675,
+          "duration": 1.108821417,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1246,7 +1246,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.506184041,
+          "duration": 0.529777917,
           "process_status": {
             "Failure": 101
           },
@@ -1299,7 +1299,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.107105333,
+          "duration": 1.09409725,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1311,7 +1311,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.524117917,
+          "duration": 0.533541291,
           "process_status": {
             "Failure": 101
           },
@@ -1364,7 +1364,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.037260917,
+          "duration": 1.029114375,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1376,7 +1376,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.556958,
+          "duration": 0.52173825,
           "process_status": {
             "Failure": 101
           },
@@ -1429,7 +1429,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.857544458,
+          "duration": 0.907080583,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1441,7 +1441,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.530052334,
+          "duration": 0.588892333,
           "process_status": {
             "Failure": 101
           },
@@ -1494,7 +1494,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.496693375,
+          "duration": 0.515095208,
           "process_status": {
             "Failure": 101
           },
@@ -1548,7 +1548,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.459000542,
+          "duration": 0.469354625,
           "process_status": {
             "Failure": 101
           },
@@ -1556,69 +1556,6 @@
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
             "test",
             "--no-run",
-            "--verbose",
-            "--package=resolution-scope-engine@0.1.0"
-          ]
-        }
-      ]
-    },
-    {
-      "scenario": {
-        "Mutant": {
-          "name": "src/analysis.rs:651:44: delete ! in score_dnssec",
-          "package": "resolution-scope-engine",
-          "file": "src/analysis.rs",
-          "function": {
-            "function_name": "score_dnssec",
-            "return_type": "-> DnssecDisposition",
-            "span": {
-              "start": {
-                "line": 626,
-                "column": 1
-              },
-              "end": {
-                "line": 658,
-                "column": 2
-              }
-            }
-          },
-          "span": {
-            "start": {
-              "line": 651,
-              "column": 44
-            },
-            "end": {
-              "line": 651,
-              "column": 45
-            }
-          },
-          "replacement": "",
-          "genre": "UnaryOperator"
-        }
-      },
-      "summary": "MissedMutant",
-      "log_path": "log/src__analysis.rs_line_651_col_44.log",
-      "diff_path": "diff/src__analysis.rs_line_651_col_44.diff",
-      "phase_results": [
-        {
-          "phase": "Build",
-          "duration": 1.042750292,
-          "process_status": "Success",
-          "argv": [
-            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
-            "test",
-            "--no-run",
-            "--verbose",
-            "--package=resolution-scope-engine@0.1.0"
-          ]
-        },
-        {
-          "phase": "Test",
-          "duration": 0.862257208,
-          "process_status": "Success",
-          "argv": [
-            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
-            "test",
             "--verbose",
             "--package=resolution-scope-engine@0.1.0"
           ]
@@ -1665,7 +1602,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.462528708,
+          "duration": 0.463868083,
           "process_status": {
             "Failure": 101
           },
@@ -1719,7 +1656,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.9754325,
+          "duration": 0.916464833,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1731,7 +1668,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.531887833,
+          "duration": 0.528507333,
           "process_status": {
             "Failure": 101
           },
@@ -1784,7 +1721,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.813389833,
+          "duration": 0.850334625,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1796,7 +1733,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.507068209,
+          "duration": 0.573710208,
           "process_status": {
             "Failure": 101
           },
@@ -1849,7 +1786,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.808196708,
+          "duration": 0.860512042,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1861,7 +1798,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.5237785,
+          "duration": 0.533555584,
           "process_status": {
             "Failure": 101
           },
@@ -1914,7 +1851,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.849897167,
+          "duration": 0.832586917,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -1926,7 +1863,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.578547666,
+          "duration": 0.578300625,
           "process_status": {
             "Failure": 101
           },
@@ -1979,7 +1916,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.510017125,
+          "duration": 0.460974916,
           "process_status": {
             "Failure": 101
           },
@@ -2033,7 +1970,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.456362292,
+          "duration": 0.448875167,
           "process_status": {
             "Failure": 101
           },
@@ -2087,7 +2024,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.455049708,
+          "duration": 0.477136333,
           "process_status": {
             "Failure": 101
           },
@@ -2141,7 +2078,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.033723041,
+          "duration": 0.973583875,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -2153,7 +2090,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.514676875,
+          "duration": 0.57216575,
           "process_status": {
             "Failure": 101
           },
@@ -2206,7 +2143,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.875279167,
+          "duration": 0.928767625,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -2218,7 +2155,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.587478541,
+          "duration": 0.568656583,
           "process_status": {
             "Failure": 101
           },
@@ -2271,7 +2208,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.80491175,
+          "duration": 0.851673625,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -2283,7 +2220,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.51765375,
+          "duration": 0.565296375,
           "process_status": {
             "Failure": 101
           },
@@ -2336,7 +2273,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.018945,
+          "duration": 0.969380208,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -2348,7 +2285,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.524054209,
+          "duration": 0.52679725,
           "process_status": {
             "Failure": 101
           },
@@ -2401,7 +2338,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.852463167,
+          "duration": 0.930941125,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -2413,7 +2350,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.571118875,
+          "duration": 0.5800875,
           "process_status": {
             "Failure": 101
           },
@@ -2466,7 +2403,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.523346458,
+          "duration": 0.457718666,
           "process_status": {
             "Failure": 101
           },
@@ -2520,7 +2457,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.924559916,
+          "duration": 0.848541625,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -2532,7 +2469,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.568038084,
+          "duration": 0.58292875,
           "process_status": {
             "Failure": 101
           },
@@ -2585,7 +2522,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.971898125,
+          "duration": 0.907704583,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -2597,7 +2534,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.55746925,
+          "duration": 0.529738041,
           "process_status": {
             "Failure": 101
           },
@@ -2650,7 +2587,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.912343041,
+          "duration": 0.857682458,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -2662,7 +2599,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.564552167,
+          "duration": 0.582132208,
           "process_status": {
             "Failure": 101
           },
@@ -2715,7 +2652,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.840633625,
+          "duration": 0.856818625,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -2727,7 +2664,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.528206209,
+          "duration": 0.57028625,
           "process_status": {
             "Failure": 101
           },
@@ -2780,7 +2717,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.913192875,
+          "duration": 0.871783208,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -2792,7 +2729,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.577126083,
+          "duration": 0.570669,
           "process_status": {
             "Failure": 101
           },
@@ -2845,7 +2782,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.852876375,
+          "duration": 0.863914334,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -2857,7 +2794,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.58354075,
+          "duration": 0.573145458,
           "process_status": {
             "Failure": 101
           },
@@ -2910,7 +2847,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.916692542,
+          "duration": 0.87400275,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -2922,7 +2859,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.562729625,
+          "duration": 0.591913875,
           "process_status": {
             "Failure": 101
           },
@@ -2975,7 +2912,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.953267916,
+          "duration": 0.921016208,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -2987,7 +2924,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.599113667,
+          "duration": 0.590950042,
           "process_status": {
             "Failure": 101
           },
@@ -3040,7 +2977,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.922945917,
+          "duration": 0.932608042,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3052,7 +2989,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.573305209,
+          "duration": 0.579926333,
           "process_status": {
             "Failure": 101
           },
@@ -3105,7 +3042,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.856616458,
+          "duration": 0.820141375,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3117,7 +3054,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.589092125,
+          "duration": 0.61126275,
           "process_status": {
             "Failure": 101
           },
@@ -3170,7 +3107,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.970154916,
+          "duration": 0.899926083,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3182,7 +3119,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.584409625,
+          "duration": 0.588197083,
           "process_status": {
             "Failure": 101
           },
@@ -3235,7 +3172,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.9564245,
+          "duration": 0.90994025,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3247,7 +3184,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.585835584,
+          "duration": 0.638575,
           "process_status": {
             "Failure": 101
           },
@@ -3300,7 +3237,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.243114792,
+          "duration": 1.151942042,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3312,7 +3249,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.635490125,
+          "duration": 0.63753775,
           "process_status": {
             "Failure": 101
           },
@@ -3365,7 +3302,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.967052208,
+          "duration": 0.910776708,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3377,7 +3314,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.703893041,
+          "duration": 0.629143375,
           "process_status": {
             "Failure": 101
           },
@@ -3430,7 +3367,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.023569375,
+          "duration": 0.924215,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3442,7 +3379,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.583275916,
+          "duration": 0.579079,
           "process_status": {
             "Failure": 101
           },
@@ -3495,7 +3432,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.206105917,
+          "duration": 1.2229485,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3507,7 +3444,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.5802365,
+          "duration": 0.562008167,
           "process_status": {
             "Failure": 101
           },
@@ -3560,7 +3497,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.912397625,
+          "duration": 0.894314375,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3572,7 +3509,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.589630875,
+          "duration": 0.646656458,
           "process_status": {
             "Failure": 101
           },
@@ -3625,7 +3562,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.540926584,
+          "duration": 0.530047084,
           "process_status": {
             "Failure": 101
           },
@@ -3679,7 +3616,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.485373209,
+          "duration": 0.46803075,
           "process_status": {
             "Failure": 101
           },
@@ -3733,7 +3670,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.914112833,
+          "duration": 0.863258875,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3745,7 +3682,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.540991333,
+          "duration": 0.644082042,
           "process_status": {
             "Failure": 101
           },
@@ -3798,7 +3735,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.921836,
+          "duration": 0.874946375,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3810,7 +3747,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.583665125,
+          "duration": 0.615720042,
           "process_status": {
             "Failure": 101
           },
@@ -3863,7 +3800,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.915770417,
+          "duration": 0.87309425,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3875,7 +3812,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.590234083,
+          "duration": 0.618090042,
           "process_status": {
             "Failure": 101
           },
@@ -3928,7 +3865,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.915169709,
+          "duration": 0.913631417,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -3940,7 +3877,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.638643333,
+          "duration": 0.65252525,
           "process_status": {
             "Failure": 101
           },
@@ -3993,7 +3930,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.920507041,
+          "duration": 0.852716666,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4005,7 +3942,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.593304583,
+          "duration": 0.583209792,
           "process_status": {
             "Failure": 101
           },
@@ -4058,7 +3995,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.9266105,
+          "duration": 0.862662916,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4070,7 +4007,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.585398,
+          "duration": 0.624977166,
           "process_status": {
             "Failure": 101
           },
@@ -4123,7 +4060,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.91196825,
+          "duration": 0.909200792,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4135,7 +4072,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.598802667,
+          "duration": 0.615825542,
           "process_status": {
             "Failure": 101
           },
@@ -4188,7 +4125,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.970798208,
+          "duration": 0.897327917,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4200,7 +4137,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.587562458,
+          "duration": 0.640190709,
           "process_status": {
             "Failure": 101
           },
@@ -4253,7 +4190,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.84874,
+          "duration": 0.916383416,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4265,7 +4202,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.588976,
+          "duration": 0.581631584,
           "process_status": {
             "Failure": 101
           },
@@ -4318,7 +4255,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.912345042,
+          "duration": 0.914756167,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4330,7 +4267,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.593862625,
+          "duration": 0.648775834,
           "process_status": {
             "Failure": 101
           },
@@ -4383,7 +4320,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.488666,
+          "duration": 0.509757959,
           "process_status": {
             "Failure": 101
           },
@@ -4437,7 +4374,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.493200458,
+          "duration": 0.459470625,
           "process_status": {
             "Failure": 101
           },
@@ -4491,7 +4428,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.969862791,
+          "duration": 0.916877375,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4503,7 +4440,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.584676542,
+          "duration": 0.586169209,
           "process_status": {
             "Failure": 101
           },
@@ -4556,7 +4493,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.964906833,
+          "duration": 0.98347725,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4568,7 +4505,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.598401291,
+          "duration": 0.654588792,
           "process_status": {
             "Failure": 101
           },
@@ -4621,7 +4558,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.97047925,
+          "duration": 0.917218458,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4633,7 +4570,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.589656375,
+          "duration": 0.648533708,
           "process_status": {
             "Failure": 101
           },
@@ -4686,7 +4623,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.076395417,
+          "duration": 1.043202708,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4698,7 +4635,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.64067575,
+          "duration": 0.639885334,
           "process_status": {
             "Failure": 101
           },
@@ -4751,7 +4688,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.972893459,
+          "duration": 1.035334958,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4763,7 +4700,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.646833875,
+          "duration": 0.638390042,
           "process_status": {
             "Failure": 101
           },
@@ -4816,7 +4753,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.252478625,
+          "duration": 1.132226,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4828,7 +4765,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.591740625,
+          "duration": 0.631671709,
           "process_status": {
             "Failure": 101
           },
@@ -4881,7 +4818,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.587073542,
+          "duration": 0.520422459,
           "process_status": {
             "Failure": 101
           },
@@ -4935,7 +4872,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.966777375,
+          "duration": 0.873906583,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -4947,7 +4884,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.598368458,
+          "duration": 0.64119525,
           "process_status": {
             "Failure": 101
           },
@@ -5000,7 +4937,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.531308041,
+          "duration": 0.508092542,
           "process_status": {
             "Failure": 101
           },
@@ -5054,7 +4991,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.070881791,
+          "duration": 0.981428875,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -5066,7 +5003,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.5920955,
+          "duration": 0.634887584,
           "process_status": {
             "Failure": 101
           },
@@ -5119,7 +5056,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.855542958,
+          "duration": 0.937398375,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -5131,7 +5068,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.586038417,
+          "duration": 0.638065792,
           "process_status": {
             "Failure": 101
           },
@@ -5184,7 +5121,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.91491525,
+          "duration": 0.93065375,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -5196,7 +5133,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.649830042,
+          "duration": 0.642236833,
           "process_status": {
             "Failure": 101
           },
@@ -5249,7 +5186,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.06963925,
+          "duration": 1.036196042,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -5261,7 +5198,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.58932675,
+          "duration": 0.646715458,
           "process_status": {
             "Failure": 101
           },
@@ -5314,7 +5251,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.493754375,
+          "duration": 0.508607458,
           "process_status": {
             "Failure": 101
           },
@@ -5343,7 +5280,7 @@
                 "column": 1
               },
               "end": {
-                "line": 1274,
+                "line": 1288,
                 "column": 2
               }
             }
@@ -5354,7 +5291,7 @@
               "column": 5
             },
             "end": {
-              "line": 1273,
+              "line": 1287,
               "column": 6
             }
           },
@@ -5368,7 +5305,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.486282416,
+          "duration": 0.457520875,
           "process_status": {
             "Failure": 101
           },
@@ -5385,107 +5322,44 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/analysis.rs:1249:8: delete ! in score_mta_sts",
+          "name": "src/analysis.rs:1302:5: replace mta_sts_policy_from_response -> anyhow::Result<String> with Ok(String::new())",
           "package": "resolution-scope-engine",
           "file": "src/analysis.rs",
           "function": {
-            "function_name": "score_mta_sts",
-            "return_type": "-> MtaStsDisposition",
-            "span": {
-              "start": {
-                "line": 1224,
-                "column": 1
-              },
-              "end": {
-                "line": 1274,
-                "column": 2
-              }
-            }
-          },
-          "span": {
-            "start": {
-              "line": 1249,
-              "column": 8
-            },
-            "end": {
-              "line": 1249,
-              "column": 9
-            }
-          },
-          "replacement": "",
-          "genre": "UnaryOperator"
-        }
-      },
-      "summary": "MissedMutant",
-      "log_path": "log/src__analysis.rs_line_1249_col_8.log",
-      "diff_path": "diff/src__analysis.rs_line_1249_col_8.diff",
-      "phase_results": [
-        {
-          "phase": "Build",
-          "duration": 1.065012,
-          "process_status": "Success",
-          "argv": [
-            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
-            "test",
-            "--no-run",
-            "--verbose",
-            "--package=resolution-scope-engine@0.1.0"
-          ]
-        },
-        {
-          "phase": "Test",
-          "duration": 1.170135291,
-          "process_status": "Success",
-          "argv": [
-            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
-            "test",
-            "--verbose",
-            "--package=resolution-scope-engine@0.1.0"
-          ]
-        }
-      ]
-    },
-    {
-      "scenario": {
-        "Mutant": {
-          "name": "src/analysis.rs:1280:5: replace fetch_mta_sts_policy -> anyhow::Result<String> with Ok(String::new())",
-          "package": "resolution-scope-engine",
-          "file": "src/analysis.rs",
-          "function": {
-            "function_name": "fetch_mta_sts_policy",
+            "function_name": "mta_sts_policy_from_response",
             "return_type": "-> anyhow::Result<String>",
             "span": {
               "start": {
-                "line": 1276,
+                "line": 1290,
                 "column": 1
               },
               "end": {
-                "line": 1289,
+                "line": 1306,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 1280,
+              "line": 1302,
               "column": 5
             },
             "end": {
-              "line": 1288,
-              "column": 27
+              "line": 1305,
+              "column": 13
             }
           },
           "replacement": "Ok(String::new())",
           "genre": "FnValue"
         }
       },
-      "summary": "MissedMutant",
-      "log_path": "log/src__analysis.rs_line_1280_col_5.log",
-      "diff_path": "diff/src__analysis.rs_line_1280_col_5.diff",
+      "summary": "CaughtMutant",
+      "log_path": "log/src__analysis.rs_line_1302_col_5.log",
+      "diff_path": "diff/src__analysis.rs_line_1302_col_5.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 2.22197425,
+          "duration": 1.148113667,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -5497,8 +5371,10 @@
         },
         {
           "phase": "Test",
-          "duration": 1.183718334,
-          "process_status": "Success",
+          "duration": 0.61957525,
+          "process_status": {
+            "Failure": 101
+          },
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
             "test",
@@ -5511,44 +5387,44 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/analysis.rs:1280:5: replace fetch_mta_sts_policy -> anyhow::Result<String> with Ok(\"xyzzy\".into())",
+          "name": "src/analysis.rs:1302:5: replace mta_sts_policy_from_response -> anyhow::Result<String> with Ok(\"xyzzy\".into())",
           "package": "resolution-scope-engine",
           "file": "src/analysis.rs",
           "function": {
-            "function_name": "fetch_mta_sts_policy",
+            "function_name": "mta_sts_policy_from_response",
             "return_type": "-> anyhow::Result<String>",
             "span": {
               "start": {
-                "line": 1276,
+                "line": 1290,
                 "column": 1
               },
               "end": {
-                "line": 1289,
+                "line": 1306,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 1280,
+              "line": 1302,
               "column": 5
             },
             "end": {
-              "line": 1288,
-              "column": 27
+              "line": 1305,
+              "column": 13
             }
           },
           "replacement": "Ok(\"xyzzy\".into())",
           "genre": "FnValue"
         }
       },
-      "summary": "MissedMutant",
-      "log_path": "log/src__analysis.rs_line_1280_col_5_001.log",
-      "diff_path": "diff/src__analysis.rs_line_1280_col_5_001.diff",
+      "summary": "CaughtMutant",
+      "log_path": "log/src__analysis.rs_line_1302_col_5_001.log",
+      "diff_path": "diff/src__analysis.rs_line_1302_col_5_001.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.020210958,
+          "duration": 0.968591375,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -5560,8 +5436,10 @@
         },
         {
           "phase": "Test",
-          "duration": 1.138512125,
-          "process_status": "Success",
+          "duration": 0.68272025,
+          "process_status": {
+            "Failure": 101
+          },
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
             "test",
@@ -5574,30 +5452,30 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/analysis.rs:1285:8: delete ! in fetch_mta_sts_policy",
+          "name": "src/analysis.rs:1302:8: delete ! in mta_sts_policy_from_response",
           "package": "resolution-scope-engine",
           "file": "src/analysis.rs",
           "function": {
-            "function_name": "fetch_mta_sts_policy",
+            "function_name": "mta_sts_policy_from_response",
             "return_type": "-> anyhow::Result<String>",
             "span": {
               "start": {
-                "line": 1276,
+                "line": 1290,
                 "column": 1
               },
               "end": {
-                "line": 1289,
+                "line": 1306,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 1285,
+              "line": 1302,
               "column": 8
             },
             "end": {
-              "line": 1285,
+              "line": 1302,
               "column": 9
             }
           },
@@ -5605,13 +5483,13 @@
           "genre": "UnaryOperator"
         }
       },
-      "summary": "MissedMutant",
-      "log_path": "log/src__analysis.rs_line_1285_col_8.log",
-      "diff_path": "diff/src__analysis.rs_line_1285_col_8.diff",
+      "summary": "CaughtMutant",
+      "log_path": "log/src__analysis.rs_line_1302_col_8.log",
+      "diff_path": "diff/src__analysis.rs_line_1302_col_8.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 2.259011583,
+          "duration": 1.163517167,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -5623,8 +5501,10 @@
         },
         {
           "phase": "Test",
-          "duration": 1.185773292,
-          "process_status": "Success",
+          "duration": 0.6207285,
+          "process_status": {
+            "Failure": 101
+          },
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
             "test",
@@ -5637,7 +5517,191 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/analysis.rs:1306:5: replace mta_sts_policy_state -> MtaStsPolicyState with Default::default()",
+          "name": "src/analysis.rs:1315:5: replace mta_sts_absent_without_hint -> Option<MtaStsDisposition> with None",
+          "package": "resolution-scope-engine",
+          "file": "src/analysis.rs",
+          "function": {
+            "function_name": "mta_sts_absent_without_hint",
+            "return_type": "-> Option<MtaStsDisposition>",
+            "span": {
+              "start": {
+                "line": 1308,
+                "column": 1
+              },
+              "end": {
+                "line": 1320,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1315,
+              "column": 5
+            },
+            "end": {
+              "line": 1319,
+              "column": 6
+            }
+          },
+          "replacement": "None",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__analysis.rs_line_1315_col_5.log",
+      "diff_path": "diff/src__analysis.rs_line_1315_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.035906583,
+          "process_status": "Success",
+          "argv": [
+            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=resolution-scope-engine@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.625806333,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=resolution-scope-engine@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/analysis.rs:1315:5: replace mta_sts_absent_without_hint -> Option<MtaStsDisposition> with Some(Default::default())",
+          "package": "resolution-scope-engine",
+          "file": "src/analysis.rs",
+          "function": {
+            "function_name": "mta_sts_absent_without_hint",
+            "return_type": "-> Option<MtaStsDisposition>",
+            "span": {
+              "start": {
+                "line": 1308,
+                "column": 1
+              },
+              "end": {
+                "line": 1320,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1315,
+              "column": 5
+            },
+            "end": {
+              "line": 1319,
+              "column": 6
+            }
+          },
+          "replacement": "Some(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__analysis.rs_line_1315_col_5_001.log",
+      "diff_path": "diff/src__analysis.rs_line_1315_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.408375375,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=resolution-scope-engine@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/analysis.rs:1315:8: delete ! in mta_sts_absent_without_hint",
+          "package": "resolution-scope-engine",
+          "file": "src/analysis.rs",
+          "function": {
+            "function_name": "mta_sts_absent_without_hint",
+            "return_type": "-> Option<MtaStsDisposition>",
+            "span": {
+              "start": {
+                "line": 1308,
+                "column": 1
+              },
+              "end": {
+                "line": 1320,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1315,
+              "column": 8
+            },
+            "end": {
+              "line": 1315,
+              "column": 9
+            }
+          },
+          "replacement": "",
+          "genre": "UnaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__analysis.rs_line_1315_col_8.log",
+      "diff_path": "diff/src__analysis.rs_line_1315_col_8.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.993791042,
+          "process_status": "Success",
+          "argv": [
+            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=resolution-scope-engine@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.633327417,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=resolution-scope-engine@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/analysis.rs:1337:5: replace mta_sts_policy_state -> MtaStsPolicyState with Default::default()",
           "package": "resolution-scope-engine",
           "file": "src/analysis.rs",
           "function": {
@@ -5645,22 +5709,22 @@
             "return_type": "-> MtaStsPolicyState",
             "span": {
               "start": {
-                "line": 1301,
+                "line": 1332,
                 "column": 1
               },
               "end": {
-                "line": 1326,
+                "line": 1357,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 1306,
+              "line": 1337,
               "column": 5
             },
             "end": {
-              "line": 1325,
+              "line": 1356,
               "column": 6
             }
           },
@@ -5669,12 +5733,12 @@
         }
       },
       "summary": "Unviable",
-      "log_path": "log/src__analysis.rs_line_1306_col_5.log",
-      "diff_path": "diff/src__analysis.rs_line_1306_col_5.diff",
+      "log_path": "log/src__analysis.rs_line_1337_col_5.log",
+      "diff_path": "diff/src__analysis.rs_line_1337_col_5.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.489480959,
+          "duration": 0.504678916,
           "process_status": {
             "Failure": 101
           },
@@ -5691,7 +5755,7 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/analysis.rs:1312:35: replace == with != in mta_sts_policy_state",
+          "name": "src/analysis.rs:1343:35: replace == with != in mta_sts_policy_state",
           "package": "resolution-scope-engine",
           "file": "src/analysis.rs",
           "function": {
@@ -5699,22 +5763,22 @@
             "return_type": "-> MtaStsPolicyState",
             "span": {
               "start": {
-                "line": 1301,
+                "line": 1332,
                 "column": 1
               },
               "end": {
-                "line": 1326,
+                "line": 1357,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 1312,
+              "line": 1343,
               "column": 35
             },
             "end": {
-              "line": 1312,
+              "line": 1343,
               "column": 37
             }
           },
@@ -5723,12 +5787,12 @@
         }
       },
       "summary": "CaughtMutant",
-      "log_path": "log/src__analysis.rs_line_1312_col_35.log",
-      "diff_path": "diff/src__analysis.rs_line_1312_col_35.diff",
+      "log_path": "log/src__analysis.rs_line_1343_col_35.log",
+      "diff_path": "diff/src__analysis.rs_line_1343_col_35.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 1.027444167,
+          "duration": 0.969248625,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -5740,7 +5804,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.59386975,
+          "duration": 0.699283958,
           "process_status": {
             "Failure": 101
           },
@@ -5756,7 +5820,7 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/analysis.rs:1320:9: delete match arm (true, Some(\"enforce\"), true) in mta_sts_policy_state",
+          "name": "src/analysis.rs:1351:9: delete match arm (true, Some(\"enforce\"), true) in mta_sts_policy_state",
           "package": "resolution-scope-engine",
           "file": "src/analysis.rs",
           "function": {
@@ -5764,22 +5828,22 @@
             "return_type": "-> MtaStsPolicyState",
             "span": {
               "start": {
-                "line": 1301,
+                "line": 1332,
                 "column": 1
               },
               "end": {
-                "line": 1326,
+                "line": 1357,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 1320,
+              "line": 1351,
               "column": 9
             },
             "end": {
-              "line": 1320,
+              "line": 1351,
               "column": 69
             }
           },
@@ -5788,12 +5852,12 @@
         }
       },
       "summary": "CaughtMutant",
-      "log_path": "log/src__analysis.rs_line_1320_col_9.log",
-      "diff_path": "diff/src__analysis.rs_line_1320_col_9.diff",
+      "log_path": "log/src__analysis.rs_line_1351_col_9.log",
+      "diff_path": "diff/src__analysis.rs_line_1351_col_9.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.961013417,
+          "duration": 0.922185875,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -5805,7 +5869,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.637242541,
+          "duration": 0.630541708,
           "process_status": {
             "Failure": 101
           },
@@ -5821,7 +5885,7 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/analysis.rs:1321:9: delete match arm (true, Some(\"testing\"), true) |(true, Some(\"none\"), true) in mta_sts_policy_state",
+          "name": "src/analysis.rs:1352:9: delete match arm (true, Some(\"testing\"), true) |(true, Some(\"none\"), true) in mta_sts_policy_state",
           "package": "resolution-scope-engine",
           "file": "src/analysis.rs",
           "function": {
@@ -5829,22 +5893,22 @@
             "return_type": "-> MtaStsPolicyState",
             "span": {
               "start": {
-                "line": 1301,
+                "line": 1332,
                 "column": 1
               },
               "end": {
-                "line": 1326,
+                "line": 1357,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 1321,
+              "line": 1352,
               "column": 9
             },
             "end": {
-              "line": 1323,
+              "line": 1354,
               "column": 10
             }
           },
@@ -5852,679 +5916,13 @@
           "genre": "MatchArm"
         }
       },
-      "summary": "MissedMutant",
-      "log_path": "log/src__analysis.rs_line_1321_col_9.log",
-      "diff_path": "diff/src__analysis.rs_line_1321_col_9.diff",
-      "phase_results": [
-        {
-          "phase": "Build",
-          "duration": 1.090726875,
-          "process_status": "Success",
-          "argv": [
-            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
-            "test",
-            "--no-run",
-            "--verbose",
-            "--package=resolution-scope-engine@0.1.0"
-          ]
-        },
-        {
-          "phase": "Test",
-          "duration": 1.179619333,
-          "process_status": "Success",
-          "argv": [
-            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
-            "test",
-            "--verbose",
-            "--package=resolution-scope-engine@0.1.0"
-          ]
-        }
-      ]
-    },
-    {
-      "scenario": {
-        "Mutant": {
-          "name": "src/analysis.rs:1341:5: replace score_caa -> CaaDisposition with Default::default()",
-          "package": "resolution-scope-engine",
-          "file": "src/analysis.rs",
-          "function": {
-            "function_name": "score_caa",
-            "return_type": "-> CaaDisposition",
-            "span": {
-              "start": {
-                "line": 1335,
-                "column": 1
-              },
-              "end": {
-                "line": 1356,
-                "column": 2
-              }
-            }
-          },
-          "span": {
-            "start": {
-              "line": 1341,
-              "column": 5
-            },
-            "end": {
-              "line": 1355,
-              "column": 6
-            }
-          },
-          "replacement": "Default::default()",
-          "genre": "FnValue"
-        }
-      },
-      "summary": "Unviable",
-      "log_path": "log/src__analysis.rs_line_1341_col_5.log",
-      "diff_path": "diff/src__analysis.rs_line_1341_col_5.diff",
-      "phase_results": [
-        {
-          "phase": "Build",
-          "duration": 0.484036834,
-          "process_status": {
-            "Failure": 101
-          },
-          "argv": [
-            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
-            "test",
-            "--no-run",
-            "--verbose",
-            "--package=resolution-scope-engine@0.1.0"
-          ]
-        }
-      ]
-    },
-    {
-      "scenario": {
-        "Mutant": {
-          "name": "src/analysis.rs:1345:16: delete ! in score_caa",
-          "package": "resolution-scope-engine",
-          "file": "src/analysis.rs",
-          "function": {
-            "function_name": "score_caa",
-            "return_type": "-> CaaDisposition",
-            "span": {
-              "start": {
-                "line": 1335,
-                "column": 1
-              },
-              "end": {
-                "line": 1356,
-                "column": 2
-              }
-            }
-          },
-          "span": {
-            "start": {
-              "line": 1345,
-              "column": 16
-            },
-            "end": {
-              "line": 1345,
-              "column": 17
-            }
-          },
-          "replacement": "",
-          "genre": "UnaryOperator"
-        }
-      },
-      "summary": "MissedMutant",
-      "log_path": "log/src__analysis.rs_line_1345_col_16.log",
-      "diff_path": "diff/src__analysis.rs_line_1345_col_16.diff",
-      "phase_results": [
-        {
-          "phase": "Build",
-          "duration": 1.029469833,
-          "process_status": "Success",
-          "argv": [
-            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
-            "test",
-            "--no-run",
-            "--verbose",
-            "--package=resolution-scope-engine@0.1.0"
-          ]
-        },
-        {
-          "phase": "Test",
-          "duration": 1.236295417,
-          "process_status": "Success",
-          "argv": [
-            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
-            "test",
-            "--verbose",
-            "--package=resolution-scope-engine@0.1.0"
-          ]
-        }
-      ]
-    },
-    {
-      "scenario": {
-        "Mutant": {
-          "name": "src/analysis.rs:1370:5: replace score_cds_cdnskey -> CdsDisposition with Default::default()",
-          "package": "resolution-scope-engine",
-          "file": "src/analysis.rs",
-          "function": {
-            "function_name": "score_cds_cdnskey",
-            "return_type": "-> CdsDisposition",
-            "span": {
-              "start": {
-                "line": 1358,
-                "column": 1
-              },
-              "end": {
-                "line": 1420,
-                "column": 2
-              }
-            }
-          },
-          "span": {
-            "start": {
-              "line": 1370,
-              "column": 5
-            },
-            "end": {
-              "line": 1419,
-              "column": 6
-            }
-          },
-          "replacement": "Default::default()",
-          "genre": "FnValue"
-        }
-      },
-      "summary": "Unviable",
-      "log_path": "log/src__analysis.rs_line_1370_col_5.log",
-      "diff_path": "diff/src__analysis.rs_line_1370_col_5.diff",
-      "phase_results": [
-        {
-          "phase": "Build",
-          "duration": 0.488292667,
-          "process_status": {
-            "Failure": 101
-          },
-          "argv": [
-            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
-            "test",
-            "--no-run",
-            "--verbose",
-            "--package=resolution-scope-engine@0.1.0"
-          ]
-        }
-      ]
-    },
-    {
-      "scenario": {
-        "Mutant": {
-          "name": "src/analysis.rs:1375:16: delete ! in score_cds_cdnskey",
-          "package": "resolution-scope-engine",
-          "file": "src/analysis.rs",
-          "function": {
-            "function_name": "score_cds_cdnskey",
-            "return_type": "-> CdsDisposition",
-            "span": {
-              "start": {
-                "line": 1358,
-                "column": 1
-              },
-              "end": {
-                "line": 1420,
-                "column": 2
-              }
-            }
-          },
-          "span": {
-            "start": {
-              "line": 1375,
-              "column": 16
-            },
-            "end": {
-              "line": 1375,
-              "column": 17
-            }
-          },
-          "replacement": "",
-          "genre": "UnaryOperator"
-        }
-      },
-      "summary": "MissedMutant",
-      "log_path": "log/src__analysis.rs_line_1375_col_16.log",
-      "diff_path": "diff/src__analysis.rs_line_1375_col_16.diff",
-      "phase_results": [
-        {
-          "phase": "Build",
-          "duration": 1.026726208,
-          "process_status": "Success",
-          "argv": [
-            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
-            "test",
-            "--no-run",
-            "--verbose",
-            "--package=resolution-scope-engine@0.1.0"
-          ]
-        },
-        {
-          "phase": "Test",
-          "duration": 1.227251209,
-          "process_status": "Success",
-          "argv": [
-            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
-            "test",
-            "--verbose",
-            "--package=resolution-scope-engine@0.1.0"
-          ]
-        }
-      ]
-    },
-    {
-      "scenario": {
-        "Mutant": {
-          "name": "src/analysis.rs:1397:16: delete ! in score_cds_cdnskey",
-          "package": "resolution-scope-engine",
-          "file": "src/analysis.rs",
-          "function": {
-            "function_name": "score_cds_cdnskey",
-            "return_type": "-> CdsDisposition",
-            "span": {
-              "start": {
-                "line": 1358,
-                "column": 1
-              },
-              "end": {
-                "line": 1420,
-                "column": 2
-              }
-            }
-          },
-          "span": {
-            "start": {
-              "line": 1397,
-              "column": 16
-            },
-            "end": {
-              "line": 1397,
-              "column": 17
-            }
-          },
-          "replacement": "",
-          "genre": "UnaryOperator"
-        }
-      },
-      "summary": "MissedMutant",
-      "log_path": "log/src__analysis.rs_line_1397_col_16.log",
-      "diff_path": "diff/src__analysis.rs_line_1397_col_16.diff",
-      "phase_results": [
-        {
-          "phase": "Build",
-          "duration": 1.041222291,
-          "process_status": "Success",
-          "argv": [
-            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
-            "test",
-            "--no-run",
-            "--verbose",
-            "--package=resolution-scope-engine@0.1.0"
-          ]
-        },
-        {
-          "phase": "Test",
-          "duration": 1.273908375,
-          "process_status": "Success",
-          "argv": [
-            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
-            "test",
-            "--verbose",
-            "--package=resolution-scope-engine@0.1.0"
-          ]
-        }
-      ]
-    },
-    {
-      "scenario": {
-        "Mutant": {
-          "name": "src/analysis.rs:1428:5: replace rand_session_id -> u64 with 0",
-          "package": "resolution-scope-engine",
-          "file": "src/analysis.rs",
-          "function": {
-            "function_name": "rand_session_id",
-            "return_type": "-> u64",
-            "span": {
-              "start": {
-                "line": 1426,
-                "column": 1
-              },
-              "end": {
-                "line": 1435,
-                "column": 2
-              }
-            }
-          },
-          "span": {
-            "start": {
-              "line": 1428,
-              "column": 5
-            },
-            "end": {
-              "line": 1434,
-              "column": 15
-            }
-          },
-          "replacement": "0",
-          "genre": "FnValue"
-        }
-      },
-      "summary": "MissedMutant",
-      "log_path": "log/src__analysis.rs_line_1428_col_5.log",
-      "diff_path": "diff/src__analysis.rs_line_1428_col_5.diff",
-      "phase_results": [
-        {
-          "phase": "Build",
-          "duration": 1.132001375,
-          "process_status": "Success",
-          "argv": [
-            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
-            "test",
-            "--no-run",
-            "--verbose",
-            "--package=resolution-scope-engine@0.1.0"
-          ]
-        },
-        {
-          "phase": "Test",
-          "duration": 1.347376708,
-          "process_status": "Success",
-          "argv": [
-            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
-            "test",
-            "--verbose",
-            "--package=resolution-scope-engine@0.1.0"
-          ]
-        }
-      ]
-    },
-    {
-      "scenario": {
-        "Mutant": {
-          "name": "src/analysis.rs:1428:5: replace rand_session_id -> u64 with 1",
-          "package": "resolution-scope-engine",
-          "file": "src/analysis.rs",
-          "function": {
-            "function_name": "rand_session_id",
-            "return_type": "-> u64",
-            "span": {
-              "start": {
-                "line": 1426,
-                "column": 1
-              },
-              "end": {
-                "line": 1435,
-                "column": 2
-              }
-            }
-          },
-          "span": {
-            "start": {
-              "line": 1428,
-              "column": 5
-            },
-            "end": {
-              "line": 1434,
-              "column": 15
-            }
-          },
-          "replacement": "1",
-          "genre": "FnValue"
-        }
-      },
-      "summary": "MissedMutant",
-      "log_path": "log/src__analysis.rs_line_1428_col_5_001.log",
-      "diff_path": "diff/src__analysis.rs_line_1428_col_5_001.diff",
-      "phase_results": [
-        {
-          "phase": "Build",
-          "duration": 0.969802208,
-          "process_status": "Success",
-          "argv": [
-            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
-            "test",
-            "--no-run",
-            "--verbose",
-            "--package=resolution-scope-engine@0.1.0"
-          ]
-        },
-        {
-          "phase": "Test",
-          "duration": 1.226824375,
-          "process_status": "Success",
-          "argv": [
-            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
-            "test",
-            "--verbose",
-            "--package=resolution-scope-engine@0.1.0"
-          ]
-        }
-      ]
-    },
-    {
-      "scenario": {
-        "Mutant": {
-          "name": "src/analysis.rs:1438:5: replace unix_now -> u64 with 0",
-          "package": "resolution-scope-engine",
-          "file": "src/analysis.rs",
-          "function": {
-            "function_name": "unix_now",
-            "return_type": "-> u64",
-            "span": {
-              "start": {
-                "line": 1437,
-                "column": 1
-              },
-              "end": {
-                "line": 1443,
-                "column": 2
-              }
-            }
-          },
-          "span": {
-            "start": {
-              "line": 1438,
-              "column": 5
-            },
-            "end": {
-              "line": 1442,
-              "column": 22
-            }
-          },
-          "replacement": "0",
-          "genre": "FnValue"
-        }
-      },
-      "summary": "MissedMutant",
-      "log_path": "log/src__analysis.rs_line_1438_col_5.log",
-      "diff_path": "diff/src__analysis.rs_line_1438_col_5.diff",
-      "phase_results": [
-        {
-          "phase": "Build",
-          "duration": 1.121838083,
-          "process_status": "Success",
-          "argv": [
-            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
-            "test",
-            "--no-run",
-            "--verbose",
-            "--package=resolution-scope-engine@0.1.0"
-          ]
-        },
-        {
-          "phase": "Test",
-          "duration": 1.269252125,
-          "process_status": "Success",
-          "argv": [
-            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
-            "test",
-            "--verbose",
-            "--package=resolution-scope-engine@0.1.0"
-          ]
-        }
-      ]
-    },
-    {
-      "scenario": {
-        "Mutant": {
-          "name": "src/analysis.rs:1438:5: replace unix_now -> u64 with 1",
-          "package": "resolution-scope-engine",
-          "file": "src/analysis.rs",
-          "function": {
-            "function_name": "unix_now",
-            "return_type": "-> u64",
-            "span": {
-              "start": {
-                "line": 1437,
-                "column": 1
-              },
-              "end": {
-                "line": 1443,
-                "column": 2
-              }
-            }
-          },
-          "span": {
-            "start": {
-              "line": 1438,
-              "column": 5
-            },
-            "end": {
-              "line": 1442,
-              "column": 22
-            }
-          },
-          "replacement": "1",
-          "genre": "FnValue"
-        }
-      },
-      "summary": "MissedMutant",
-      "log_path": "log/src__analysis.rs_line_1438_col_5_001.log",
-      "diff_path": "diff/src__analysis.rs_line_1438_col_5_001.diff",
-      "phase_results": [
-        {
-          "phase": "Build",
-          "duration": 0.9692355,
-          "process_status": "Success",
-          "argv": [
-            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
-            "test",
-            "--no-run",
-            "--verbose",
-            "--package=resolution-scope-engine@0.1.0"
-          ]
-        },
-        {
-          "phase": "Test",
-          "duration": 1.292733792,
-          "process_status": "Success",
-          "argv": [
-            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
-            "test",
-            "--verbose",
-            "--package=resolution-scope-engine@0.1.0"
-          ]
-        }
-      ]
-    },
-    {
-      "scenario": {
-        "Mutant": {
-          "name": "src/analysis.rs:1450:5: replace record_absence_to_dane -> DaneDisposition with Default::default()",
-          "package": "resolution-scope-engine",
-          "file": "src/analysis.rs",
-          "function": {
-            "function_name": "record_absence_to_dane",
-            "return_type": "-> DaneDisposition",
-            "span": {
-              "start": {
-                "line": 1445,
-                "column": 1
-              },
-              "end": {
-                "line": 1454,
-                "column": 2
-              }
-            }
-          },
-          "span": {
-            "start": {
-              "line": 1450,
-              "column": 5
-            },
-            "end": {
-              "line": 1453,
-              "column": 6
-            }
-          },
-          "replacement": "Default::default()",
-          "genre": "FnValue"
-        }
-      },
-      "summary": "Unviable",
-      "log_path": "log/src__analysis.rs_line_1450_col_5.log",
-      "diff_path": "diff/src__analysis.rs_line_1450_col_5.diff",
-      "phase_results": [
-        {
-          "phase": "Build",
-          "duration": 0.489156208,
-          "process_status": {
-            "Failure": 101
-          },
-          "argv": [
-            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
-            "test",
-            "--no-run",
-            "--verbose",
-            "--package=resolution-scope-engine@0.1.0"
-          ]
-        }
-      ]
-    },
-    {
-      "scenario": {
-        "Mutant": {
-          "name": "src/analysis.rs:1451:9: delete match arm TriState::Indet in record_absence_to_dane",
-          "package": "resolution-scope-engine",
-          "file": "src/analysis.rs",
-          "function": {
-            "function_name": "record_absence_to_dane",
-            "return_type": "-> DaneDisposition",
-            "span": {
-              "start": {
-                "line": 1445,
-                "column": 1
-              },
-              "end": {
-                "line": 1454,
-                "column": 2
-              }
-            }
-          },
-          "span": {
-            "start": {
-              "line": 1451,
-              "column": 9
-            },
-            "end": {
-              "line": 1451,
-              "column": 60
-            }
-          },
-          "replacement": "",
-          "genre": "MatchArm"
-        }
-      },
       "summary": "CaughtMutant",
-      "log_path": "log/src__analysis.rs_line_1451_col_9.log",
-      "diff_path": "diff/src__analysis.rs_line_1451_col_9.diff",
+      "log_path": "log/src__analysis.rs_line_1352_col_9.log",
+      "diff_path": "diff/src__analysis.rs_line_1352_col_9.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.969599542,
+          "duration": 1.0542895,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -6536,7 +5934,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.637472084,
+          "duration": 0.643173375,
           "process_status": {
             "Failure": 101
           },
@@ -6552,19 +5950,127 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/analysis.rs:1464:5: replace spf_err_to_disposition -> SpfDisposition with Default::default()",
+          "name": "src/analysis.rs:1372:5: replace score_caa -> CaaDisposition with Default::default()",
           "package": "resolution-scope-engine",
           "file": "src/analysis.rs",
           "function": {
-            "function_name": "spf_err_to_disposition",
-            "return_type": "-> SpfDisposition",
+            "function_name": "score_caa",
+            "return_type": "-> CaaDisposition",
             "span": {
               "start": {
-                "line": 1456,
+                "line": 1366,
                 "column": 1
               },
               "end": {
-                "line": 1468,
+                "line": 1387,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1372,
+              "column": 5
+            },
+            "end": {
+              "line": 1386,
+              "column": 6
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__analysis.rs_line_1372_col_5.log",
+      "diff_path": "diff/src__analysis.rs_line_1372_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.47294525,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=resolution-scope-engine@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/analysis.rs:1401:5: replace score_cds_cdnskey -> CdsDisposition with Default::default()",
+          "package": "resolution-scope-engine",
+          "file": "src/analysis.rs",
+          "function": {
+            "function_name": "score_cds_cdnskey",
+            "return_type": "-> CdsDisposition",
+            "span": {
+              "start": {
+                "line": 1389,
+                "column": 1
+              },
+              "end": {
+                "line": 1451,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1401,
+              "column": 5
+            },
+            "end": {
+              "line": 1450,
+              "column": 6
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__analysis.rs_line_1401_col_5.log",
+      "diff_path": "diff/src__analysis.rs_line_1401_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.448495209,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=resolution-scope-engine@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/analysis.rs:1464:5: replace answers_present -> bool with true",
+          "package": "resolution-scope-engine",
+          "file": "src/analysis.rs",
+          "function": {
+            "function_name": "answers_present",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 1457,
+                "column": 1
+              },
+              "end": {
+                "line": 1465,
                 "column": 2
               }
             }
@@ -6575,75 +6081,21 @@
               "column": 5
             },
             "end": {
-              "line": 1467,
-              "column": 6
+              "line": 1464,
+              "column": 24
             }
           },
-          "replacement": "Default::default()",
+          "replacement": "true",
           "genre": "FnValue"
         }
       },
-      "summary": "Unviable",
+      "summary": "CaughtMutant",
       "log_path": "log/src__analysis.rs_line_1464_col_5.log",
       "diff_path": "diff/src__analysis.rs_line_1464_col_5.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.48414425,
-          "process_status": {
-            "Failure": 101
-          },
-          "argv": [
-            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
-            "test",
-            "--no-run",
-            "--verbose",
-            "--package=resolution-scope-engine@0.1.0"
-          ]
-        }
-      ]
-    },
-    {
-      "scenario": {
-        "Mutant": {
-          "name": "src/analysis.rs:1465:9: delete match arm TriState::Indet in spf_err_to_disposition",
-          "package": "resolution-scope-engine",
-          "file": "src/analysis.rs",
-          "function": {
-            "function_name": "spf_err_to_disposition",
-            "return_type": "-> SpfDisposition",
-            "span": {
-              "start": {
-                "line": 1456,
-                "column": 1
-              },
-              "end": {
-                "line": 1468,
-                "column": 2
-              }
-            }
-          },
-          "span": {
-            "start": {
-              "line": 1465,
-              "column": 9
-            },
-            "end": {
-              "line": 1465,
-              "column": 59
-            }
-          },
-          "replacement": "",
-          "genre": "MatchArm"
-        }
-      },
-      "summary": "CaughtMutant",
-      "log_path": "log/src__analysis.rs_line_1465_col_9.log",
-      "diff_path": "diff/src__analysis.rs_line_1465_col_9.diff",
-      "phase_results": [
-        {
-          "phase": "Build",
-          "duration": 0.912978292,
+          "duration": 0.98460275,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -6655,7 +6107,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.648713125,
+          "duration": 0.687435917,
           "process_status": {
             "Failure": 101
           },
@@ -6671,30 +6123,412 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/analysis.rs:1471:5: replace dmarc_err_to_disposition -> DmarcDisposition with Default::default()",
+          "name": "src/analysis.rs:1464:5: replace answers_present -> bool with false",
           "package": "resolution-scope-engine",
           "file": "src/analysis.rs",
           "function": {
-            "function_name": "dmarc_err_to_disposition",
-            "return_type": "-> DmarcDisposition",
+            "function_name": "answers_present",
+            "return_type": "-> bool",
             "span": {
               "start": {
-                "line": 1470,
+                "line": 1457,
                 "column": 1
               },
               "end": {
-                "line": 1475,
+                "line": 1465,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 1471,
+              "line": 1464,
               "column": 5
             },
             "end": {
-              "line": 1474,
+              "line": 1464,
+              "column": 24
+            }
+          },
+          "replacement": "false",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__analysis.rs_line_1464_col_5_001.log",
+      "diff_path": "diff/src__analysis.rs_line_1464_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.926426292,
+          "process_status": "Success",
+          "argv": [
+            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=resolution-scope-engine@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.695642125,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=resolution-scope-engine@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/analysis.rs:1464:5: delete ! in answers_present",
+          "package": "resolution-scope-engine",
+          "file": "src/analysis.rs",
+          "function": {
+            "function_name": "answers_present",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 1457,
+                "column": 1
+              },
+              "end": {
+                "line": 1465,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1464,
+              "column": 5
+            },
+            "end": {
+              "line": 1464,
+              "column": 6
+            }
+          },
+          "replacement": "",
+          "genre": "UnaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__analysis.rs_line_1464_col_5_002.log",
+      "diff_path": "diff/src__analysis.rs_line_1464_col_5_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.04692725,
+          "process_status": "Success",
+          "argv": [
+            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=resolution-scope-engine@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.692611209,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=resolution-scope-engine@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/analysis.rs:1469:5: replace rand_session_id -> u64 with 0",
+          "package": "resolution-scope-engine",
+          "file": "src/analysis.rs",
+          "function": {
+            "function_name": "rand_session_id",
+            "return_type": "-> u64",
+            "span": {
+              "start": {
+                "line": 1467,
+                "column": 1
+              },
+              "end": {
+                "line": 1476,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1469,
+              "column": 5
+            },
+            "end": {
+              "line": 1475,
+              "column": 15
+            }
+          },
+          "replacement": "0",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/src__analysis.rs_line_1469_col_5.log",
+      "diff_path": "diff/src__analysis.rs_line_1469_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.090563625,
+          "process_status": "Success",
+          "argv": [
+            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=resolution-scope-engine@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.229369666,
+          "process_status": "Success",
+          "argv": [
+            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=resolution-scope-engine@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/analysis.rs:1469:5: replace rand_session_id -> u64 with 1",
+          "package": "resolution-scope-engine",
+          "file": "src/analysis.rs",
+          "function": {
+            "function_name": "rand_session_id",
+            "return_type": "-> u64",
+            "span": {
+              "start": {
+                "line": 1467,
+                "column": 1
+              },
+              "end": {
+                "line": 1476,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1469,
+              "column": 5
+            },
+            "end": {
+              "line": 1475,
+              "column": 15
+            }
+          },
+          "replacement": "1",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/src__analysis.rs_line_1469_col_5_001.log",
+      "diff_path": "diff/src__analysis.rs_line_1469_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.921517333,
+          "process_status": "Success",
+          "argv": [
+            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=resolution-scope-engine@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.332991667,
+          "process_status": "Success",
+          "argv": [
+            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=resolution-scope-engine@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/analysis.rs:1479:5: replace unix_now -> u64 with 0",
+          "package": "resolution-scope-engine",
+          "file": "src/analysis.rs",
+          "function": {
+            "function_name": "unix_now",
+            "return_type": "-> u64",
+            "span": {
+              "start": {
+                "line": 1478,
+                "column": 1
+              },
+              "end": {
+                "line": 1484,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1479,
+              "column": 5
+            },
+            "end": {
+              "line": 1483,
+              "column": 22
+            }
+          },
+          "replacement": "0",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/src__analysis.rs_line_1479_col_5.log",
+      "diff_path": "diff/src__analysis.rs_line_1479_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.167959875,
+          "process_status": "Success",
+          "argv": [
+            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=resolution-scope-engine@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.380575125,
+          "process_status": "Success",
+          "argv": [
+            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=resolution-scope-engine@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/analysis.rs:1479:5: replace unix_now -> u64 with 1",
+          "package": "resolution-scope-engine",
+          "file": "src/analysis.rs",
+          "function": {
+            "function_name": "unix_now",
+            "return_type": "-> u64",
+            "span": {
+              "start": {
+                "line": 1478,
+                "column": 1
+              },
+              "end": {
+                "line": 1484,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1479,
+              "column": 5
+            },
+            "end": {
+              "line": 1483,
+              "column": 22
+            }
+          },
+          "replacement": "1",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/src__analysis.rs_line_1479_col_5_001.log",
+      "diff_path": "diff/src__analysis.rs_line_1479_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.954720292,
+          "process_status": "Success",
+          "argv": [
+            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=resolution-scope-engine@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.326901917,
+          "process_status": "Success",
+          "argv": [
+            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=resolution-scope-engine@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/analysis.rs:1491:5: replace record_absence_to_dane -> DaneDisposition with Default::default()",
+          "package": "resolution-scope-engine",
+          "file": "src/analysis.rs",
+          "function": {
+            "function_name": "record_absence_to_dane",
+            "return_type": "-> DaneDisposition",
+            "span": {
+              "start": {
+                "line": 1486,
+                "column": 1
+              },
+              "end": {
+                "line": 1495,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1491,
+              "column": 5
+            },
+            "end": {
+              "line": 1494,
               "column": 6
             }
           },
@@ -6703,12 +6537,12 @@
         }
       },
       "summary": "Unviable",
-      "log_path": "log/src__analysis.rs_line_1471_col_5.log",
-      "diff_path": "diff/src__analysis.rs_line_1471_col_5.diff",
+      "log_path": "log/src__analysis.rs_line_1491_col_5.log",
+      "diff_path": "diff/src__analysis.rs_line_1491_col_5.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.53923575,
+          "duration": 0.4644415,
           "process_status": {
             "Failure": 101
           },
@@ -6725,7 +6559,191 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/analysis.rs:1472:9: delete match arm TriState::Indet in dmarc_err_to_disposition",
+          "name": "src/analysis.rs:1492:9: delete match arm TriState::Indet in record_absence_to_dane",
+          "package": "resolution-scope-engine",
+          "file": "src/analysis.rs",
+          "function": {
+            "function_name": "record_absence_to_dane",
+            "return_type": "-> DaneDisposition",
+            "span": {
+              "start": {
+                "line": 1486,
+                "column": 1
+              },
+              "end": {
+                "line": 1495,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1492,
+              "column": 9
+            },
+            "end": {
+              "line": 1492,
+              "column": 60
+            }
+          },
+          "replacement": "",
+          "genre": "MatchArm"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__analysis.rs_line_1492_col_9.log",
+      "diff_path": "diff/src__analysis.rs_line_1492_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.952028708,
+          "process_status": "Success",
+          "argv": [
+            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=resolution-scope-engine@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.705474666,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=resolution-scope-engine@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/analysis.rs:1505:5: replace spf_err_to_disposition -> SpfDisposition with Default::default()",
+          "package": "resolution-scope-engine",
+          "file": "src/analysis.rs",
+          "function": {
+            "function_name": "spf_err_to_disposition",
+            "return_type": "-> SpfDisposition",
+            "span": {
+              "start": {
+                "line": 1497,
+                "column": 1
+              },
+              "end": {
+                "line": 1509,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1505,
+              "column": 5
+            },
+            "end": {
+              "line": 1508,
+              "column": 6
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__analysis.rs_line_1505_col_5.log",
+      "diff_path": "diff/src__analysis.rs_line_1505_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.464929958,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=resolution-scope-engine@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/analysis.rs:1506:9: delete match arm TriState::Indet in spf_err_to_disposition",
+          "package": "resolution-scope-engine",
+          "file": "src/analysis.rs",
+          "function": {
+            "function_name": "spf_err_to_disposition",
+            "return_type": "-> SpfDisposition",
+            "span": {
+              "start": {
+                "line": 1497,
+                "column": 1
+              },
+              "end": {
+                "line": 1509,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1506,
+              "column": 9
+            },
+            "end": {
+              "line": 1506,
+              "column": 59
+            }
+          },
+          "replacement": "",
+          "genre": "MatchArm"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__analysis.rs_line_1506_col_9.log",
+      "diff_path": "diff/src__analysis.rs_line_1506_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.921760125,
+          "process_status": "Success",
+          "argv": [
+            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=resolution-scope-engine@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.649992041,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=resolution-scope-engine@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/analysis.rs:1512:5: replace dmarc_err_to_disposition -> DmarcDisposition with Default::default()",
           "package": "resolution-scope-engine",
           "file": "src/analysis.rs",
           "function": {
@@ -6733,22 +6751,76 @@
             "return_type": "-> DmarcDisposition",
             "span": {
               "start": {
-                "line": 1470,
+                "line": 1511,
                 "column": 1
               },
               "end": {
-                "line": 1475,
+                "line": 1516,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 1472,
+              "line": 1512,
+              "column": 5
+            },
+            "end": {
+              "line": 1515,
+              "column": 6
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__analysis.rs_line_1512_col_5.log",
+      "diff_path": "diff/src__analysis.rs_line_1512_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.460164959,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=resolution-scope-engine@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/analysis.rs:1513:9: delete match arm TriState::Indet in dmarc_err_to_disposition",
+          "package": "resolution-scope-engine",
+          "file": "src/analysis.rs",
+          "function": {
+            "function_name": "dmarc_err_to_disposition",
+            "return_type": "-> DmarcDisposition",
+            "span": {
+              "start": {
+                "line": 1511,
+                "column": 1
+              },
+              "end": {
+                "line": 1516,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1513,
               "column": 9
             },
             "end": {
-              "line": 1472,
+              "line": 1513,
               "column": 61
             }
           },
@@ -6757,12 +6829,12 @@
         }
       },
       "summary": "CaughtMutant",
-      "log_path": "log/src__analysis.rs_line_1472_col_9.log",
-      "diff_path": "diff/src__analysis.rs_line_1472_col_9.diff",
+      "log_path": "log/src__analysis.rs_line_1513_col_9.log",
+      "diff_path": "diff/src__analysis.rs_line_1513_col_9.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.921092333,
+          "duration": 0.9413385,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -6774,7 +6846,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.645220167,
+          "duration": 0.712021292,
           "process_status": {
             "Failure": 101
           },
@@ -6790,7 +6862,7 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/analysis.rs:1478:5: replace mta_sts_err_to_disposition -> MtaStsDisposition with Default::default()",
+          "name": "src/analysis.rs:1519:5: replace mta_sts_err_to_disposition -> MtaStsDisposition with Default::default()",
           "package": "resolution-scope-engine",
           "file": "src/analysis.rs",
           "function": {
@@ -6798,22 +6870,22 @@
             "return_type": "-> MtaStsDisposition",
             "span": {
               "start": {
-                "line": 1477,
+                "line": 1518,
                 "column": 1
               },
               "end": {
-                "line": 1482,
+                "line": 1523,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 1478,
+              "line": 1519,
               "column": 5
             },
             "end": {
-              "line": 1481,
+              "line": 1522,
               "column": 6
             }
           },
@@ -6822,12 +6894,12 @@
         }
       },
       "summary": "Unviable",
-      "log_path": "log/src__analysis.rs_line_1478_col_5.log",
-      "diff_path": "diff/src__analysis.rs_line_1478_col_5.diff",
+      "log_path": "log/src__analysis.rs_line_1519_col_5.log",
+      "diff_path": "diff/src__analysis.rs_line_1519_col_5.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.481946958,
+          "duration": 0.4609215,
           "process_status": {
             "Failure": 101
           },
@@ -6844,7 +6916,7 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/analysis.rs:1479:9: delete match arm TriState::Indet in mta_sts_err_to_disposition",
+          "name": "src/analysis.rs:1520:9: delete match arm TriState::Indet in mta_sts_err_to_disposition",
           "package": "resolution-scope-engine",
           "file": "src/analysis.rs",
           "function": {
@@ -6852,22 +6924,22 @@
             "return_type": "-> MtaStsDisposition",
             "span": {
               "start": {
-                "line": 1477,
+                "line": 1518,
                 "column": 1
               },
               "end": {
-                "line": 1482,
+                "line": 1523,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 1479,
+              "line": 1520,
               "column": 9
             },
             "end": {
-              "line": 1479,
+              "line": 1520,
               "column": 62
             }
           },
@@ -6876,12 +6948,12 @@
         }
       },
       "summary": "CaughtMutant",
-      "log_path": "log/src__analysis.rs_line_1479_col_9.log",
-      "diff_path": "diff/src__analysis.rs_line_1479_col_9.diff",
+      "log_path": "log/src__analysis.rs_line_1520_col_9.log",
+      "diff_path": "diff/src__analysis.rs_line_1520_col_9.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.97275425,
+          "duration": 0.924666417,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -6893,7 +6965,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.643772375,
+          "duration": 0.750626917,
           "process_status": {
             "Failure": 101
           },
@@ -6909,7 +6981,7 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/analysis.rs:1485:5: replace caa_err_to_disposition -> CaaDisposition with Default::default()",
+          "name": "src/analysis.rs:1526:5: replace caa_err_to_disposition -> CaaDisposition with Default::default()",
           "package": "resolution-scope-engine",
           "file": "src/analysis.rs",
           "function": {
@@ -6917,22 +6989,22 @@
             "return_type": "-> CaaDisposition",
             "span": {
               "start": {
-                "line": 1484,
+                "line": 1525,
                 "column": 1
               },
               "end": {
-                "line": 1489,
+                "line": 1530,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 1485,
+              "line": 1526,
               "column": 5
             },
             "end": {
-              "line": 1488,
+              "line": 1529,
               "column": 6
             }
           },
@@ -6941,12 +7013,12 @@
         }
       },
       "summary": "Unviable",
-      "log_path": "log/src__analysis.rs_line_1485_col_5.log",
-      "diff_path": "diff/src__analysis.rs_line_1485_col_5.diff",
+      "log_path": "log/src__analysis.rs_line_1526_col_5.log",
+      "diff_path": "diff/src__analysis.rs_line_1526_col_5.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.489825542,
+          "duration": 0.51355675,
           "process_status": {
             "Failure": 101
           },
@@ -6963,7 +7035,7 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "src/analysis.rs:1486:9: delete match arm TriState::Indet in caa_err_to_disposition",
+          "name": "src/analysis.rs:1527:9: delete match arm TriState::Indet in caa_err_to_disposition",
           "package": "resolution-scope-engine",
           "file": "src/analysis.rs",
           "function": {
@@ -6971,22 +7043,22 @@
             "return_type": "-> CaaDisposition",
             "span": {
               "start": {
-                "line": 1484,
+                "line": 1525,
                 "column": 1
               },
               "end": {
-                "line": 1489,
+                "line": 1530,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 1486,
+              "line": 1527,
               "column": 9
             },
             "end": {
-              "line": 1486,
+              "line": 1527,
               "column": 59
             }
           },
@@ -6995,12 +7067,12 @@
         }
       },
       "summary": "CaughtMutant",
-      "log_path": "log/src__analysis.rs_line_1486_col_9.log",
-      "diff_path": "diff/src__analysis.rs_line_1486_col_9.diff",
+      "log_path": "log/src__analysis.rs_line_1527_col_9.log",
+      "diff_path": "diff/src__analysis.rs_line_1527_col_9.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.913182041,
+          "duration": 0.967031042,
           "process_status": "Success",
           "argv": [
             "/Users/careybalboa/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -7012,7 +7084,7 @@
         },
         {
           "phase": "Test",
-          "duration": 0.6427805,
+          "duration": 0.677472625,
           "process_status": {
             "Failure": 101
           },
@@ -7026,13 +7098,13 @@
       ]
     }
   ],
-  "total_mutants": 114,
-  "missed": 21,
-  "caught": 59,
+  "total_mutants": 115,
+  "missed": 12,
+  "caught": 68,
   "timeout": 0,
-  "unviable": 34,
+  "unviable": 35,
   "success": 0,
-  "start_time": "2026-08-20T22:06:30.035683Z",
-  "end_time": "2026-08-20T22:09:21.771478Z",
+  "start_time": "2026-08-21T00:09:46.260262Z",
+  "end_time": "2026-08-21T00:12:28.224577Z",
   "cargo_mutants_version": "27.1.0"
 }
