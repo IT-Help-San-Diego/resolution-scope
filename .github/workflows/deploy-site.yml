@@ -1,0 +1,133 @@
+name: Deploy site → S3 + CloudFront
+
+# Static-site deploy for resolutionscope.com (site/ dir only — the Rust
+# crates have their own CI). Secrets: AWS_ACCESS_KEY_ID,
+# AWS_SECRET_ACCESS_KEY, RS_S3_BUCKET, RS_CF_DIST_ID, RS_CF_HEADERS_POLICY_ID.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "infra/cloudfront/**"
+      - ".github/workflows/deploy-site.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "infra/cloudfront/**"
+      - ".github/workflows/deploy-site.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: House invariants (no-JS, external CSS, vocabulary guard)
+        run: bash site/verify.sh
+      - name: Validate headers-policy JSON (client-side param validation)
+        # A malformed policy would otherwise merge green and detonate only in
+        # the post-merge deploy. Dummy creds + unroutable endpoint: botocore
+        # validates the config shape before any network call, so "connection
+        # failed" means the JSON is valid and "ParamValidation" means it isn't.
+        env:
+          AWS_ACCESS_KEY_ID: validation-only
+          AWS_SECRET_ACCESS_KEY: validation-only
+          AWS_REGION: us-west-2
+        run: |
+          set +e
+          ERR=$(aws cloudfront update-response-headers-policy \
+            --id validation-only --if-match validation-only \
+            --response-headers-policy-config file://infra/cloudfront/security-headers.json \
+            --endpoint-url http://127.0.0.1:9 2>&1)
+          set -e
+          if echo "$ERR" | grep -qi "ParamValidation\|Missing required parameter\|Unknown parameter"; then
+            echo "::error::security-headers.json fails CloudFront param validation:"; echo "$ERR"; exit 1
+          fi
+          echo "Policy JSON shape valid (request reached the connection stage)."
+
+  deploy:
+    if: ${{ github.event_name == 'push' }}
+    needs: verify
+    runs-on: ubuntu-latest
+    env:
+      BUCKET: ${{ secrets.RS_S3_BUCKET }}
+      DIST_ID: ${{ secrets.RS_CF_DIST_ID }}
+      CF_HEADERS_POLICY_ID: ${{ secrets.RS_CF_HEADERS_POLICY_ID }}
+      AWS_REGION: us-west-2
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Sync CloudFront security-headers policy (idempotent)
+        run: |
+          set -euo pipefail
+          ETAG=$(aws cloudfront get-response-headers-policy --id "$CF_HEADERS_POLICY_ID" --query 'ETag' --output text)
+          aws cloudfront update-response-headers-policy \
+            --id "$CF_HEADERS_POLICY_ID" --if-match "$ETAG" \
+            --response-headers-policy-config file://infra/cloudfront/security-headers.json >/dev/null
+          echo "Headers policy synced."
+
+      - name: Upload immutable assets (long cache)
+        # ALLOWLIST: only assets/* ships immutable — an extensionless dev file
+        # added to site/ later can never leak to the bucket. The trailing
+        # DS_Store exclude wins over the include (last match rules). HTML, CSS,
+        # txt, xml get short-cache + correct content-type below; style.css is
+        # NOT content-hashed, so an immutable TTL would strand browsers on a
+        # stale sheet for a year (invalidation clears the edge, not browser
+        # caches). verify.sh must never ship.
+        run: |
+          aws s3 sync site/ "s3://$BUCKET/" \
+            --exclude "*" --include "assets/*" \
+            --exclude "*.DS_Store" \
+            --cache-control "public,max-age=31536000,immutable" \
+            --metadata-directive REPLACE --delete
+
+      - name: Upload CSS (short cache — not content-hashed)
+        run: |
+          aws s3 cp site/style.css "s3://$BUCKET/style.css" \
+            --content-type "text/css; charset=utf-8" \
+            --cache-control "public,max-age=3600,stale-while-revalidate=86400" \
+            --metadata-directive REPLACE
+
+      - name: Upload HTML (short cache)
+        # --delete scopes to the include set, so a page removed from site/
+        # is removed from the bucket too. (txt/xml/css use cp below — retiring
+        # one of those files needs a manual `aws s3 rm`.)
+        run: |
+          aws s3 sync site/ "s3://$BUCKET/" \
+            --exclude "*" --include "*.html" \
+            --cache-control "public,max-age=3600,stale-while-revalidate=86400" \
+            --metadata-directive REPLACE --delete
+
+      - name: Upload text/xml endpoints with correct content-type
+        run: |
+          for f in robots.txt llms.txt; do
+            [ -f "site/$f" ] && aws s3 cp "site/$f" "s3://$BUCKET/$f" \
+              --content-type "text/plain; charset=utf-8" \
+              --cache-control "public,max-age=3600,stale-while-revalidate=86400" \
+              --metadata-directive REPLACE
+          done
+          aws s3 cp site/sitemap.xml "s3://$BUCKET/sitemap.xml" \
+            --content-type "application/xml" \
+            --cache-control "public,max-age=3600,stale-while-revalidate=86400" \
+            --metadata-directive REPLACE
+          aws s3 cp site/.well-known/security.txt "s3://$BUCKET/.well-known/security.txt" \
+            --content-type "text/plain; charset=utf-8" \
+            --cache-control "public,max-age=86400" \
+            --metadata-directive REPLACE
+
+      - name: Invalidate CloudFront and wait
+        run: |
+          set -euo pipefail
+          ID=$(aws cloudfront create-invalidation --distribution-id "$DIST_ID" --paths '/*' --query 'Invalidation.Id' --output text)
+          for i in $(seq 1 90); do
+            S=$(aws cloudfront get-invalidation --distribution-id "$DIST_ID" --id "$ID" --query 'Invalidation.Status' --output text)
+            [ "$S" = "Completed" ] && exit 0
+            sleep 20
+          done
+          echo "::error::Invalidation $ID did not complete in time."; exit 1

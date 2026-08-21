@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'none'; object-src 'none'; form-action 'none'; script-src 'none'; img-src 'self' data:; font-src 'self'; style-src 'self'; upgrade-insecure-requests">
+<title>Resolution Scope — a DNS resolution instrument</title>
+<meta name="description" content="Resolution Scope — a sovereign instrument for measuring DNS resolution: what a domain actually publishes, verified against the protocol and sealed so anyone can re-check it.">
+<meta name="author" content="Carey James Balboa / IT Help San Diego Inc.">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<link rel="canonical" href="https://resolutionscope.com/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Resolution Scope">
+<meta property="og:title" content="Resolution Scope — a DNS resolution instrument">
+<meta property="og:description" content="Eight controls, one truth-chain, SHA3-512-sealed verdicts. What a domain actually publishes, verified against the protocol and sealed so anyone can re-check it.">
+<meta property="og:url" content="https://resolutionscope.com/">
+<meta property="og:image" content="https://resolutionscope.com/assets/og-card.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:type" content="image/png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://resolutionscope.com/assets/og-card.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7' fill='%23d4a853'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Resolution Scope",
+  "applicationCategory": "SecurityApplication",
+  "operatingSystem": "Linux, macOS",
+  "url": "https://resolutionscope.com/",
+  "description": "A sovereign instrument for measuring DNS resolution: eight controls, one truth-chain, SHA3-512-sealed verdicts that anyone can re-derive.",
+  "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+  "publisher": {
+    "@type": "Organization",
+    "name": "IT Help San Diego Inc.",
+    "url": "https://it-help.tech"
+  }
+}
+</script>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <img class="owlhero" width="88" height="88" src="assets/owl-semaphore-logo.webp" alt="Owl of Athena, gold seal — the Owl Semaphore">
+    <h1>Resolution Scope</h1>
+    <p class="tagline">a sovereign instrument for measuring DNS resolution — what a domain actually publishes, verified against the protocol and sealed so anyone can re-check it.</p>
+    <p class="lineage">"Resolution" is literal: DNS resolution. This is the verified-substrate build of the
+    <a href="https://dnstool.it-help.tech">DNS&nbsp;Tool</a> family — the future of the instrument under its own name.
+    Source is public: <a href="https://github.com/IT-Help-San-Diego/resolution-scope">github.com/IT-Help-San-Diego/resolution-scope</a>.</p>
+  </div>
+</header>
+
+<main>
+
+<section id="specimen">
+  <div class="wrap">
+    <h2>A real measurement, not a brochure</h2>
+    <p>This is the engine's verbatim output for the domain you are reading right now — captured
+    2026-08-19, seal included. The instrument does not flatter its operator: the failures below
+    are real, and the domain publishes them anyway.</p>
+    <div class="report-frame">
+<pre class="report">Resolution Scope — DNS Analysis Report
+Domain    : resolutionscope.com
+Timestamp : 1787199371
+Session   : 8ff3a16cef15e7d0
+Seal      : <span class="seal">f67270bedcb7f2b68e421937759e146f8cc7ffc209fbf4c1f319d67764ebcdc7d97e1bc62cffb08d122cb3074e35b667bb427d0ff20b0cacd01261e2021cae42</span>
+
+Control         Score    Measured
+──────────────  ───────  ────────
+DNSSEC            <span class="pass">PASS</span>     signed + delegated — chain validates from the root
+SPF               <span class="pass">PASS</span>     hardfail (-all) — enforced
+DKIM              <span class="fail">FAIL</span>     key mismatch — selector resolves, key fails validation
+DMARC             <span class="pass">PASS</span>     reject (p=reject) — enforced
+DANE              <span class="na">N/A</span>      no mail declared (null MX, RFC 7505)
+MTA-STS           <span class="fail">FAIL</span>     record absent — zone exists, no MTA-STS
+CAA               <span class="pass">PASS</span>     configured — issuance restricted to named CAs
+CDS/CDNSKEY       <span class="fail">FAIL</span>     not published — zone exists, no CDS/CDNSKEY
+
+Score: 4/7 (57%)  |  unmeasured: 0  |  not-applicable: 1</pre>
+    </div>
+    <p class="specimen-note">This domain declares no mail (null MX, RFC 7505) — so DANE is honestly
+    not-applicable rather than silently passed, and the DKIM failure is the domain's own email-lockdown
+    record measured exactly as published. Unmeasured is reported as unmeasured, never guessed.</p>
+  </div>
+</section>
+
+<section id="controls">
+  <div class="wrap">
+    <h2>Eight controls, three layers each</h2>
+    <p>A scanner that collapses a control to one boolean — "SPF: PASS" — throws away what the standard
+    demands and what breaks without it. Every verdict here keeps all three layers: the RFC requirement,
+    the measured state, and the real-world consequence.</p>
+    <div class="controls">
+      <div class="control">
+        <h3>DNSSEC</h3>
+        <p class="rfc">RFC 4033–4035</p>
+        <p><span class="k">measures</span> the chain of trust from the root: DS → DNSKEY → RRSIG, including authenticated denial.</p>
+        <p><span class="k">absent</span> responses are forgeable in transit; cache poisoning is undetectable.</p>
+      </div>
+      <div class="control">
+        <h3>SPF</h3>
+        <p class="rfc">RFC 7208</p>
+        <p><span class="k">measures</span> the policy and its terminal qualifier — <code>-all</code>, <code>~all</code>, or nothing.</p>
+        <p><span class="k">absent</span> any host on the internet may claim to send the domain's mail.</p>
+      </div>
+      <div class="control">
+        <h3>DKIM</h3>
+        <p class="rfc">RFC 6376</p>
+        <p><span class="k">measures</span> selector resolution and key validity — not just record presence.</p>
+        <p><span class="k">absent</span> message authorship and integrity are unverifiable in transit.</p>
+      </div>
+      <div class="control">
+        <h3>DMARC</h3>
+        <p class="rfc">RFC 9989 (Standards Track)</p>
+        <p><span class="k">measures</span> the policy and its enforcement level — <code>none</code>, <code>quarantine</code>, <code>reject</code>.</p>
+        <p><span class="k">absent</span> SPF and DKIM results carry no instruction; spoofed mail is delivered anyway.</p>
+      </div>
+      <div class="control">
+        <h3>DANE</h3>
+        <p class="rfc">RFC 7672</p>
+        <p><span class="k">measures</span> TLSA on each MX host (<code>_25._tcp</code>), null-MX aware — a no-mail domain reads not-applicable, never passed.</p>
+        <p><span class="k">absent</span> STARTTLS is strippable; mail transport can be silently downgraded to plaintext.</p>
+      </div>
+      <div class="control">
+        <h3>MTA-STS</h3>
+        <p class="rfc">RFC 8461</p>
+        <p><span class="k">measures</span> the full two-step: TXT discovery, then the HTTPS policy fetch and its mode.</p>
+        <p><span class="k">absent</span> the same downgrade surface remains open for senders that honor MTA-STS.</p>
+      </div>
+      <div class="control">
+        <h3>CAA</h3>
+        <p class="rfc">RFC 8659</p>
+        <p><span class="k">measures</span> certificate-issuance restriction records.</p>
+        <p><span class="k">absent</span> any public CA may issue a certificate for the domain.</p>
+      </div>
+      <div class="control">
+        <h3>CDS / CDNSKEY</h3>
+        <p class="rfc">RFC 7344 / 8078</p>
+        <p><span class="k">measures</span> child-published DS automation records.</p>
+        <p><span class="k">absent</span> DS rollover stays manual — an automation gap, reported as exactly that.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="stance">
+  <div class="wrap">
+    <h2>Every verdict names what it did not measure</h2>
+    <div class="tristate">
+      <span class="pill present">PRESENT — measured, found, validates</span>
+      <span class="pill absent">ABSENT — measured, confirmed missing</span>
+      <span class="pill indet">INDETERMINATE — could not be measured, and says so</span>
+      <span class="pill na">NOT-APPLICABLE — no surface to measure, and says why</span>
+    </div>
+    <p>The difference between "absent" and "couldn't measure" is the difference between a finding and a
+    guess. This instrument never promotes one to the other: a record that could not be queried is
+    indeterminate, a denial from the zone's own authority is absent, a control with no surface to
+    measure — a no-mail domain's DANE — is not-applicable, and only a validated answer is present.
+    Scores count what is deployed — never what the scanner failed to check.</p>
+    <p class="doctrine">Every claim carries a measurement. Every verdict names what it did not measure.</p>
+  </div>
+</section>
+
+<section id="seal">
+  <div class="wrap">
+    <h2>Sealed, so anyone can re-check it</h2>
+    <p>Each report carries a SHA3-512 seal computed over the verdict and its observation conditions —
+    the domain, the engine version, the resolver identity, and every control's disposition and score —
+    under a versioned, open sealing scheme. Holding a seal as a trusted value, anyone can recompute it
+    over a verdict, confirm that verdict is the one that was sealed, and flag any alteration after
+    sealing.</p>
+    <p>The honest claim, and the only one: the seal is tamper-evidence. It does not prove a measurement
+    occurred — a fabricated verdict can be sealed too. It proves the verdict you hold is the one that
+    was sealed.</p>
+    <p class="muted">The sealing scheme and the engine are open source; run your own measurement of any
+    domain from the <a href="https://github.com/IT-Help-San-Diego/resolution-scope">public repository</a>.</p>
+  </div>
+</section>
+
+<section id="substrate">
+  <div class="wrap">
+    <h2>The substrate is the point</h2>
+    <p>DNS Tool proved the measurements and the honesty rules in production. Resolution Scope rebuilds
+    them on a substrate where the honesty is enforced by construction, not by policy:</p>
+    <ul class="substrate">
+      <li><span class="layer">engine</span><span class="state">Rust, eight control arms, differential-tested against the production Go parent<span class="status">live</span></span></li>
+      <li><span class="layer">truth-chain</span><span class="state">one disposition→presentation contract for every renderer — terminal, web, report<span class="status">live</span></span></li>
+      <li><span class="layer">store</span><span class="state">sealed measurement history — sealed on write, verifiable on read across scheme versions<span class="status">live</span></span></li>
+      <li><span class="layer">proofs</span><span class="state">scoring semantics machine-checked in Lean<span class="status">live</span></span></li>
+      <li><span class="layer">seL4</span><span class="state">compartmented deployment on the verified microkernel via LionsOS — the report renderer is already compartment-shaped: no network, no resolver, pure synchronous logic<span class="status road">roadmap</span></span></li>
+    </ul>
+    <p class="muted">Honesty about that last layer, verbatim from the architecture record: On a rented
+    instance, seL4 runs as the guest OS of the provider's hypervisor — that layer is irremovable on
+    virtual hardware. "Runs on a verified kernel" must not invite the reading that nothing else is
+    underneath. True bare metal is <code>.metal</code> instances or owned hardware.</p>
+  </div>
+</section>
+
+<section id="lineage">
+  <div class="wrap">
+    <h2>Lineage</h2>
+    <p><a href="https://dnstool.it-help.tech">DNS Tool</a> is the production instrument this work grows
+    from: domain-security intelligence with resolution topology, an engineer's report, and the research
+    behind both — including <a href="https://dnstool.it-help.tech/publications">The Verification
+    Principle</a>. Resolution Scope carries the same measurements and the same standard onto the
+    verified substrate, under the instrument's own name.</p>
+    <p class="doctrine">The measurement is free and cannot be shelved; the queried domain's data is
+    public DNS, never a person's.</p>
+    <p>The analyzer core is <a href="https://www.gnu.org/licenses/agpl-3.0.html">AGPL-3.0</a>: anyone may
+    download, run, study, and modify it — and operating a hosted derivative requires publishing its
+    changes. Ecosystem-facing components land under Apache-2.0 so the projects they join can absorb
+    them.</p>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>IT Help San Diego Inc. · <a href="https://it-help.tech">it-help.tech</a> ·
+    <a href="https://dnstool.it-help.tech">DNS Tool</a> ·
+    <a href="https://calibrationscope.com">Calibration Scope</a> ·
+    <a href="https://github.com/IT-Help-San-Diego/resolution-scope">source</a></p>
+    <p><a href="/.well-known/security.txt">security.txt</a> · <a href="/llms.txt">llms.txt</a></p>
+  </div>
+</footer>
+
+</body>
+</html>
