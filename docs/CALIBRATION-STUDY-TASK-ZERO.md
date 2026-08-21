@@ -35,6 +35,27 @@ per-control `*_analysis` objects with `*_state` values `present` /
 (`spf_status`, `dmarc_status`, `dkim_status`), `provenance` (tool version,
 hash algorithm, timestamps), and `citation_manifest` ride alongside.
 
+### The two instrument halves do NOT emit the same shape — this is the join's parse-time trap
+
+The Go reference returns **one single JSON object per `/api/analysis/:id`
+call** (one domain, one `full_results` map). The Rust engine returns **NDJSON
+— one JSON object per domain, newline-separated** — from `cli/src/render.rs`
+`render_json` ("One JSON object per domain, newline separated") and
+`engine/src/main.rs:74` ("One JSON object per line"). So the two sides of
+Arm 1 are not two streams of the same shape:
+
+| side | surface | shape | unit |
+|---|---|---|---|
+| Rust engine | `resolution-scope <domains...> --format json` | NDJSON (one object/line) | line = one domain |
+| Go reference | `GET /api/analysis/:id` | one object per response | response = one domain |
+
+The harness joins **line-by-line on the Rust side against id-by-id on the Go
+side** — it must parse a newline-delimited stream for Rust and N separate
+single-object HTTP responses for Go, then pair them on domain identity. This
+asymmetry breaks at parse time (before any verdict comparison), not analysis
+time, so it must be pinned in the harness's first test, not discovered at the
+first real join.
+
 ## Two consequences for the study, both favorable
 
 1. **Constraint #2 (reference-uncertainty) is satisfiable, not a trap here:**
