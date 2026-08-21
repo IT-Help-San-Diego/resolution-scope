@@ -46,9 +46,16 @@ if [ "$gate_fail" -ne 0 ]; then
 fi
 
 # --- 2) parent-CI gate (only for pushes to main) ----------------------------
+# pre-push stdin is FOUR fields per line, not three:
+#   <local ref> <local sha> <remote ref> <remote sha>
+# Read all four; the ref we gate on is the REMOTE ref (field 3) and the sha we
+# query is the REMOTE sha (field 4) — the commit being built ON. (The earlier
+# three-field read glued "refs/heads/main <sha>" into one token, so the
+# comparison never matched and the gate fell through without ever calling gh:
+# the exact "check that cannot fire" this hook exists to prevent.)
 remote_sha=""
-while read -r _local remote _refname; do
-  [ "$_refname" = "refs/heads/main" ] && remote_sha="$remote"
+while read -r _lref _lsha rref rsha; do
+  [ "$rref" = "refs/heads/main" ] && remote_sha="$rsha"
 done
 [ -n "$remote_sha" ] || exit 0
 
@@ -57,6 +64,13 @@ if ! command -v gh >/dev/null 2>&1; then
   exit 0
 fi
 
+# NOTE the fail-open on empty output: `gh run list --commit <sha>` returns
+# nothing when CI has not STARTED yet for that sha — the common case in a fast
+# sequence like tonight's (push right after the parent lands). "No run found"
+# is NOT "green"; it is "unknown", and we fail open rather than block on
+# something unprovable. This means the parent-CI half often does not fire in
+# practice — it is a backstop for the case where a red run EXISTS, not a
+# guarantee that a run has finished. The local gate is the always-on half.
 red_count="$(gh run list --commit "$remote_sha" \
   --json workflowName,conclusion \
   --jq '[.[] | select(.workflowName=="CI" and .conclusion=="failure")] | length' \
