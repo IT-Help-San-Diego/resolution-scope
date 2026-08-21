@@ -23,7 +23,7 @@ zones would be rolling keys simultaneously; they are not. **Publication is a
 standing declaration of the desired DS state enabling automated
 maintenance** — which is what the code's own `measured` text already says
 (`Published` → "automated DS maintenance signaled"; `NotPublished` → "DS
-`NotPublished` → "DS updates at the parent are manual"). Both are standing-state descriptions.
+updates at the parent are manual"). Both are standing-state descriptions.
 
 **Operator-clustering correction (added by the instrument lane, 2026-08-21):**
 the "6 of 16 zones" count overstates independence. Four of the six
