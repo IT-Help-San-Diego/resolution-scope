@@ -137,3 +137,32 @@ test fail, then restore it.
 This one is load-bearing for the rest of the file: patterns 2, 4 and 5 cite
 mutation results as their evidence, so a catalogue whose counter-disciplines
 rest on an instrument must name what that instrument cannot see.
+
+## 9. The grant that didn't travel
+
+A file written by one process context is unusable by another — not a
+permissions bug, an *identity* bug: macOS stamps files in protected folders
+with `com.apple.macl` (a per-app TCC grant), so when two lanes run under
+different app identities, each lane's tools get `Operation not permitted` on
+files the other lane wrote, while raw reads and unlinks still work (deletion
+needs only directory write).
+
+- `.git/config` rewritten by another lane: every git binary failed repo
+  discovery with EPERM while `cat` read the file fine; the sibling repo's
+  config (with a healthy `macl`) worked throughout. Fixed by recreating the
+  file under the acting lane's own inode (backup → byte-compare → `cp` +
+  `mv`). Same recurrence minutes later on `.git/info/exclude`.
+- Cross-crate `target/` artifacts (the same `proc-macro2` build-script in
+  engine, cli, and store): cargo could not link over another lane's
+  artifacts — "failed to link or copy … Operation not permitted." Fixed by
+  clearing the disposable dirs and rebuilding fresh. Finder's own
+  `.DS_Store` files resisted even `rm -rf` (Finder's macl), leaving
+  "Directory not empty" — harmless to fresh builds.
+
+Diagnosis signature: a tool reports `Operation not permitted`, `cat`
+succeeds, `xattr -l` shows `com.apple.macl` on the healthy twin and not on
+(or foreign on) the sick file, and the sibling repo is unaffected.
+
+Counter-discipline: recreate precious files under your own inode; clear and
+rebuild disposable ones; never chase the EPERM through the tool's own
+options — the tool is fine, the file's identity stamp is the defect.
