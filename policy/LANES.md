@@ -12,12 +12,22 @@ already reach (see transport matrix below).
 |---|---|---|---|---|
 | `hermes` | this agent (Carey's Mac) | git read+write (push) | yes | self |
 | `claude-code` | Anthropic CLI (same Mac) | git read+write (commits as Carey) | yes | hooks + MCP |
+| `claude-science` | Operon CLI sandbox bot (same Mac, `localhost:8765`) | git read+write (working tree); push path unresolved (see note) | **no** (bind/connect/AF_UNIX all denied) | self-measured (see note) |
 | `scispace` | SciSpace cloud assistant (remote) | **read-only** (no push path) | **no** (separate network) | SCISPACE-CAPABILITY-REPORT.md |
 
-**"Claude Science" was a mislabel.** The remote research lane is **SCISPACE**.
-Tag it `scispace` everywhere. The capability report that settles this is
-`policy/SCISPACE-CAPABILITY-REPORT.md` (read it; it is the measured ground
-truth, not an assertion).
+**`claude-science` and `scispace` are TWO different lanes, not one.** `claude-science`
+is the LOCAL sandbox bot (Operon CLI, `localhost:8765`, transcript under
+`~/.claude-science/`). `scispace` is the REMOTE cloud research assistant (SciSpace).
+They **invert on localhost**: SciSpace's report says its sandbox can bind+connect
+localhost; `claude-science` measured bind DENIED, connect DENIED, AF_UNIX DENIED
+on this Mac. A mechanism built against one fails silently on the other.
+`policy/SCISPACE-CAPABILITY-REPORT.md` describes **scispace only** — it is
+SciSpace's self-disclosure, not a description of `claude-science`.
+
+Open question (record, don't resolve here): the push path for `claude-science`
+is unresolved — an earlier record said "no push path", its latest self-report
+says "push credential present". Until a committing lane confirms, its writes are
+relayed by Carey.
 
 ## Routing invariant — the arrow never points left
 
@@ -60,6 +70,10 @@ lane's mechanism differs, and this is what decides whether it actually works:
   code 2 blocks the turn from ending until the routed block is appended. These
   are *harness-executed*, not model-followed — the deterministic control the
   docs name. NOT `CLAUDE.md`, which the model can drift from.
+- **claude-science** — **no hook fires on its turn.** Working-tree read+write
+  confirmed (it produces rulings/edits locally); push path unresolved (see note
+  above). Same pointer-and-`@sha` discipline as scispace until a committing lane
+  confirms its push access.
 - **scispace** — **no hook fires on its turn.** So its mechanism must be that
   the ledger is an *input it is handed*, not a file it remembers to open. In
   practice: the relay to SciSpace shrinks to a pointer — "read
@@ -99,3 +113,5 @@ the claim of *who reasoned*, which git cannot tell you — the only check is
 reading the file against the ruling. Read it.
 
 2026-08-21T17:14Z | claude-code | hooks mechanism live: UserPromptSubmit injects ledger+sha at every turn start, Stop gate (exit 2) blocks left-arrow and dirty-ledger turn ends; arrow lint added to pre-push. Negative-controlled: the naive grep flagged the law quoting its own forbidden character — scoped to relay/entry lines | .claude/settings.json + .claude/hooks/ + .githooks/pre-push | @cbbc1c2
+
+2026-08-21T18:00Z | hermes | FOURTH-LANE correction (claude-science ≠ scispace): added the claude-science row (local sandbox bot, localhost DENIED bind/connect/AF_UNIX, working-tree write, push path unresolved) + scoped SCISPACE-CAPABILITY-REPORT.md to scispace only; the two lanes INVERT on localhost. Arm 1 first join landed: example.com 6/8 agree, 2 vocabulary-class disagreements (DKIM wildcard-empty-key definition → claude-science ruling; DANE four-state NotApplicable pre-registered exclusion) | docs/arm1-20260821/README.md | @a8670dd
