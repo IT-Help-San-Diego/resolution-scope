@@ -91,62 +91,83 @@ pub fn seal(analysis: &ScoredAnalysis) -> String {
 /// here.
 pub fn seal_versioned(analysis: &ScoredAnalysis, produced_by_version: &str) -> String {
     let mut hasher = Sha3_512::new();
-    hasher.update(SEAL_SCHEME.as_bytes());
-    hasher.update(b"\n");
-    hasher.update(analysis.domain.as_bytes());
-    hasher.update(b"\n");
-    hasher.update(produced_by_version.as_bytes());
-    hasher.update(b"\n");
+    hasher.update(canonical_input(analysis, produced_by_version).as_bytes());
+    hex(&hasher.finalize())
+}
+
+/// The exact bytes `seal_versioned` hashes — the seal's canonical input.
+///
+/// Exposed (rather than private) so the report can print the input beside the
+/// seal and turn "anyone can re-check it" into a literal instruction: copy
+/// these bytes, hash them with SHA3-512, and the hex digest is the seal. This
+/// is single-producer — the report reads the SAME string the seal hashes, so
+/// the two can never drift (the mirror defect: a report that re-derives from a
+/// different encoding than the seal hashes is a second, hand-kept copy of the
+/// canonical form, and it WILL fall out of sync).
+///
+/// The input carries the enum VARIANT NAMES (not the human labels), because
+/// that is what the seal binds — `SignedAndDelegated`, not "signed + delegated
+/// — chain validates from the root". A report that showed only the human label
+/// would name the seal inputs without their values, which is the same as
+/// omitting them.
+pub fn canonical_input(analysis: &ScoredAnalysis, produced_by_version: &str) -> String {
+    let mut s = String::with_capacity(384);
+    s.push_str(SEAL_SCHEME);
+    s.push('\n');
+    s.push_str(&analysis.domain);
+    s.push('\n');
+    s.push_str(produced_by_version);
+    s.push('\n');
     // The observer's vantage: two scans from different resolvers are
     // different measurements even if their verdicts coincide, so the seal
     // must bind the resolver identity too (observation-conditions rule).
-    hasher.update(analysis.resolver_identity.as_bytes());
-    hasher.update(b"\n");
+    s.push_str(&analysis.resolver_identity);
+    s.push('\n');
 
     // Fixed order — the canonical form's field order is load-bearing. A
     // reordered seal is a different seal, by design.
-    hasher.update(control_line(
+    s.push_str(&control_line(
         "dnssec",
         &analysis.dnssec_disposition,
         &analysis.dnssec_chain,
     ));
-    hasher.update(control_line(
+    s.push_str(&control_line(
         "spf",
         &analysis.spf_disposition,
         &analysis.spf,
     ));
-    hasher.update(control_line(
+    s.push_str(&control_line(
         "dkim",
         &analysis.dkim_disposition,
         &analysis.dkim,
     ));
-    hasher.update(control_line(
+    s.push_str(&control_line(
         "dmarc",
         &analysis.dmarc_disposition,
         &analysis.dmarc,
     ));
-    hasher.update(control_line(
+    s.push_str(&control_line(
         "dane",
         &analysis.dane_disposition,
         &analysis.dane,
     ));
-    hasher.update(control_line(
+    s.push_str(&control_line(
         "mta_sts",
         &analysis.mta_sts_disposition,
         &analysis.mta_sts,
     ));
-    hasher.update(control_line(
+    s.push_str(&control_line(
         "caa",
         &analysis.caa_disposition,
         &analysis.caa,
     ));
-    hasher.update(control_line(
+    s.push_str(&control_line(
         "cds",
         &analysis.cds_disposition,
         &analysis.cds_cdnskey,
     ));
 
-    hex(&hasher.finalize())
+    s
 }
 
 /// The engine version that produced a verdict. `CARGO_PKG_VERSION` is the
@@ -215,6 +236,24 @@ mod tests {
     #[test]
     fn seal_is_deterministic() {
         assert_eq!(seal(&baseline()), seal(&baseline()));
+    }
+
+    #[test]
+    fn canonical_input_is_the_seals_exact_preimage() {
+        // The re-derivation contract that makes the report's "re-derive the
+        // seal" block honest: hashing canonical_input yields EXACTLY the seal.
+        // This also pins the refactor — seal_versioned now hashes
+        // canonical_input, so if the extraction had reordered or dropped a
+        // field, this test (and every existing value-sensitive call site)
+        // would catch it. Byte-identity is load-bearing: a seal scheme that
+        // drifts is a seal that lies.
+        let mut hasher = Sha3_512::new();
+        hasher.update(canonical_input(&baseline(), "0.1.0").as_bytes());
+        assert_eq!(
+            hex(&hasher.finalize()),
+            seal_versioned(&baseline(), "0.1.0"),
+            "hashing canonical_input must equal the seal — the report re-derivation block and the seal hash the same bytes"
+        );
     }
 
     #[test]

@@ -8,7 +8,7 @@
 // logic so it can be compiled for a no_std seL4 compartment in the future.
 
 use crate::analysis::ScoredAnalysis;
-use crate::seal::seal;
+use crate::seal::{canonical_input, engine_version, seal};
 use crate::tristate::TriState;
 use crate::truth_chain::{truth_chain, Tally};
 
@@ -17,7 +17,19 @@ pub fn render_text(a: &ScoredAnalysis) -> String {
     let mut out = String::new();
     out.push_str("Resolution Scope — DNS Analysis Report\n");
     out.push_str(&format!("Domain    : {}\n", a.domain));
-    out.push_str(&format!("Timestamp : {}\n", a.timestamp_local));
+    // The two sealed observation conditions the report previously omitted:
+    // engine version (which verdict logic produced it) and resolver identity
+    // (which vantage measured it). A seal is re-derivable only when every
+    // input it binds is published beside it — omitting these while printing
+    // Session (a NON-input) turned "anyone can re-check" into an assertion.
+    out.push_str(&format!("Engine    : {}\n", engine_version()));
+    out.push_str(&format!("Resolver  : {}\n", a.resolver_identity));
+    // timestamp_local is a Unix epoch (UTC) — label the zone, or a reader who
+    // converts it gets a date that disagrees with any Pacific-time prose.
+    out.push_str(&format!(
+        "Timestamp : {} (unix epoch seconds, UTC)\n",
+        a.timestamp_local
+    ));
     out.push_str(&format!("Session   : {:016x}\n", a.session_id));
     // The seal is tamper-evidence, not a footer note: it is re-derivable
     // from the verdict content below, so anyone holding this report can
@@ -45,6 +57,14 @@ pub fn render_text(a: &ScoredAnalysis) -> String {
         t.unmeasured,
         t.not_applicable
     ));
+
+    // The re-derivation block: the EXACT bytes the seal hashes, printed from
+    // the same single producer (seal::canonical_input) the seal itself uses.
+    // Copy these bytes, run SHA3-512, and the hex digest is the seal above —
+    // no side channel, no hand-kept mirror to drift.
+    out.push_str("\n── Re-derive the seal (SHA3-512 of these exact bytes) ──\n");
+    out.push_str(&canonical_input(a, &engine_version()));
+    out.push_str("──────────────────────────────────────────────────────────\n");
     out
 }
 
@@ -102,6 +122,25 @@ mod tests {
         assert!(
             text.contains(&expected),
             "the report must carry the measurement seal so a reader can verify the verdict"
+        );
+    }
+
+    #[test]
+    fn report_publishes_every_seal_input_and_labels_the_zone() {
+        // A seal is re-derivable only when every input it binds is published
+        // beside it. The two observation conditions the header once omitted
+        // (engine version, resolver identity) must now render, the timestamp
+        // must name its zone (bare epoch ≠ a date a reader converts), and the
+        // canonical input — the exact bytes the seal hashes — must be present
+        // so "anyone can re-check" is a literal instruction, not an assertion.
+        let a = minimal();
+        let text = render_text(&a);
+        assert!(text.contains(&format!("Engine    : {}", engine_version())));
+        assert!(text.contains(&format!("Resolver  : {}", a.resolver_identity)));
+        assert!(text.contains("unix epoch seconds, UTC"));
+        assert!(
+            text.contains(&canonical_input(&a, &engine_version())),
+            "the report must print the seal's exact preimage so a reader can re-derive it"
         );
     }
 
