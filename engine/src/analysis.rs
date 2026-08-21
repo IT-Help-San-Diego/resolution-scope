@@ -648,7 +648,10 @@ async fn score_dnssec(resolver: &TokioResolver, domain: &str) -> DnssecDispositi
     match resolver.lookup(domain, RecordType::DNSKEY).await {
         Ok(resp) => {
             let answers = resp.answers();
-            dnssec_disposition_from_answer(answers_present(answers), answers.first().map(|r| r.proof))
+            dnssec_disposition_from_answer(
+                answers_present(answers),
+                answers.first().map(|r| r.proof),
+            )
         }
         Err(e) => {
             warn!(domain, error = %e, "DNSSEC DNSKEY lookup error");
@@ -1156,7 +1159,7 @@ fn dane_from_tlsa_counts(counts: &[Option<usize>]) -> DaneDisposition {
 fn tlsa_err_to_count(e: &NetError, host: &str) -> Option<usize> {
     match record_absence_verdict(e, host.trim_end_matches('.')) {
         TriState::Absent => Some(0), // measured: host exists, no TLSA at _25._tcp.<host>
-        _ => None,                  // Indet (and the unreachable others) — couldn't measure
+        _ => None,                   // Indet (and the unreachable others) — couldn't measure
     }
 }
 
@@ -1992,10 +1995,7 @@ mod tests {
     #[test]
     fn tlsa_err_servfail_is_unmeasured() {
         // SERVFAIL: nothing was measured → None (couldn't measure).
-        assert_eq!(
-            tlsa_err_to_count(&servfail_err(), "mail.example.com"),
-            None
-        );
+        assert_eq!(tlsa_err_to_count(&servfail_err(), "mail.example.com"), None);
     }
 
     #[test]
@@ -2431,14 +2431,20 @@ mod tests {
         // passed every shim test — both are "not Enforce". These direct state
         // assertions pin the three-way split itself.
         let testing = "version: STSv1\nmode: testing\nmx: smtp.example.com\n";
-        assert_eq!(mta_sts_policy_state(testing), MtaStsPolicyState::TestingOrNone);
+        assert_eq!(
+            mta_sts_policy_state(testing),
+            MtaStsPolicyState::TestingOrNone
+        );
         let none = "version: STSv1\nmode: none\nmx: smtp.example.com\n";
         assert_eq!(mta_sts_policy_state(none), MtaStsPolicyState::TestingOrNone);
         let enforce = "version: STSv1\nmode: enforce\nmx: smtp.example.com\n";
         assert_eq!(mta_sts_policy_state(enforce), MtaStsPolicyState::Enforce);
         // Contrast: garbage is Invalid, not TestingOrNone — the arm must not
         // absorb it either direction.
-        assert_eq!(mta_sts_policy_state("hello world"), MtaStsPolicyState::Invalid);
+        assert_eq!(
+            mta_sts_policy_state("hello world"),
+            MtaStsPolicyState::Invalid
+        );
     }
 
     // -------------------------------------------------------------------------
