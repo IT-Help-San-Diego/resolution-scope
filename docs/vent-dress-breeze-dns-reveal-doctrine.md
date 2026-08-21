@@ -51,6 +51,38 @@ answers.
 
 **DNS controls the wind from the vent below, by policy.**
 
+### 2.1 The two ways the breeze can find you — the meme, made precise
+
+The whole frame compresses to one question, asked in the Monroe voice:
+
+> **When the DNS breeze blows — do you have a Barbie bump or a camel toe, baby?**
+
+- **The Barbie bump** is perfection: smooth, deliberate, nothing the wind can
+  embarrass. The domain dressed itself *right* — every record it chose to show
+  is exactly what it meant to show. No MX at the apex, DMARC on reject, SPF
+  naming only the vendors it authorizes. The breeze lifts and there is nothing
+  to catch but intent.
+
+- **The camel toe** is the flaw: the one thing the breeze catches that *needs
+  fixing*. A `~all` where `-all` belongs. A missing DMARC. A revoked DKIM key
+  left behind. The domain did not choose for you to see it — the wind found it
+  anyway, and now it shows.
+
+**This is the instrument's whole mission in one line:** DNS blows up the skirt by
+policy, and the tool exists to answer the question — *bump, or problem?* It is not
+a scanner of dress length; it is the thing that tells you, honestly, whether the
+breeze caught you dressed on purpose or caught you out.
+
+The full meme, assembled:
+
+1. *"Did you know bad guys could be looking up your skirt right now?"*
+2. *"DNS controls the wind from the vent below, by policy."*
+3. *"Every now and then we catch a glimpse of a D-mark camel toe."*
+4. *"When the DNS breeze blows — do you have a Barbie bump or a camel toe, baby?"*
+
+("D-mark" = DMARC — the one record whose reveal *is* the message. "DNS breeze" =
+the wind from the vent.)
+
 ---
 
 ## 3. The case study — whitehouse.gov, measured
@@ -227,6 +259,8 @@ same vent below.
 > DNS is the breeze from the vent below, revealing everything on demand — so measure
 > the *breeze*, not the *dress*: email is two orthogonal axes (receive vs. send),
 > measured at every depth, and "quiet at the surface" is never "nothing underneath."
+
+> **When the DNS breeze blows — do you have a Barbie bump or a camel toe, baby?**
 
 ---
 
