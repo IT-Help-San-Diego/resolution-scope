@@ -20,7 +20,7 @@ design* (pre-registered classification) and produces rulings — never commits.
 |---|---|---|---|---|
 | DNSSEC | Present / SignedAndDelegated | `present` | ✓ | DNSKEY + DS `2371` present (Cloudflare shared KSK `mdsswUyr…`) |
 | SPF | Present / HardFail | present (`no_mail_intent`) | ✓ | `v=spf1 -all` |
-| DKIM | Absent / KeyMismatch | `present` (wildcard, `primary_has_dkim=false`) | ✗ | wildcard `*._domainkey` `v=DKIM1; p=` (empty key) |
+| DKIM | Indet / Wildcard (post-ruling; was Absent / KeyMismatch) | `present` (wildcard, `primary_has_dkim=false`) | ✗→resolved | wildcard `*._domainkey` `v=DKIM1; p=` (empty key) |
 | DMARC | Present / Reject | present / `reject` | ✓ | `v=DMARC1;p=reject;sp=reject;adkim=s;aspf=s` |
 | DANE | NotApplicable / NoMail | `absent_confirmed` | ✗ | null MX `0 .` → no-mail domain |
 | MTA-STS | Absent / RecordAbsent | `absent_confirmed` | ✓ | no `_mta-sts` TXT |
@@ -31,7 +31,7 @@ design* (pre-registered classification) and produces rulings — never commits.
 classes, not engine bugs.** No engine was found wrong on the facts; the two
 disagreements are definitional gaps Arm 1 exists to surface.
 
-## Disagreement 1 — DKIM (definitional divergence → `claude-science` ruling)
+## Disagreement 1 — DKIM (definitional divergence → RULED + FIXED)
 
 example.com publishes a **wildcard** `*._domainkey.example.com. TXT "v=DKIM1; p="`
 — a DKIM record with an **empty** `p=` key. Measured: a nonexistent selector
@@ -39,22 +39,41 @@ example.com publishes a **wildcard** `*._domainkey.example.com. TXT "v=DKIM1; p=
 which proves the empty-key answer is wildcard-synthesised, not a set of explicit
 records.
 
-- **Rust** probes the 81-default sweep, every selector resolves to `p=` empty →
-  `KeyMismatch` → `Absent`. It answers *"is there a usable key?"*: no.
-- **Go** sees the `v=DKIM1` tag → `present`, and separately flags
-  `wildcard_dkim=true` + `primary_has_dkim=false`. It answers *"is there a DKIM
-  record?"*: yes.
+- **Rust** probed the 81-default sweep, every selector resolving to `p=` empty →
+  `KeyMismatch` → `Absent` (the as-recorded first join).
+- **Go** saw the `v=DKIM1` tag → `present`, separately flagging
+  `wildcard_dkim=true` + `primary_has_dkim=false`.
 
-The engines answer **different questions**. Neither is wrong; they diverge
-because "DKIM present" is undefined across the two vocabularies at the boundary
-case — a wildcard record with no key material. For a security instrument the
-verification-relevant answer is Rust's (`Absent` — an empty key cannot verify a
-signature), but that is a ruling for `claude-science`, not a code change here.
+**`claude-science` ruling (2026-08-21) — neither engine is wrong about
+existence, and BOTH were wrong about *this* record.** The empty `p=` is neither
+absent nor broken: RFC 6376 defines it as **revoked** (a deliberate withdrawal).
+The real finding is a **third answer**:
 
-**Label refinement (not a verdict error):** Rust's `KeyMismatch` disposition
-name is slightly off for an *empty* key — this is a missing/empty key, not a key
-that failed a signature match. Both dispositions map to `Absent`, so the verdict
-is unaffected; the name is a cosmetic follow-up.
+1. **Usable-key is the right axis** — an empty `p=` is a positive publication
+   whose content is "this key is withdrawn." Rust already computed this
+   (`DkimKeyState::Revoked` at `dkim_key_state`) and then folded it into
+   `KeyMismatch` one function later, asserting a defect where the zone declared
+   an intention.
+2. **The wildcard is the bigger find:** a wildcard makes the 81-selector sweep
+   meaningless — every probe "resolves," so `NotFoundDefaults` ("absence NOT
+   proven") is structurally unreachable. The honest-uncertainty verdict is
+   impossible on a wildcard domain.
+
+**Fix shipped (`engine/src/analysis.rs` + `truth_chain.rs`):**
+- `DkimDisposition::Revoked` — collapses to `Absent` (no signature verifies),
+  `measured` "key revoked — selector publishes an empty p= (RFC 6376)",
+  severity `High` (deliberate withdrawal, NOT a `Critical` misconfiguration).
+- `DkimDisposition::Wildcard` — a sentinel probe (`WILDCARD_PROBE_SELECTOR`)
+  fires first; if a nonexistent selector name resolves to TXT, the domain has a
+  wildcard and the sweep proves nothing → `Indet` (honest uncertainty), its own
+  disposition, not a key verdict.
+
+**Live re-run:** `resolution-scope --json example.com` → `dkim: Indet,
+dkim_disposition: Wildcard`. The old `KeyMismatch`/`Absent` is gone; the honest
+"wildcard masks the sweep — provide a selector" verdict stands. Go's
+`wildcard_dkim=true, primary_has_dkim=false` pair is *coarser* than `present`
+suggests (it already separates wildcard from explicit), so this row is a
+legitimate **exclusion for Arm 1, counted**, not a defect against either engine.
 
 ## Disagreement 2 — DANE (the pre-registered four-state bridge gap)
 
@@ -89,12 +108,13 @@ CDNSKEY            257 3 13 mdsswUyr…
 
 ## Next (ordered)
 
-1. **DKIM definitional ruling** from `claude-science` before any agreement rate
-   is derived — the two engines' "present" means different things, and the
-   wildcard-empty-key case is the discriminator.
-2. **Corpus** — seed golden fixtures + DANE-deployed / MTA-STS-enforcer /
+1. **Corpus** — seed golden fixtures + DANE-deployed / MTA-STS-enforcer /
    null-MX-declarer / genuinely-unsigned (`google.com`) / the live evil fixture
-   (`dns-evil-flicker.com`, known-bogus DS), per `HANDOFF_arm1.md`.
-3. **Harness** — `scripts/full_arm_differential.py` already pairs NDJSON vs
-   single-object responses; its `go_to_tri` map needs the `NotApplicable`
-   exclusion branch wired (the one gap this first join surfaced).
+   (`dns-evil-flicker.com`, known-bogus DS) / `example.com` as the permanent
+   wildcard fixture, per `HANDOFF_arm1.md`.
+2. **Harness** — `scripts/full_arm_differential.py` already pairs NDJSON vs
+   single-object responses; wire the `NotApplicable` (DANE null-MX) AND
+   `Wildcard` (DKIM) exclusion branches with published counts (the two gaps the
+   first join surfaced).
+3. **Arm 2** — RFC known-answer vectors (mandatory; catches shared doctrinal
+   error that Arm 1's N-version pairing is blind to).
