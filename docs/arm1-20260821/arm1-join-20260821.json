@@ -1,0 +1,646 @@
+{
+ "agreement": {
+  "caa": {
+   "agree": 8,
+   "disagree": 0,
+   "total": 8
+  },
+  "cds_cdnskey": {
+   "agree": 8,
+   "disagree": 0,
+   "total": 8
+  },
+  "dane": {
+   "agree": 7,
+   "disagree": 0,
+   "total": 7
+  },
+  "dkim": {
+   "agree": 6,
+   "disagree": 1,
+   "total": 7
+  },
+  "dmarc": {
+   "agree": 8,
+   "disagree": 0,
+   "total": 8
+  },
+  "dnssec": {
+   "agree": 8,
+   "disagree": 0,
+   "total": 8
+  },
+  "mta_sts": {
+   "agree": 8,
+   "disagree": 0,
+   "total": 8
+  },
+  "spf": {
+   "agree": 8,
+   "disagree": 0,
+   "total": 8
+  }
+ },
+ "arms": [
+  "dnssec",
+  "spf",
+  "dkim",
+  "dmarc",
+  "dane",
+  "mta_sts",
+  "caa",
+  "cds_cdnskey"
+ ],
+ "exclusion_rules": {
+  "dane_not_applicable_null_mx": "Rust dane==NotApplicable (null-MX no-mail)",
+  "dkim_wildcard_go": "Go wildcard_dkim==true",
+  "dkim_wildcard_rust": "Rust dkim_disposition==Wildcard"
+ },
+ "exclusions": {
+  "dane_not_applicable_null_mx": 1,
+  "dkim_wildcard_rust": 1
+ },
+ "fixtures_dir": "/Users/careybalboa/Documents/GitHub/dns-tool-intel/tests/golden_fixtures",
+ "generated_at": "2026-08-21T18:17:48.144103+00:00",
+ "rows": [
+  {
+   "arm": "dnssec",
+   "domain": "cia.gov",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "SignedAndDelegated",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "spf",
+   "domain": "cia.gov",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "HardFail",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "dkim",
+   "domain": "cia.gov",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "Verified",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "dmarc",
+   "domain": "cia.gov",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "Quarantine",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "dane",
+   "domain": "cia.gov",
+   "go": "Absent",
+   "reason": null,
+   "rust": "Absent",
+   "rust_disposition": "NotConfigured",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "mta_sts",
+   "domain": "cia.gov",
+   "go": "Absent",
+   "reason": null,
+   "rust": "Absent",
+   "rust_disposition": "RecordAbsent",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "caa",
+   "domain": "cia.gov",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "Configured",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "cds_cdnskey",
+   "domain": "cia.gov",
+   "go": "Absent",
+   "reason": null,
+   "rust": "Absent",
+   "rust_disposition": "NotPublished",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "dnssec",
+   "domain": "cloudflare.com",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "SignedAndDelegated",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "spf",
+   "domain": "cloudflare.com",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "HardFail",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "dkim",
+   "domain": "cloudflare.com",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "Verified",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "dmarc",
+   "domain": "cloudflare.com",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "Reject",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "dane",
+   "domain": "cloudflare.com",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "TlsaPublished",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "mta_sts",
+   "domain": "cloudflare.com",
+   "go": "Absent",
+   "reason": null,
+   "rust": "Absent",
+   "rust_disposition": "RecordAbsent",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "caa",
+   "domain": "cloudflare.com",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "Configured",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "cds_cdnskey",
+   "domain": "cloudflare.com",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "Published",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "dnssec",
+   "domain": "example.com",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "SignedAndDelegated",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "spf",
+   "domain": "example.com",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "HardFail",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "dkim",
+   "domain": "example.com",
+   "go": "Present",
+   "reason": "dkim_wildcard_rust",
+   "rust": "Indet",
+   "rust_disposition": "Wildcard",
+   "verdict": "EXCLUDED"
+  },
+  {
+   "arm": "dmarc",
+   "domain": "example.com",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "Reject",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "dane",
+   "domain": "example.com",
+   "go": "Absent",
+   "reason": "dane_not_applicable_null_mx",
+   "rust": "NotApplicable",
+   "rust_disposition": "NoMail",
+   "verdict": "EXCLUDED"
+  },
+  {
+   "arm": "mta_sts",
+   "domain": "example.com",
+   "go": "Absent",
+   "reason": null,
+   "rust": "Absent",
+   "rust_disposition": "RecordAbsent",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "caa",
+   "domain": "example.com",
+   "go": "Absent",
+   "reason": null,
+   "rust": "Absent",
+   "rust_disposition": "NotConfigured",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "cds_cdnskey",
+   "domain": "example.com",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "Published",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "dnssec",
+   "domain": "google.com",
+   "go": "Absent",
+   "reason": null,
+   "rust": "Absent",
+   "rust_disposition": "Unsigned",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "spf",
+   "domain": "google.com",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "SoftFail",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "dkim",
+   "domain": "google.com",
+   "go": "Absent",
+   "reason": null,
+   "rust": "Indet",
+   "rust_disposition": "NotFoundDefaults",
+   "verdict": "DISAGREE \u2014 needs live arbiter"
+  },
+  {
+   "arm": "dmarc",
+   "domain": "google.com",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "Reject",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "dane",
+   "domain": "google.com",
+   "go": "Absent",
+   "reason": null,
+   "rust": "Absent",
+   "rust_disposition": "NotConfigured",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "mta_sts",
+   "domain": "google.com",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "Enforced",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "caa",
+   "domain": "google.com",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "Configured",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "cds_cdnskey",
+   "domain": "google.com",
+   "go": "Absent",
+   "reason": null,
+   "rust": "Absent",
+   "rust_disposition": "NotPublished",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "dnssec",
+   "domain": "ietf.org",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "SignedAndDelegated",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "spf",
+   "domain": "ietf.org",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "SoftFail",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "dkim",
+   "domain": "ietf.org",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "Verified",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "dmarc",
+   "domain": "ietf.org",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "Monitor",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "dane",
+   "domain": "ietf.org",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "TlsaPublished",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "mta_sts",
+   "domain": "ietf.org",
+   "go": "Absent",
+   "reason": null,
+   "rust": "Absent",
+   "rust_disposition": "RecordAbsent",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "caa",
+   "domain": "ietf.org",
+   "go": "Absent",
+   "reason": null,
+   "rust": "Absent",
+   "rust_disposition": "NotConfigured",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "cds_cdnskey",
+   "domain": "ietf.org",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "Published",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "dnssec",
+   "domain": "red.com",
+   "go": "Absent",
+   "reason": null,
+   "rust": "Absent",
+   "rust_disposition": "Unsigned",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "spf",
+   "domain": "red.com",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "OtherPolicy",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "dkim",
+   "domain": "red.com",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "Verified",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "dmarc",
+   "domain": "red.com",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "Monitor",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "dane",
+   "domain": "red.com",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "TlsaPublished",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "mta_sts",
+   "domain": "red.com",
+   "go": "Absent",
+   "reason": null,
+   "rust": "Absent",
+   "rust_disposition": "RecordAbsent",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "caa",
+   "domain": "red.com",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "Configured",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "cds_cdnskey",
+   "domain": "red.com",
+   "go": "Absent",
+   "reason": null,
+   "rust": "Absent",
+   "rust_disposition": "NotPublished",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "dnssec",
+   "domain": "thisdoesnotexist-xz9q.com",
+   "go": "Indet",
+   "reason": null,
+   "rust": "Indet",
+   "rust_disposition": "NoZone",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "spf",
+   "domain": "thisdoesnotexist-xz9q.com",
+   "go": "Indet",
+   "reason": null,
+   "rust": "Indet",
+   "rust_disposition": "TransientError",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "dkim",
+   "domain": "thisdoesnotexist-xz9q.com",
+   "go": "Indet",
+   "reason": null,
+   "rust": "Indet",
+   "rust_disposition": "TransientError",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "dmarc",
+   "domain": "thisdoesnotexist-xz9q.com",
+   "go": "Indet",
+   "reason": null,
+   "rust": "Indet",
+   "rust_disposition": "TransientError",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "dane",
+   "domain": "thisdoesnotexist-xz9q.com",
+   "go": "Indet",
+   "reason": null,
+   "rust": "Indet",
+   "rust_disposition": "TransientError",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "mta_sts",
+   "domain": "thisdoesnotexist-xz9q.com",
+   "go": "Indet",
+   "reason": null,
+   "rust": "Indet",
+   "rust_disposition": "TransientError",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "caa",
+   "domain": "thisdoesnotexist-xz9q.com",
+   "go": "Indet",
+   "reason": null,
+   "rust": "Indet",
+   "rust_disposition": "TransientError",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "cds_cdnskey",
+   "domain": "thisdoesnotexist-xz9q.com",
+   "go": "Indet",
+   "reason": null,
+   "rust": "Indet",
+   "rust_disposition": "NoZone",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "dnssec",
+   "domain": "whitehouse.gov",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "SignedAndDelegated",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "spf",
+   "domain": "whitehouse.gov",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "SoftFail",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "dkim",
+   "domain": "whitehouse.gov",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "Verified",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "dmarc",
+   "domain": "whitehouse.gov",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "Reject",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "dane",
+   "domain": "whitehouse.gov",
+   "go": "Absent",
+   "reason": null,
+   "rust": "Absent",
+   "rust_disposition": "NoMx",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "mta_sts",
+   "domain": "whitehouse.gov",
+   "go": "Absent",
+   "reason": null,
+   "rust": "Absent",
+   "rust_disposition": "RecordAbsent",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "caa",
+   "domain": "whitehouse.gov",
+   "go": "Absent",
+   "reason": null,
+   "rust": "Absent",
+   "rust_disposition": "NotConfigured",
+   "verdict": "PARITY"
+  },
+  {
+   "arm": "cds_cdnskey",
+   "domain": "whitehouse.gov",
+   "go": "Present",
+   "reason": null,
+   "rust": "Present",
+   "rust_disposition": "Published",
+   "verdict": "PARITY"
+  }
+ ],
+ "rust_binary": "/Users/careybalboa/Documents/GitHub/resolution-scope/cli/target/debug/resolution-scope",
+ "sha3_512": "e9d194c52c8ada5036b2e3b5d8c61a31999c6e61ff615dee6384a7852e4fca39cac9c7400a28f3d13420e4dedd6a6afa1e26b7d046a00d8ab55f35fec5ca2caa",
+ "tool": "scripts/arm1_differential.py"
+}

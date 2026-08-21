@@ -106,15 +106,67 @@ CDS                2371 13 2 C988…      (matches DS)
 CDNSKEY            257 3 13 mdsswUyr…
 ```
 
+## Full 8-domain differential (2026-08-21) — harness `scripts/arm1_differential.py`
+
+Corpus = the 8 golden fixtures (frozen Go reference, content-addressed) against
+the live Rust engine. All 8 controls, both exclusion branches wired as
+MECHANICAL rules (not prose): DANE `NotApplicable` (null-MX) and DKIM `Wildcard`
+— counted, never folded into a verdict.
+
+**Per-control agreement (exclusions removed from the denominator):**
+
+| control | agree | disagreement | verdict |
+|---|---|---|---|
+| dnssec | 8/8 | 0 | 100% |
+| spf | 8/8 | 0 | 100% |
+| dkim | 6/7 | 1 (google.com) | 85.7% |
+| dmarc | 8/8 | 0 | 100% |
+| dane | 7/7 | 0 (was 2 — see fix) | 100% |
+| mta_sts | 8/8 | 0 | 100% |
+| caa | 8/8 | 0 | 100% |
+| cds_cdnskey | 8/8 | 0 | 100% |
+
+Exclusions: `dane_not_applicable_null_mx` = 1 (example.com), `dkim_wildcard` = 1
+(example.com). Sealed output: `arm1-join-20260821.json`.
+
+## Finding 1 — DANE SOA-suffix bug (Rust, FIXED)
+
+The first run showed `cia.gov` and `google.com` DANE as `TransientError`/Indet
+where Go said `absent_confirmed`. Ground-truth `dig` confirmed Go was right: both
+domains have MX and no TLSA → measured absence.
+
+Root cause: `tlsa_err_to_count` routed the TLSA NXDOMAIN through
+`record_absence_verdict(e, host)`, which does EXACT equality (`soa_zone == host`).
+But an MX target is a LEAF name, not a zone cut — `_25._tcp.mail3.cia.gov`
+NXDOMAIN carries the SOA of the zone CONTAINING the host (`cia.gov`), never the
+host's own (nonexistent) zone. Exact match failed → `TransientError`.
+
+Fix: suffix-aware containment (`zone_contains_host`): the SOA zone is a
+containing zone iff it equals the host or is a label-boundary suffix, and is
+itself a >=2-label zone (a bare TLD is excluded — that case is "host's domain
+missing", still couldn't-measure). Unit tests: containing-zone, third-party-MX,
+own-zone, and TLD-negative. DANE 5/7 → 7/7.
+
+## Finding 2 — google.com DKIM: Rust honest, Go over-asserts
+
+`google.com` signs DKIM under a CUSTOM selector (`20230601._domainkey`, verified
+live), which is not in the 81-default sweep. Rust reports `NotFoundDefaults` →
+`Indet` ("absence NOT proven") — the honest verdict. Go reports
+`absent_confirmed` — over-asserting absence where the real key exists under an
+un-enumerated name. This is a Go-side vocabulary coarseness (the exact class
+Arm 2's RFC vectors and the `domain_exists` doctrine exist to catch), not a Rust
+defect. Recorded, not scored against either engine.
+
 ## Next (ordered)
 
-1. **Corpus** — seed golden fixtures + DANE-deployed / MTA-STS-enforcer /
-   null-MX-declarer / genuinely-unsigned (`google.com`) / the live evil fixture
-   (`dns-evil-flicker.com`, known-bogus DS) / `example.com` as the permanent
-   wildcard fixture, per `HANDOFF_arm1.md`.
-2. **Harness** — `scripts/full_arm_differential.py` already pairs NDJSON vs
-   single-object responses; wire the `NotApplicable` (DANE null-MX) AND
-   `Wildcard` (DKIM) exclusion branches with published counts (the two gaps the
-   first join surfaced).
-3. **Arm 2** — RFC known-answer vectors (mandatory; catches shared doctrinal
-   error that Arm 1's N-version pairing is blind to).
+1. **Arm 2** — RFC known-answer vectors (mandatory; catches shared doctrinal
+   error that Arm 1's N-version pairing is blind to — e.g. whether an unsigned
+   domain's DANE should be `Absent` or `Indet`/`DnssecRequired`, which both
+   engines currently report as `Absent`).
+2. **Corpus expansion** — add a live DANE-deployed domain (TLSA published) and
+   the evil fixture (`dns-evil-flicker.com`, known-bogus DS); both need a live
+   Go scan (CSRF-gated — a Carey or browser step), not a frozen fixture.
+3. **`DnssecRequired` wiring** — the variant is declared-but-never-emitted; an
+   unsigned domain's DANE currently reads `Absent` (no TLSA) where the declared
+   design intent is `DnssecRequired` → `Indet` (DANE cannot apply without
+   DNSSEC). That gate ordering needs a ruling before wiring.

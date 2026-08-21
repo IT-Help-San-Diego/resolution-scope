@@ -1186,8 +1186,9 @@ fn dane_from_tlsa_counts(counts: &[Option<usize>]) -> DaneDisposition {
 
 /// Pure: map a TLSA lookup error to the per-host outcome it actually
 /// measured. `Some(0)` = a MEASURED absence (NODATA, or an NXDOMAIN whose SOA
-/// is the host's own zone — the host exists, it just publishes no TLSA);
-/// `None` = couldn't measure (transient, or the host's zone is missing).
+/// is a zone CONTAINING the host — the host exists within an existing zone and
+/// publishes no TLSA); `None` = couldn't measure (transient, or the host's own
+/// domain is missing).
 ///
 /// This is the branch `score_dane` skipped when every other control's Err
 /// path routed through `record_absence_verdict` — the skip folded measured
@@ -1195,14 +1196,49 @@ fn dane_from_tlsa_counts(counts: &[Option<usize>]) -> DaneDisposition {
 /// `&[usize]` bug (which folded couldn't-measure into measured absence).
 /// Both directions lose the distinction DANE's four-way split exists to hold.
 ///
-/// The host is passed with its trailing dot trimmed to match
-/// `record_absence_verdict`'s own SOA-side trim (`z.trim_end_matches('.')`);
-/// without the trim, the own-zone comparison never matches a third-party MX.
+/// An MX target is a LEAF name, not a zone cut: `_25._tcp.mail3.cia.gov`
+/// NXDOMAIN carries the SOA of the zone that CONTAINS the host (`cia.gov`),
+/// not the host's own (nonexistent) zone. So the "did the host's domain
+/// vanish" test is SUFFIX containment (`cia.gov` contains `mail3.cia.gov`),
+/// not the exact equality `record_absence_verdict` uses for the apex — that
+/// exact match was why a subdomain/third-party MX host reported TransientError
+/// instead of the measured absence it actually is (Arm 1: cia.gov, google.com).
 fn tlsa_err_to_count(e: &NetError, host: &str) -> Option<usize> {
-    match record_absence_verdict(e, host.trim_end_matches('.')) {
-        TriState::Absent => Some(0), // measured: host exists, no TLSA at _25._tcp.<host>
-        _ => None,                   // Indet (and the unreachable others) — couldn't measure
+    use hickory_proto::op::ResponseCode;
+    use hickory_resolver::net::DnsError;
+    let host = host.trim_end_matches('.');
+    match e {
+        // NODATA on an existing zone: the host exists, no TLSA → measured absence.
+        NetError::Dns(DnsError::NoRecordsFound(nr))
+            if nr.response_code == ResponseCode::NoError =>
+        {
+            Some(0)
+        }
+        // NXDOMAIN: the name `_25._tcp.<host>` does not exist. Measured absence
+        // iff the SOA's zone contains the host (suffix); a TLD/root SOA means
+        // the host's own domain is missing → couldn't measure.
+        NetError::Dns(DnsError::NoRecordsFound(nr))
+            if nr.response_code == ResponseCode::NXDomain =>
+        {
+            match nr.soa.as_ref().map(|s| s.name.to_ascii()) {
+                Some(z) if zone_contains_host(host, z.trim_end_matches('.')) => Some(0),
+                _ => None,
+            }
+        }
+        // SERVFAIL / timeout / anything else: nothing measured → None.
+        _ => None,
     }
+}
+
+/// True when `zone` is a zone that CONTAINS `host` — `zone` equals `host`, or
+/// is a proper label-boundary suffix of it. A containing zone must itself be a
+/// real (>=2-label) zone: `cia.gov` contains `mail3.cia.gov`, but a bare TLD
+/// (`com`) is NOT counted as containing `mail.example.com` — that case is the
+/// host's whole domain missing, which is couldn't-measure, not measured absence.
+fn zone_contains_host(host: &str, zone: &str) -> bool {
+    let h = host.trim_end_matches('.').to_ascii_lowercase();
+    let z = zone.trim_end_matches('.').to_ascii_lowercase();
+    z.contains('.') && (h == z || h.ends_with(&format!(".{}", z)))
 }
 
 async fn score_dane(resolver: &TokioResolver, domain: &str) -> DaneDisposition {
@@ -2053,11 +2089,35 @@ mod tests {
     }
 
     #[test]
-    fn tlsa_err_nxdomain_parent_zone_is_unmeasured() {
-        // NXDOMAIN with the parent's SOA: the host itself is missing → Indet.
-        // Host in the dotted production form here too, for the same reason.
+    fn tlsa_err_nxdomain_containing_zone_is_measured_absence() {
+        // NXDOMAIN whose SOA is the zone CONTAINING the host (mail3.cia.gov →
+        // SOA cia.gov): the host is a leaf name inside an existing zone, no TLSA
+        // → measured absence. This is the Arm-1 cia.gov/google.com bug — the old
+        // exact-equality match read a containing-zone SOA as "host missing".
         let e = nxdomain_err_with_soa("example.com.");
+        assert_eq!(tlsa_err_to_count(&e, "mail.example.com."), Some(0));
+    }
+
+    #[test]
+    fn tlsa_err_nxdomain_tld_zone_is_unmeasured() {
+        // NXDOMAIN whose SOA is a bare TLD (the host's whole domain is missing):
+        // couldn't measure, NOT measured absence. The >=2-label requirement in
+        // zone_contains_host excludes a bare TLD from "containing" the host.
+        let e = nxdomain_err_with_soa("com.");
         assert_eq!(tlsa_err_to_count(&e, "mail.example.com."), None);
+    }
+
+    #[test]
+    fn zone_contains_host_suffix_matching() {
+        // The three shapes the fix distinguishes: own zone, containing zone
+        // (subdomain MX host), and third-party MX host — all measured absence;
+        // a bare TLD is never a containing zone.
+        assert!(zone_contains_host("mail.example.com", "example.com"));
+        assert!(zone_contains_host("mail3.cia.gov", "cia.gov"));
+        assert!(zone_contains_host("aspmx.l.google.com", "l.google.com"));
+        assert!(zone_contains_host("example.com", "example.com"));
+        assert!(!zone_contains_host("mail.example.com", "com"));
+        assert!(!zone_contains_host("example.com", "com"));
     }
 
     // --- the four extracted Err-branch wrappers: Indet -> TransientError -------
