@@ -97,3 +97,5 @@ unanswered DECISION/ BLOCKED line names it.
 Every commit in this repo is authored as Carey. A line's `| lane |` field is
 the claim of *who reasoned*, which git cannot tell you — the only check is
 reading the file against the ruling. Read it.
+
+2026-08-21T17:14Z | claude-code | hooks mechanism live: UserPromptSubmit injects ledger+sha at every turn start, Stop gate (exit 2) blocks left-arrow and dirty-ledger turn ends; arrow lint added to pre-push. Negative-controlled: the naive grep flagged the law quoting its own forbidden character — scoped to relay/entry lines | .claude/settings.json + .claude/hooks/ + .githooks/pre-push | @cbbc1c2

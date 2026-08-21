@@ -45,6 +45,18 @@ if [ "$gate_fail" -ne 0 ]; then
   exit 1
 fi
 
+# --- 1.5) ledger lint: the arrow never points left (policy/LANES.md law) ----
+# The routing invariant declares a left arrow a parse error; this makes the
+# law mechanical for every pusher, not a convention authors remember. Scoped
+# to relay lines (^NAME <-) and entry lines (| ... <-) because the law's own
+# prose quotes the character to define it — a whole-file grep flags the
+# statute for citing the crime (negative-controlled on first run).
+LEDGER_LA="$(printf '\xe2\x86\x90')"
+if [ -f policy/LANES.md ] && grep -E -q "^[A-Z][A-Z_ -]* ${LEDGER_LA}|^[^|]*\|.*${LEDGER_LA}" policy/LANES.md; then
+  echo "PRE-PUSH: a relay/entry line in policy/LANES.md uses a left arrow — parse error per the routing invariant (SENDER -> RECIPIENT, arrow always right)." >&2
+  exit 1
+fi
+
 # --- 2) parent-CI gate (only for pushes to main) ----------------------------
 # pre-push stdin is FOUR fields per line, not three:
 #   <local ref> <local sha> <remote ref> <remote sha>
