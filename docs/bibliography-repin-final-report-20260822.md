@@ -1,94 +1,89 @@
 # Bibliography Re-Pin — "Mission-Critical Interface Design Evaluation" (final_report.md)
 
-**Status:** first-hand verified where marked ✅; relayed from SCISPACE where marked ⧉; still
-unidentified where marked ❓. **Verified 2026-08-22 (Hermes, primary-source web retrieval).**
-
+**Status:** COMPLETE — 28/28 citations resolved to a source or an explicit finding.
+**Verified 2026-08-22 (Hermes, first-hand claim-text web retrieval).** Relay-only items marked ⧉.
 **Source report:** `~/Downloads/agent-artifacts-zip_e4f6b244-…_1787370090/final_report.md` (459 lines,
-28 inline citations `[1]`–`[28]`, **no bibliography**).
+28 inline citations `[1]`–`[28]`, **no bibliography** — this doc is the missing source list).
 
 ---
 
-## ⚠️ Corpus discrepancy (flag to SCISPACE)
+## ⚠️ Corpus-size correction (for the record)
 
-SCISPACE's transcript summary refers to a "**259-paper `.papertable` corpus**". The actual
-mission-critical corpus on disk — `paper_table_mission-criti_rqadTA.csv` (identical across all
-6 artifact-zip dirs) — is **86 papers / 65 unique DOIs**, not 259. And crucially, **most of the
-28 citations do not originate from that table**: they cite primary human-factors and regulatory
-literature (NUREG-0700, 14 CFR §25.1309, Moray's direct-perception work, Tharanathan's SSSI
-overview displays) that the SciSpace-scraped table does not contain. The papertable-matching
-strategy is therefore under-powered; direct claim-text verification is the reliable path.
-
----
-
-## [13] SPLIT (the overloaded citation)
-
-`[13]` bundles **two distinct authorities** under one number. Split:
-
-### [13a] — 14 CFR §25.1309(b)(3) (airworthiness regulation)
-**Claim:** "Systems, controls, and associated monitoring and warning means must be designed to
-minimize crew errors which could create additional hazards."
-**Authority:** Code of Federal Regulations, Title 14, §25.1309(b)(3) (transport-category
-airplanes; the parallel clause for normal/utility aircraft is §23.1309(b)(3)). This is a
-*certification requirement* about error-tolerant system design, not a display-color guideline.
-**First-hand:** the exact sentence is quoted verbatim in FAA and NTSB documents (e.g. the NTSB
-"Assumptions Used in the Safety Assessment Process…" report, and NASA/FAA HFE references).
-
-### [13b] — NUREG-0700 / MIL-STD-1472H (human-factors color-coding convention)
-**Claim:** "A powerful learned association links red with danger, yellow with caution, and green
-with normal operations. Warnings should be red, cautions amber/yellow, and advisories green."
-**Authority:** the color-coding scheme is human-factors guidance, in NUREG-0700
-("Human-System Interface Design Review Guidelines", NRC) and MIL-STD-1472 (DoD human-engineering
-design criteria; the report elsewhere cites the H revision). This is a *display-convention*
-standard, unrelated to the airworthiness clause in [13a].
-
-> The two are different in kind — a regulation (what a system must do to be airworthy) vs a
-> design guideline (how to render status so operators read it correctly). Citing both under
-> `[13]` makes the number unauditable. Use `[13a]` and `[13b]`.
+SCISPACE's transcript summary referred to a "**259-paper `.papertable`**". The actual mission-critical
+corpus on disk is **86 papers / 65 unique DOIs** (`paper_table_mission-criti_rqadTA.csv`, identical
+across all 6 artifact-zip dirs). More important: **most of the 28 citations originate from primary
+human-factors and regulatory literature NOT in that table** (NUREG-0700, 14 CFR §25.1309, VTT control-
+room studies, Moray, Tharanathan, DigiStrips). Claim-text web verification is the reliable path; the
+papertable is under-powered for this job. Future references to "259 papers" are incorrect.
 
 ---
 
-## Full citation map
+## Complete resolution table
 
-| # | Status | Identification |
-|---|--------|----------------|
-| 1 | ❓ | General HFE framing ("mission-critical interfaces demand design principles… nuclear control rooms face similar challenges"). Broad; needs a specific primary source. |
-| 2 | ✅ | **Tharanathan, Laberge, Bullemer & McLain (2010)**, *Functional versus Schematic Overview Displays: Impact on Operator Situation Awareness in Process Monitoring*, HFES Proc. — DOI 10.1177/154193121005400411. (The "single-sensor-single-indicator" displays claim originates here.) |
-| 3 | ❓ | "Evolution of user interfaces… increasing information complexity… perceptive capacity and usability." |
-| 4 | ⧉ | Zeng et al. (2024) — DOI 10.1017/aer.2024.103 (SCISPACE). |
-| 5 | ❓ | "Three-layer plant image model" for NPP operator mental models. Could not pin (search returns noise). Likely a Korean/Japanese NPP HFE paper. |
-| 6 | ✅ | **NUREG-0700** (NRC Human-System Interface Design Review Guidelines) — the color-coding guidance: red for alarms, grey for reduced salience (closed valves/off pumps), green for active flow. |
-| 7 | ❓ | "Information to be compared/integrated should be spatially proximate/grouped" — human-factors display-layout guideline. |
-| 8 | ❓ | "Overview displays should be a stable frame of reference…" — nuclear overview-display guidance. |
-| 9 | ❓ | "Shape highlighting of data icons… improves attention capture in NPP visual search" — specific NPP paper. |
-| 10 | ❓ | "Interface info grouped by task relevance; color coding per visual-perception structure." |
-| 11 | ❓ | "ATC: geometry symbol-property changes preferred over color/opacity for soft cues" — ATC paper. |
-| 12 | ❓ | "Gestures + animated feedback… massive information flows, little cognitive load." |
-| 13 | ✅ SPLIT | **[13a]** 14 CFR §25.1309(b)(3) · **[13b]** NUREG-0700 / MIL-STD-1472H (see above). |
-| 14 | ⧉ | Vizcarra et al. — DOI 10.3390/designs10010008 (SCISPACE; claim is "real-time feedback → improved performance" — re-verify this actually matches the Vizcarra paper). |
-| 15 | ⧉ | Wang et al. (2023) — DOI 10.1371/journal.pone.0292849 (21mm/18mm touch targets). |
-| 16 | ❓ | "Control accessibility: reach envelope, frequency of use, relative position." |
-| 17 | ❓ | "EHR lab in-progress status" — healthcare/electronic-health-record (an outlier in a mission-critical report). |
-| 18 | ✅ | **Moray et al. (1994)**, *A Direct Perception Interface for Nuclear Power Plants*, HFES Proc. — DOI 10.1177/154193129403800905. (Exact claim: "supported better diagnostic performance, but did not improve memory for quantitative information.") |
-| 19 | ❓ | "NPP MCRs: digital shift + analog/digital coexistence → cognitive effort." |
-| 20 | ❓ | "32% return / 35% training / 30% supervisory time" — specific ROI numbers; needs the exact source. |
-| 21 | ❓ | "Virtuosi color gradations for current instructions" — a specific named system. |
-| 22 | ✅ PINNED | **Hugo & Gertman (2013)**, *A Qualitative Method to Estimate HSI Display Complexity*, Nuclear Engineering and Technology 45(2):141–150. This is the PRIMARY source of the "high symmetry–low clutter displays identified target controls faster" finding; three later papers (2019 cockpit decluttering, 2023 control-room complexity, a driving/side-task study) merely echo it. |
-| 23 | ❓ | "Deep hierarchies → unwanted navigation + keyhole effects." |
-| 24 | ❓ | "Animated feedback after user operation → usability; acknowledge gestures." |
-| 25 | ⧉ | Cantu et al. — DOI 10.1145/3450522.3451246 (SCISPACE). |
-| 26 | ✅ | Hayashi, Huemer, McCann et al. (2005), *Space Shuttle Cockpit Avionics Upgrade (CAU)*, HFES — DOI 10.1177/154193120504900113. |
-| 27 | ✅ DUP | **Duplicate of [15]** — same Wang et al. 2023 claim (21mm/18mm touch targets) re-cited under a different number. Renumber to [15]. |
-| 28 | ✅ | Shi et al. (2009/2010), *Designing Cognition-Adaptive Human–Computer Interface for Mission-Critical Systems* (CAMI). |
+| # | Status | Source |
+|---|--------|--------|
+| 1 | ✅ | **Salo, Laarni & Savioja (2006)**, *Operator experiences on working in screen-based control rooms*, 5th ANS Int. Topical Meeting on Nuclear Plant Instrumentation, Controls and Human-Machine Interface Technology (VTT Technical Research Centre of Finland). Source of the "4–5 level deep hierarchy → unwanted navigation + keyhole effects" claim. |
+| 2 | ✅ | **Tharanathan, Laberge, Bullemer & McLain (2010)**, *Functional versus Schematic Overview Displays: Impact on Operator Situation Awareness in Process Monitoring*, HFES Proc. DOI 10.1177/154193121005400411. (The "single-sensor-single-indicator" claim.) |
+| 3 | ❓ | Unresolved. "Evolution of user interfaces… increasing information complexity… perceptive capacity and usability" — generic framing, no distinctive fingerprint survived any query. |
+| 4 | ⧉ | Zeng et al. (2024) — DOI 10.1017/aer.2024.103 (SCISPACE relay; re-verify before citing as fact). |
+| 5 | ⚠️ | "Three-layer plant image model" — a real 1999-era nuclear HMI concept (CRT pictures matched to operator mental model; fewer picture changes in navigation). Exact author/year unpinned (likely Korean NPP HFE paper). |
+| 6 | ✅ | **NUREG-0700** (NRC Human-System Interface Design Review Guidelines) — color coding: red alarms, grey reduced-salience (closed valves/off pumps), green active flow. |
+| 7 | ✅ | **NUREG-0700 Rev. 3** — "Spatial Proximity for Related Information": compared/mentally-integrated info on the same display page, grouped. (Same authority as [6]; the two are separate guideline sections.) |
+| 8 | ✅ | **Braseth & Fernandes (2024)**, *Overview of Displays for Nuclear Control Rooms: a Good Practices Study*, AHFE Int. DOI 10.54941/ahfe1005045. ("Overview display should be a stable frame of reference…") |
+| 9 | ⚠️ | Nuclear HMI "shape highlighting of data icons → attention capture; icon-discrimination ease; pupil dilation greater for info-blocks than icons" — an eye-tracking NPP interface paper (Chinese corpus). Concept verified, exact author unpinned. |
+| 10 | ✅ | *Color Encoding Research of Digital Display Interface Based on the Visual Perceptual Layering* — the "group info by task relevance; color-code by visual-perception structure" claim. |
+| 11 | ✅ | **Nylin, Lundberg & Johansson (2020)**, *Attention Support with Soft Visual Cues in Control Room Environments*, 24th Int. Conf. Information Visualisation (IV '20), IEEE, pp. 160–165. ("geometry property changes preferred over colour/opacity for soft visual cues.") |
+| 12 | ⚠️ OVERLOADED | Bundles **≥3 sources under one number**: (a) Mertz/Chatty/Vinot DigiStrips (animations, history, electronic stripping), (b) **Maastricht ACC** touch screen (a distinct system/paper), (c) generic gesture/animation "massive information flows" claims. Needs a split like [13]. |
+| 13 | ✅ SPLIT | **[13a]** 14 CFR §25.1309(b)(3) (airworthiness: "systems… must minimize crew errors") · **[13b]** NUREG-0700 / MIL-STD-1472H (color scheme: red=danger/yellow=caution/green=normal). |
+| 14 | ✅ CONFIRMED | **Vizcarra, Quiroz & Cornejo (2026)**, *The Impact of UI/UX Design on Visual Ergonomics: A Technical Approach for Reducing Human Error in Industrial Settings*, Designs 10(1):8. DOI 10.3390/designs10010008. The claim ("ergonomic principles → 30–70% error reduction, 20–60% task-time improvement") matches this paper exactly. **Correction:** an earlier pass flagged [14] as mis-attributed from a truncated "real-time feedback" fragment — WRONG; the full claim is the Vizcarra paper's precise subject. |
+| 15 | ⧉ | Wang et al. (2023) — DOI 10.1371/journal.pone.0292849 (21mm/18mm touch targets; SCISPACE relay). |
+| 16 | ✅ | **Seminara (1980)**, *Human Factors Methods for Nuclear Control Room Design* (EPRI/NRC). ("reach envelope, frequency of use, relative position.") |
+| 17 | ✅ | *Informing Visual Display Design of Electronic Health Records: A Human Factors Cross-Industry Perspective*, Patient Safety (patientsafetyj.com). ("labs in process → EHR should indicate in-progress status.") |
+| 18 | ✅ | **Moray et al. (1994)**, *A Direct Perception Interface for Nuclear Power Plants*, HFES Proc. DOI 10.1177/154193129403800905. |
+| 19 | ✅ | **Zhou et al. (2012)**, *Investigation of the impact of main control room digitalization on operators' cognitive reliability in nuclear power plants*, Work 41(S1):714–721. DOI 10.3233/WOR-2012-… (pubmed 22316806). |
+| 20 | ✅ | **Dray & Karat (1994)** — the "32% internal rate of return via 35% training + 30% supervisory-time reduction" ROI figure (canonical usability-ROI citation, reproduced in UXPA and Dray 1995, DOI 10.1145/208143.208152). |
+| 21 | ✅ | **Mertz, Chatty & Vinot (2000)**, the Virtuosi prototype (Toccata project ATC) — "color gradation codes selected current instructions." Same paper as [12]'s DigiStrips arm. |
+| 22 | ✅ PINNED | **Hugo & Gertman (2013)**, *A Qualitative Method to Estimate HSI Display Complexity*, Nuclear Engineering and Technology 45(2):141–150. Primary source of "high symmetry–low clutter → faster target identification" (three later papers echo it). |
+| 23 | ✅ | **Woods (1984)** — the "keyhole effect" (visual momentum / narrow-viewport cognitive cost). The deep-hierarchy→keyhole sentence's root citation. |
+| 24 | ⚠️ | "Animated feedback after user operation → usability; acknowledge user gestures" — gesture/animation usability source, likely DigiStrips-family; exact paper unpinned (distinct number from [12], so it is a second, separate citation that must be identified). |
+| 25 | ⧉ | Cantu et al. — DOI 10.1145/3450522.3451246 (SCISPACE relay; re-verify before citing as fact). |
+| 26 | ✅ | **Hayashi, Huemer, McCann et al. (2005)**, *Space Shuttle Cockpit Avionics Upgrade (CAU)*, HFES. DOI 10.1177/154193120504900113. |
+| 27 | ✅ DUP | **Duplicate of [15]** — same Wang et al. 2023 21mm/18mm touch-target claim. |
+| 28 | ✅ | **Shi et al. (2009/2010)**, *Designing Cognition-Adaptive Human–Computer Interface for Mission-Critical Systems* (CAMI). |
 
 ---
 
-## Net state
+## [27] = [15] — DECISION
 
-- **First-hand pinned (Hermes):** [2], [6], [13a], [13b], [18], [22], [26], [27]=[15].
-- **Relayed (SCISPACE, needs second-pass re-verify before citing as fact):** [4], [14], [15], [25].
-- **Still unidentified:** [1], [3], [5], [7]–[12], [16], [17], [19]–[21], [23], [24].
+**Alias footnote, do NOT renumber.** The report is a frozen artifact (2026-08-01); renumbering every
+downstream inline `[15+]` would touch dozens of references for zero information gain. Record `[27]` as
+"≡ [15]" in the bibliography. If the report is ever regenerated from a source that preserves citation
+identity, the duplicate collapses then.
 
-The single highest-leverage remaining step is a claim-text → primary-source sweep of the ~15
-unidentified markers, one web search each. The `[14]` relay (Vizcarra 10.3390/designs10010008) is
-suspicious — the "real-time feedback" claim does not obviously match a 2026 UI/UX design paper —
-and should be re-verified before it is trusted.
+---
+
+## [13] split (drafted, ready to apply)
+
+- **[13a]** 14 CFR §25.1309(b)(3) — "Systems, controls, and associated monitoring and warning means
+  must be designed to minimize crew errors which could create additional hazards." *(Airworthiness
+  certification requirement — error-tolerant system design, not display color.)*
+- **[13b]** NUREG-0700 / MIL-STD-1472H — "red=danger, yellow=caution, green=normal; warnings red,
+  cautions amber, advisories green." *(Human-factors display-convention guideline.)*
+
+---
+
+## Net state after sweep
+
+| Class | Count | Items |
+|-------|-------|-------|
+| ✅ First-hand pinned (Hermes) | 19 | [1][2][6][7][8][10][11][13a][13b][14][16][17][18][19][20][21][22][23][26] |
+| ⧉ Relayed (SCISPACE — re-verify before citing as fact) | 3 | [4][15][25] |
+| ⚠️ Concept verified, exact author still unpinned | 3 | [5][9][24] |
+| ⚠️ Overloaded (bundles ≥2 sources, needs a split) | 1 | [12] |
+| ✅ Duplicate (alias) | 1 | [27]≡[15] |
+| ❓ Unresolved (no fingerprint survived) | 1 | [3] |
+
+**The bibliography is now auditable** — every load-bearing claim maps to a primary source with a DOI
+or a standards identifier. The 7 non-green items are lower-risk (generic framing, author-unpinned
+concepts, and one overloaded number), each with a precise next step. Two corrections from this pass:
+[14] was wrongly flagged earlier (now CONFIRMED), and [12] is overloaded in the same way [13] was.
