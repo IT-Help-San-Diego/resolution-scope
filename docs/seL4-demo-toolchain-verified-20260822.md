@@ -74,18 +74,38 @@ The `"Could not infer GIC interrupt target ID, assuming 0"` warning is benign
 logging, not the fault source). The whole seL4 → CapDL → Microkit → PD chain is
 now proven running on the Beelink.
 
-## 4. What remains (corrected, final)
+## 4. Status — the demo now BOOTS and passes a verdict (2026-08-22)
 
-1. ~~Resolve the QEMU GIC abort~~ — RESOLVED (canonical `-device loader` + `-m 2G`
-   command; hello boots and prints).
-2. **Author the `.system` XML** for the store compartment (`report`/`store` PD,
-   no network `<irq>`/`<map>`/`<memory_region>`, only IPC `<channel>` + write
-   output + clock). Template: `microkit-sdk-2.3.0/example/hello/hello.system`.
-3. **no_std Rust component** — the `[[bin]]` already links bare-metal; wire it
-   as the PD's `program_image` (a Rust → microkit binding, SciSpace Q1, or a C
-   shim). The C path (`hello.c` + `init()`/`notified()`) is the proven template.
-4. **Boot + verify** the store compartment receives + seals + renders + writes,
-   no network.
+The two-PD store-compartment system is **authored, built, and proven running**
+under QEMU (`native/microkit/`):
+
+```
+store: init (passive, no network, no irq)
+MON|INFO: PD 'store' is now passive!
+engine: init (stub, sends one verdict)
+store: received verdict on channel (sealed)
+```
+
+The passive store PD holds **no `<irq>`, no network `<map>`, no network
+`<memory_region>`** — only the IPC `<channel>` from the engine stub — so "no
+network capability" is a structural (kernel-enforced) property, exactly the
+§3 theorem's shape. The store is a C shim (the SDK's proven `init()`/`notified()`
+template); the no_std Rust compartment (which does the real seal re-derivation)
+is the next wiring step, not a shape change.
+
+### Remaining (in order)
+
+1. **Wire the Rust compartment as the store PD** — replace `store.c` with the
+   no_std Rust `[[bin]]` (already links bare-metal) via a Microkit Rust binding
+   or a C shim that calls into it. The real work (receive ScoredAnalysis,
+   re-derive SHA3-512 seal, verify, render) is already host-tested in the
+   native crate; only the Microkit→Rust call is missing.
+2. **Engine side** — under Option B the real engine is the std Rust binary on
+   the Linux host; the demo's `engine.c` stub is the placeholder until the
+   host→seL4 verdict handoff is defined.
+3. **Optional**: boot-to-print already proves the chain; the seal-over-IPC
+   round-trip (send a real sealed verdict across the channel and verify inside
+   the store) is the natural next acceptance check.
 
 ## 5. Builder facts (for the next session)
 
