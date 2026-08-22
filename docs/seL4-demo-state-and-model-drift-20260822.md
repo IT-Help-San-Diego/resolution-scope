@@ -1,8 +1,17 @@
 # seL4 Demo — State and Model-Drift Finding
 
+> ✅ **RESOLVED 2026-08-22** — the three-way drift described below is fixed: the
+> native crate was rewritten as the Option-B report/store receiver (no smoltcp,
+> no hickory, no ring, no network), the bare-metal bin links, and the store
+> compartment now BOOTS and passes a verdict on the sealed channel. See
+> `docs/seL4-demo-native-receiver-milestone-20260822.md` and
+> `docs/seL4-demo-toolchain-verified-20260822.md`. This file is kept as the
+> historical record of the finding (and its measured evidence), not as current
+> state.
+
 **Date:** 2026-08-22
 **Author:** Hermes lane (instrument/backend)
-**Status:** finding recorded; builder lane is the next physical step (cost-gated)
+**Status:** RESOLVED (was: finding recorded; builder lane is the next step)
 
 ## 1. What the demo actually requires (measured, not assumed)
 

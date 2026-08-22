@@ -1,6 +1,27 @@
 /*
  * dns_sovereign_compartment.cdl
  *
+ * ⚠️ OBSOLETE — NOT AN AUTHORING ARTIFACT (superseded 2026-08-22)
+ *
+ * This hand-written capDL sketch is SUPERSEDED. LionsOS builds on seL4
+ * Microkit, whose `bin/microkit` tool GENERATES capDL from a `.system` XML
+ * description — capDL is not hand-authored, and this file was never valid
+ * capDL syntax (see docs/capdl-syntax-finding-20260822.md) nor the artifact
+ * the toolchain consumes. The AUTHORING artifact is now:
+ *
+ *     native/microkit/dns_sovereign_compartment.system
+ *
+ * Do NOT treat this file as build input. It survives only as a historical
+ * sketch of the capability INTENT (which capabilities the compartment should
+ * hold), now encoded for real in the `.system` (memory regions, protection
+ * domains, channels). See docs/seL4-demo-microkit-sdk-correction-20260822.md.
+ *
+ * The "machine-checkable artefact" claim below was TRUE of the CAmkES/capDL
+ * world this file was written against and is now FALSE — the machine-checkable
+ * boundary is the Microkit-generated capDL + the seL4 kernel's enforcement.
+ *
+ * --- original header follows (historical) ---
+ *
  * capDL capability description for the dns-tool-sovereign seL4 compartment.
  *
  * This file is the machine-checkable artefact that enforces the privacy

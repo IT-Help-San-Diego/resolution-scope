@@ -1,5 +1,11 @@
 # Phase 2 sDDF compatibility — LionsOS 0.4.0 impact note
 
+> ⚠️ **SUPERSEDED 2026-08-22** — this note analyzed `native/src/sddf_device.rs`,
+> which was DELETED when the native crate was rewritten as the Option-B
+> report/store receiver (no smoltcp, no sDDF adapter). The `.system` XML now
+> encodes the compartment shape (`docs/seL4-demo-native-receiver-milestone-20260822.md`).
+> Kept only as a historical record of the pre-B sDDF-adapter analysis.
+
 **Date:** 2026-08-22
 **Trigger:** LionsOS shipped 0.4.0 (2026-08-21), one day before this note. The
 release updated the seL4 Device Driver Framework (sDDF) — the layer the Phase 2

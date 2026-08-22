@@ -15,10 +15,17 @@ The requirement for a native (no-Linux) engine is **not** a tokio port:
     resolver — 6 goroutines, 6 channels, 7 timeout contexts.
   - `analyzer/orchestrator.go`: 4 fan-out goroutines; `dkim.go`: 2;
     `dane.go`: 1.
-- **The requirement, stated precisely:** a native service must issue N
-  concurrent UDP queries over the no-std stack (smoltcp) with independent
-  per-query deadlines. That is job scheduling, not a general-purpose async
-  runtime.
+- **The requirement, stated precisely (PRE-OPTION-B, superseded 2026-08-22):** a
+  native service must issue N concurrent UDP queries over the no-std stack
+  (smoltcp) with independent per-query deadlines. That is job scheduling, not a
+  general-purpose async runtime.
+
+  **SUPERSEDED by Option B (§7):** under the adopted decision, the seL4
+  compartment is the report/store RECEIVER — no smoltcp, no network, no
+  resolver (see `docs/seL4-demo-native-receiver-milestone-20260822.md`). The
+  smoltcp/sDDF fan-out question is therefore not on the compartment's path; it
+  remains relevant only to Option A (upstream no_std DNSSEC), which is a
+  no-deadline long-term item, not the current build.
 
 A serial sweep is the wrong instrument regardless: the parallel sweep is
 what makes cross-resolver disagreement measurable in a single pass — the
@@ -26,12 +33,20 @@ tool's entire DNSSEC/consensus story.
 
 ## 2. Guest-deletion acceptance criterion
 
-**Milestone gate:** can a native LionsOS service issue five concurrent
-smoltcp UDP queries with independent per-query deadlines?
+**Milestone gate (PRE-OPTION-B, superseded 2026-08-22):** can a native LionsOS
+service issue five concurrent smoltcp UDP queries with independent per-query
+deadlines?
 
 - **Yes** → the Linux guest layer is deletable from the architecture.
 - **No** → the guest stays, and every public claim narrows to what was
   measured.
+
+  **SUPERSEDED by Option B (§7):** this gate tested the pre-B "DNS engine inside
+  the compartment" shape. The adopted shape is storage isolation — the store
+  holds no network capability and cannot be drained (the §3 theorem) — so the
+  guest-deletion question is decoupled from the smoltcp fan-out. The current
+  milestone is the store-compartment boot + verdict-over-channel proof
+  (`docs/seL4-demo-toolchain-verified-20260822.md` §4).
 
 The criterion is testable in the spike and is the go/no-go for removing the
 nested layer.
