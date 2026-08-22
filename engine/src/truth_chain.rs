@@ -209,8 +209,9 @@ fn rfc_requirement(control: ControlId) -> &'static str {
              certificates for the domain; CAs are required to honor them."
         }
         ControlId::Cds => {
-            "Optional (RFC 7344). CDS/CDNSKEY at the apex signal automated DS \
-             maintenance to the parent zone."
+            "Optional (RFC 7344, Informational — not Standards Track). CDS/CDNSKEY at the apex \
+             signal automated DS maintenance to the parent zone; the parent MAY act on it but is \
+             not normatively required to."
         }
     }
 }
@@ -612,8 +613,8 @@ fn cds_report(d: CdsDisposition) -> ControlReport {
         CdsDisposition::Published => (
             "published — automated DS maintenance signaled",
             Severity::Ok,
-            "The zone advertises CDS/CDNSKEY, so the parent can maintain the DS automatically — key rollovers won't strand the chain.",
-            "DS rotation is automated; a stale-DS window during rollover is unlikely.",
+            "The zone advertises CDS/CDNSKEY, so a parent that honors RFC 7344 §6.2 can maintain the DS automatically — key rollovers won't strand the chain. This is an observation about what the child published, not a mandate on the parent: RFC 7344 is Informational.",
+            "DS rotation is automated only if the parent honors the signal; RFC 7344 does not normatively require it to.",
         ),
         CdsDisposition::DeletionRequested => (
             "deletion-requested — null CDS/CDNSKEY (RFC 8078 §4)",
