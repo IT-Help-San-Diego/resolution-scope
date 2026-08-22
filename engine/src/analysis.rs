@@ -1845,7 +1845,7 @@ mod tests {
             "D4: validation fails = bogus/broken"
         );
 
-        // --- SPF (RFC 7208 §5.1; null MX RFC 7505 §3) ---
+        // --- SPF (RFC 7208 §4.6.2 qualifiers, §4.5 none-result; null MX RFC 7505 §3) ---
         assert_eq!(
             spf_disposition_from_records(&["v=spf1 include:_spf.google.com -all".to_string()]),
             SpfDisposition::HardFail,
@@ -1855,6 +1855,11 @@ mod tests {
             spf_disposition_from_records(&["v=spf1 include:_spf.google.com ~all".to_string()]),
             SpfDisposition::SoftFail,
             "S2: ~all = soft fail (advisory)"
+        );
+        assert_eq!(
+            spf_disposition_from_records(&["v=spf1 +all".to_string()]),
+            SpfDisposition::OtherPolicy,
+            "G5: +all = permissive, never misread as enforced"
         );
         assert_eq!(
             spf_disposition_from_records(&[]),
@@ -1879,7 +1884,7 @@ mod tests {
             "K3: valid key"
         );
 
-        // --- DMARC (RFC 9989 §4.5) ---
+        // --- DMARC (RFC 9989 §4.7) ---
         assert_eq!(
             dmarc_disposition_from_record("v=DMARC1; p=reject"),
             DmarcDisposition::Reject,
@@ -1889,6 +1894,11 @@ mod tests {
             dmarc_disposition_from_record("v=DMARC1; p=none"),
             DmarcDisposition::Monitor,
             "M2: p=none = monitor"
+        );
+        assert_eq!(
+            dmarc_disposition_from_record("v=DMARC1; p=quarantine"),
+            DmarcDisposition::Quarantine,
+            "G1: p=quarantine = intermediate enforcement"
         );
         assert_eq!(
             dmarc_disposition_from_record("v=DMARC1; p=bogus"),
@@ -1929,7 +1939,7 @@ mod tests {
         // record-value level here, not the disposition level — flagged for the
         // next pass to decide whether value-grading belongs in the disposition.
 
-        // --- CDS/CDNSKEY (RFC 7344 §4, Informational) ---
+        // --- CDS/CDNSKEY (RFC 7344 §4.1/§5/§6.2, Informational) ---
         // CdsDisposition::Published vs NotPublished is presence-based; the
         // match-vs-differ (rollover) distinction lives in the DS comparison,
         // which is not part of this pure-function surface. Presence is asserted.

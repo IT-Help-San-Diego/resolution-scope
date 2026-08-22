@@ -1,10 +1,12 @@
 # Arm 2 — RFC known-answer vectors
 
-**Status:** corpus drafted + §-citations VERIFIED against current RFC text
-(2026-08-21, rfc-editor.org). Verification done by Hermes directly — the
-Claude-Science §-check was the one step this arm could not leave to a paid
-lane, and it is done. The load-bearing finding: the original table carried TWO
-wrong citations, corrected here.
+**Status:** corpus drafted, §-citations verified against current RFC text
+(2026-08-21, rfc-editor.org) by Hermes, then independently re-verified by
+**SciSpace** (2026-08-22) reading all 9 RFCs at the byte level. SciSpace
+confirmed the two original corrections AND found eight more §-level
+imprecisions (SPF qualifier semantics, DMARC p= tag location, CDS match/differ
+sections). All eight verified first-hand against the RFC text and corrected
+below. Net: the corpus is now section-accurate against the primary sources.
 
 ## Why now
 
@@ -47,6 +49,25 @@ expected disposition). The RFC is the oracle, not the other engine.
    published for informational purposes." A vector citing it as normative
    over-claims.
 
+### SciSpace independent pass (2026-08-22) — eight more corrections
+
+SciSpace read all 9 RFCs from rfc-editor.org and found these additional
+§-imprecisions. **Each was re-verified first-hand against the RFC text before
+acceptance** (SPF 7208: §4.6.2 qualifier table + §4.5 "none" result; DMARC
+9989: §4.7 policy record format; CDS 7344: §4.1/§5/§6.2):
+
+| vector | was | corrected to | RFC anchor |
+|---|---|---|---|
+| S1, S2 | 7208 §5.1 | **§4.6.2** | §5.1 only says `all` "always matches"; the `-`/`~` qualifier semantics are the §4.6.2 table |
+| S3 | 7208 §3 | **§4.5** | §4.5 "Selecting Records": "If the resultant record set includes no records, check_host() produces the 'none' result." |
+| M1–M3 | 9989 §4.5 | **§4.7** | §4.5 is overview; §4.7 "DMARC Policy Record Format" defines the `p=` values (`none`/`quarantine`/`reject`) |
+| N1 | 7344 §4 | **§4.1 (§5)** | §4.1 processing rules + §5 "When the Parent DS is in sync with the CDS/CDNSKEY" |
+| N2 | 7344 §4 | **§6.2** | §6.2 "Using the New CDS/CDNSKEY Records": "if the … CDS/CDNSKEY and DS differ, it may apply the changes" |
+| N3 | 7344 §4 | **§4.1** | §4.1 "If there is neither CDS nor CDNSKEY RRset in the Child, this signals [no change]" |
+
+The arm's prior "two defects" (DANE §1.3.2, CDS Informational) were both
+re-confirmed by SciSpace as correct.
+
 ## The vectors (citation = verified)
 
 ### 1. DNSSEC
@@ -62,9 +83,9 @@ expected disposition). The RFC is the oracle, not the other engine.
 
 | # | § | statement | input | expected |
 |---|---|---|---|---|
-| S1 | 7208 §5.1 | `all` mechanism; `-all` = "no other hosts authorized" (hard fail) | `v=spf1 ... -all` | enforced (Present) |
-| S2 | 7208 §5.1 | `~all` = soft-fail (advisory) | `v=spf1 ... ~all` | deployed-not-enforcing |
-| S3 | 7208 §3 | no SPF TXT → None result | (absent) | `NotConfigured` (Absent) |
+| S1 | 7208 §4.6.2 | `all` mechanism; `-all` = "no other hosts authorized" (hard fail) | `v=spf1 ... -all` | enforced (Present) |
+| S2 | 7208 §4.6.2 | `~all` = soft-fail (advisory) | `v=spf1 ... ~all` | deployed-not-enforcing |
+| S3 | 7208 §4.5 | no SPF TXT → None result | (absent) | `NotConfigured` (Absent) |
 | S4 | 7505 §3 | null MX ⇒ SPF not applicable | MX `0 .` | `NoMail` (NotApplicable) |
 
 ### 3. DKIM (RFC 6376)
@@ -79,9 +100,9 @@ expected disposition). The RFC is the oracle, not the other engine.
 
 | # | § | statement | input | expected |
 |---|---|---|---|---|
-| M1 | 9989 §4.5 | `p=reject` = reject failures | `v=DMARC1; p=reject` | enforced (Present) |
-| M2 | 9989 §4.5 | `p=none` = monitor | `p=none` | monitoring |
-| M3 | 9989 §4.5 | no DMARC | (absent) | `NotConfigured` (Absent) |
+| M1 | 9989 §4.7 | `p=reject` = reject failures | `v=DMARC1; p=reject` | enforced (Present) |
+| M2 | 9989 §4.7 | `p=none` = monitor | `p=none` | monitoring |
+| M3 | 9989 §4.7 | no DMARC | (absent) | `NotConfigured` (Absent) |
 
 ### 5. DANE (RFC 7672)
 
@@ -111,9 +132,43 @@ expected disposition). The RFC is the oracle, not the other engine.
 
 | # | § | statement | input | expected |
 |---|---|---|---|---|
-| N1 | 7344 §4 | CDS matches DS = normal | CDS present, matches | Present |
-| N2 | 7344 §4 | CDS ≠ DS = rollover in progress | CDS present, differs | rollover-in-progress |
-| N3 | 7344 §4 | no CDS | (absent) | `NotConfigured` (Absent) |
+| N1 | 7344 §4.1 (§5) | CDS matches DS = normal | CDS present, matches | Present |
+| N2 | 7344 §6.2 | CDS ≠ DS = rollover in progress | CDS present, differs | rollover-in-progress |
+| N3 | 7344 §4.1 | no CDS | (absent) | `NotConfigured` (Absent) |
+
+## SciSpace design rulings + corpus gaps (accepted 2026-08-22)
+
+Two design questions were put to SciSpace and ruled; five corpus gaps were
+flagged. Status below is the **current engine state** (verified against
+`analysis.rs`), so "gap" is classified honestly as documentation-gap vs
+code-gap.
+
+### Rulings
+
+- **Ruling A — CAA `issue ";"` is a distinct third state, not "has CAA".**
+  RFC 8659 §4.2 gives `issue ";"` an explicit normative definition ("request
+  no issuance"). Accepted in principle. **Engine status:** `CaaDisposition` is
+  presence-based (Configured/NotConfigured) today; the fully-restricted
+  semantics are recorded at the record-value level but not graded. This is the
+  "value-grading" next-pass decision the code comment at `analysis.rs`
+  (CAA block) already flags — carded, not yet built.
+- **Ruling B — keep CDS match-vs-differ, with an Informational calibration
+  note.** The rollover-in-progress inference is grounded in §6.2 and is
+  security-relevant, but RFC 7344 is Informational — so the disposition is an
+  *observation* ("CDS ≠ DS present"), not a mandate on the parent. **Engine
+  status:** `CdsDisposition` is presence-based; the match/differ comparison is
+  not part of this pure-function surface. Accepted; calibration note added to
+  the code comment.
+
+### Gaps (engine state verified)
+
+| gap | RFC | engine state | classification |
+|---|---|---|---|
+| G1 — `p=quarantine` | 9989 §4.7 | `DmarcDisposition::Quarantine` **already exists** | doc-gap — assertion added |
+| G5 — SPF `+all` | 7208 §4.6.2 | `SpfDisposition::OtherPolicy` **already covers it** (never misread as HardFail) | doc-gap — assertion added; the "open-relay red flag" *severity* nuance is a design refinement, carded |
+| G2 — null CDS `0 0 0 00` (delete-DS) | 7344 §4.3 | not distinguished — presence-based | **code-gap**, carded |
+| G3 — MTA-STS `mode=testing` vs `enforce` | 8461 §3.3 | `MtaStsDisposition::Enforced`/`NotEnforced` exist, but mode-grading in the fetched body is not asserted here | doc-gap (partial) — carded |
+| G4 — CAA `issuewild` | 8659 §4.2 | not distinguished — presence-based | **code-gap**, carded |
 
 ## Remaining build
 
