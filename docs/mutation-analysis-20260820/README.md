@@ -19,20 +19,21 @@ carried a full study.
 | `cdeecf8` | 114 | 59 | 21 | 34 | docs + the trailing-dot test now in production shape (test-only; `missed` and `total` unchanged) |
 | `85a87ae` | 115 | 68 | **12** | 35 | close the nine scoring-path survivors: centralize the four `!is_empty()` gates into `answers_present`, extract `mta_sts_absent_without_hint` + `mta_sts_policy_from_response` (fetch inlined — no `Result`-returning async helper left to fabricate), pin `mta_sts_policy_state`'s testing-or-none arm — the 12 left are all cosmetic |
 | `main` (post-PR #14, `d7d99eb`) | 149 | 95 | **19** | 35 | Arm 3 baseline: the DnssecRequired work (2026-08-21) + PR #14's three dispositions re-grew 7 scoring-path survivors — `dkim_txt_chunks` 3, `zone_apex_of` 3, `tlsa_err_to_count` NXDomain-guard 1 (the 12 cosmetic unchanged) |
-| Arm 3 close | 156 | 106 | **15** | 35 | extract `zone_apex_of`'s pure cores (`soa_owner_from_answers` + `soa_owner_from_error`), pin `dkim_txt_chunks` + the `tlsa_err_to_count` NXDomain guard — 4 of 7 scoring-path survivors closed; the remaining 3 are all `zone_apex_of` *return-value delegates* on the async wrapper (thin-shell, pure cores now 0-missed) |
+| Arm 3 close | 156 | 106 | **15** | 35 | extract `zone_apex_of`'s pure cores (`soa_owner_from_answers` + `soa_owner_from_error`), pin `dkim_txt_chunks` + the `tlsa_err_to_count` NXDomain guard — 4 of 7 scoring-path survivors closed; the remaining 3 are all `zone_apex_of` *return-value delegates* on the async wrapper (thin-shell, pure cores now 0-missed). **Author-recorded, no backing file** |
+| `802e872` (MEASURED) | 143 | 109 | **7** | 27 | extract `apex_from_soa_result` (the Ok/Err dispatcher) + 4 tests → `zone_apex_of` is a 3-line I/O shell. The 8 `Display::fmt` impls left scope via the types extraction (`4826798`). **`outcomes.json` committed — the only row with a backing file.** The 7 = 3 `zone_apex_of` replace-body + 4 cosmetic (rand/unix); 0 scoring logic |
 
 **Only `missed` is comparable across steps.** Extraction creates new pure
 functions, so `total` and `caught` grow (101→109) as the mutable surface expands
 — more functions means more mutants to make. The `missed` count is the one
 figure that tracks progress cleanly: fewer survivors is the goal, and it fell
-44 → 12. (The `total` column counts mutant scenarios only — it excludes the one
+44 → 7. (The `total` column counts mutant scenarios only — it excludes the one
 baseline `Success` record, so `total = caught + missed + unviable` on every
 row.)
 
 ```
-# current HEAD (85a87ae)
+# current HEAD (802e872, measured — outcomes.json committed)
 cargo-mutants 27.1.0
-total=115 caught=68 missed=12 timeout=0 unviable=35 success=0
+total=143 caught=109 missed=7 timeout=0 unviable=27 success=0
 ```
 
 ## The baseline (44 missed) — where it concentrated
@@ -73,33 +74,57 @@ The DKIM path is genuinely clean: `dkim_disposition_from_counts` 12/0,
 longer CONTAINING killable logic** (their only remaining mutants are "unviable"
 — the tool could not compile a testable form). Do not read 0/0 as coverage.
 
-## What remains (3 scoring-path + 12 cosmetic)
+## What remains — MEASURED (2026-08-22, commit `802e872`): 3 I/O-shell + 4 cosmetic
 
-- `zone_apex_of` **3** — the async wrapper's *return-value delegates*: the `Ok(resp) =>`
-  and `Err(e) =>` match arms and their collapse. The pure cores (`soa_owner_from_answers`,
-  `soa_owner_from_error`) are **0-missed and pinned**; the survivors are the wrapper's
-  delegation glue, which cannot be driven without a mock-resolver seam — hickory's
-  `TokioResolver` has no test seam, so the extraction-not-mocking method bottoms out here.
-  Planned fix (the `observe_flux` shape): inject a resolver seam, or extract a pure
-  `apex_from_result(answers, error)` dispatcher so the Ok/Err decision is testable.
-- 12 cosmetic (8 `Display::fmt` + `rand_session_id` + `unix_now`).
+The `cargo mutants --file src/analysis.rs` re-run against the post-extraction tree
+is committed as `outcomes.json` (see the progression table's last row):
 
-> The earlier "9 scoring-path" list (`fetch_mta_sts_policy`, `score_cds_cdnskey`,
-> `score_caa`, `score_dnssec`, `score_mta_sts`, `mta_sts_policy_state`) was **closed** in
-> `85a87ae` (the "close the nine scoring-path survivors" step); a later pass re-grew 7
-> (post-PR #14) and Arm 3 closed 4 of those, leaving the 3 `zone_apex_of` delegates above.
+```
+total=143 caught=109 missed=7 timeout=0 unviable=27 success=0
+```
 
-## Provenance honesty (the outcomes.json gap)
+The **7 missed** are two classes, and neither is scoring logic:
 
-Only **one** `outcomes.json` is committed to the tree — the `85a87ae` state
-(`total=115 caught=68 missed=12 unviable=35`). The progression table's last two rows
-(post-PR #14 = 19 missed, Arm 3 close = 15 missed) are **author-recorded numbers without
-a committed backing file**, which breaks this README's own rule ("each step's raw
-`outcomes.json` committed, reproducible"). The code for Arm 3 (the `zone_apex_of` pure-core
-extraction) IS on main; the re-run that would produce the 156/106/15/35 file has not been
-committed. Until it is, the "15 missed" figure is a claim to re-measure, not a recorded
-measurement. Reproduce with `cargo mutants --file src/analysis.rs` against current HEAD,
-then `python3 scripts/mutation_summary.py mutants.out/outcomes.json`.
+- `zone_apex_of` **3** — the async wrapper's *replace-body* mutants (`-> None`,
+  `-> Some(String::new())`, `-> Some("xyzzy")`). The Ok/Err dispatch was extracted
+  into `apex_from_soa_result` (which is **0-missed**, 3 caught), so the wrapper is
+  now a 3-line I/O shell; the "replace body with a constant" mutant survives only
+  because no test drives a live `TokioResolver` lookup. This is the irreducible
+  `observe_flux` residual — the thin network wrapper, stated not hidden. Closing
+  it needs a resolver seam (mock), which the extraction-not-mocking doctrine
+  deliberately declines.
+- `rand_session_id` **2** + `unix_now` **2** — run metadata (session id, timestamp),
+  deliberately excluded from the seal; cosmetic by design.
+
+**The 8 `Display::fmt` misses from the earlier "12 cosmetic" are gone from this
+file's scope** — the type extraction (commit `4826798`) moved the disposition
+`Display` impls into `types/src/dispositions.rs`, so `--file src/analysis.rs` no
+longer mutates them. They remain untested (cosmetic), now under the types crate.
+
+Every pure scoring function is **0-missed**: `apex_from_soa_result` 3/0,
+`soa_owner_from_answers` 3/0, `soa_owner_from_error` 4/0, `tlsa_err_to_count` 11/0,
+`record_absence_verdict` 5/0, `dkim_disposition_from_counts` 12/0,
+`dkim_disposition_from_probes` 10/0, `build_dkim_selector_list` 5/0,
+`caa_fully_restricted` 4/0, `caa_wildcard_fully_restricted` 4/0, and every
+`score_*` wrapper reads 0/0 (not covered, but no longer containing killable
+logic — their only mutants are unviable).
+
+## Provenance — the gap is now closed
+
+The committed `outcomes.json` is the post-extraction measurement above, produced
+by `cargo mutants --file src/analysis.rs` at commit `802e872` and copied from
+`engine/mutants.out/`. Reproduce with:
+
+```bash
+cd engine
+cargo mutants --file src/analysis.rs
+python3 ../scripts/mutation_summary.py mutants.out/outcomes.json
+```
+
+The progression table's earlier "post-PR #14 = 19 missed" and "Arm 3 close = 15
+missed" rows were author-recorded without a backing file; the current row is the
+measured one and supersedes them. The "15 missed" figure was wrong — the true
+post-extraction count is **7**, of which 0 are scoring logic.
 
 ## Method: one assertion per source (mutation-detectable test defects)
 
@@ -157,12 +182,15 @@ does-not-establish section — a strong claim states its boundary.
 
 ## What this is and is not
 
-**Is:** raw, re-derivable evidence, one committed `outcomes.json` per step.
-Reproduce with `cargo mutants --file src/analysis.rs` against any listed commit,
-then `python3 scripts/mutation_summary.py mutants.out/outcomes.json`.
+**Is:** raw, re-derivable evidence — the post-extraction `outcomes.json` is
+committed (`total=143 caught=109 missed=7 unviable=27`). Reproduce with
+`cargo mutants --file src/analysis.rs`, then
+`python3 scripts/mutation_summary.py mutants.out/outcomes.json`.
 
-**Is not:** finished. The remaining scoring-path survivors are the assembly
-logic inside async loops; closing them is behaviour-preserving extraction and is
-unblocked without the calibration spec. The spec (RFC known-answer vectors,
-reference-uncertainty handling) is needed only for the calibration arms, not for
-the extraction.
+**Is not:** a claim of full coverage. The 7 misses are the irreducible residual —
+3 `zone_apex_of` replace-body mutants (the async I/O shell, untestable without a
+resolver seam) and 4 cosmetic run-metadata (`rand_session_id`/`unix_now`,
+deliberately excluded from the seal). Zero scoring logic is missed. The
+extraction is complete: the remaining I/O shell is a thin wrapper, and the only
+way to close its 3 replace-body mutants is a resolver seam (mock), which the
+extraction-not-mocking doctrine deliberately declines.
