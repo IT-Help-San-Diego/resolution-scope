@@ -112,6 +112,7 @@ pre.report {
 
 .report .pass { color: var(--green); font-weight: 700; }
 .report .fail { color: var(--red); font-weight: 700; }
+.report .indet { color: var(--copper); font-weight: 700; }
 .report .na { color: var(--text2); font-weight: 700; }
 .report .seal { color: var(--copper); word-break: break-all; white-space: pre-wrap; }
 .report .rederive { color: var(--text2); }

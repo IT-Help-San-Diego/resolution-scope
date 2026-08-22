@@ -59,29 +59,29 @@
   <div class="wrap">
     <h2>A real measurement, not a brochure</h2>
     <p>This is the engine's verbatim output for the domain you are reading right now — captured
-    2026-08-21 (UTC), seal included. The instrument does not flatter its operator: the failures below
+    2026-08-22 (UTC), seal included. The instrument does not flatter its operator: the failures below
     are real, and the domain publishes them anyway.</p>
     <div class="report-frame">
 <pre class="report">Resolution Scope — DNS Analysis Report
 Domain    : resolutionscope.com
 Engine    : 0.1.0
 Resolver  : cloudflare
-Timestamp : 1787321382 (unix epoch seconds, UTC)
-Session   : 61297f021125e559
-Seal      : <span class="seal">23d87f17178da9bf1e0c908ded244cfe556e955868218400d1c42c29329ec431264de122a003abbf6dc77ed99f0dd22accd3e3759dd84bc3ea6046a1e3178992</span>
+Timestamp : 1787377048 (unix epoch seconds, UTC)
+Session   : d8eff824b35b1e07
+Seal      : <span class="seal">b11db9448b85fa6215eb0fa8744056f29bd738769b8c9640523680e23d5edaf0ea33afdd589ac43088c73fd97260b691bd918ceb877efc0e5595126766208366</span>
 
 Control         Score    Measured
 ──────────────  ───────  ────────
 DNSSEC            <span class="pass">PASS</span>     signed + delegated — chain validates from the root
 SPF               <span class="pass">PASS</span>     hardfail (-all) — enforced
-DKIM              <span class="fail">FAIL</span>     key mismatch — selector resolves, key fails validation
+DKIM              <span class="indet">?</span>        wildcard *._domainkey — the selector sweep proves nothing
 DMARC             <span class="pass">PASS</span>     reject (p=reject) — enforced
 DANE              <span class="na">N/A</span>      no mail declared (null MX, RFC 7505)
 MTA-STS           <span class="fail">FAIL</span>     record absent — zone exists, no MTA-STS
-CAA               <span class="pass">PASS</span>     configured — issuance restricted to named CAs
+CAA               <span class="pass">PASS</span>     wildcard-fully-restricted — issuewild ";"
 CDS/CDNSKEY       <span class="fail">FAIL</span>     not published — zone exists, no CDS/CDNSKEY
 
-Score: 4/7 (57%)  |  unmeasured: 0  |  not-applicable: 1
+Score: 4/6 (66%)  |  unmeasured: 1  |  not-applicable: 1
 
 <span class="rederive">── Re-derive the seal (SHA3-512 of these exact bytes) ──
 resolution-scope-sha3-512-v2
@@ -90,17 +90,19 @@ resolutionscope.com
 cloudflare
 dnssec=SignedAndDelegated=Present
 spf=HardFail=Present
-dkim=KeyMismatch=Absent
+dkim=Wildcard=Indet
 dmarc=Reject=Present
 dane=NoMail=NotApplicable
 mta_sts=RecordAbsent=Absent
-caa=Configured=Present
+caa=WildcardFullyRestricted=Present
 cds=NotPublished=Absent
 ──────────────────────────────────────────────────────────</span></pre>
     </div>
     <p class="specimen-note">This domain declares no mail (null MX, RFC 7505) — so DANE is honestly
-    not-applicable rather than silently passed, and the DKIM failure is the domain's own email-lockdown
-    record measured exactly as published. Unmeasured is reported as unmeasured, never guessed.
+    not-applicable rather than silently passed, and DKIM is honestly indeterminate: a wildcard
+    <code>*._domainkey</code> record with a null key means no selector can be enumerated, so the
+    instrument reports "could not measure" instead of guessing a key verdict. Unmeasured is reported
+    as unmeasured, never guessed.
     The block beneath the score is the seal's complete input: hash those exact bytes with SHA3-512
     and you re-derive the seal above — the tamper-evidence claim, performable by anyone.</p>
   </div>
