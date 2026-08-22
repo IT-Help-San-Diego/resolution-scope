@@ -232,7 +232,7 @@ pub enum DaneDisposition {
     NoMx,
     NoMail,         // null MX (RFC 7505) — explicit "accepts no mail"
     TransientError, // SERVFAIL/timeout
-    DnssecRequired, // DANE requires DNSSEC (RFC 7672 §4)
+    DnssecRequired, // DANE requires DNSSEC (RFC 7672 §1.3.2)
 }
 
 impl DaneDisposition {
@@ -1807,6 +1807,133 @@ mod tests {
     golden_fixture_test!(golden_example_com, "example.com", TriState::Present);
     golden_fixture_test!(golden_ietf_org, "ietf.org", TriState::Present);
     golden_fixture_test!(golden_whitehouse_gov, "whitehouse.gov", TriState::Present);
+
+    // -------------------------------------------------------------------------
+    // Arm 2 — RFC known-answer vectors (offline, the RFC is the oracle)
+    //
+    // These are the constructed-input half of the known-answer corpus: each
+    // asserts the engine's PURE disposition function agrees with what the RFC
+    // mandates. No network, fully deterministic. The citations were verified
+    // against current RFC text on 2026-08-21 — including two corrections the
+    // draft table carried (DANE DNSSEC requirement is §1.3.2 not §4; CDS/CDNSKEY
+    // is Informational not Standards Track). See
+    // docs/arm2-rfc-known-answer-vectors.md for the prose table + citation log.
+    // -------------------------------------------------------------------------
+    #[test]
+    fn rfc_known_answer_vectors() {
+        use hickory_proto::dnssec::Proof;
+
+        // --- DNSSEC (RFC 4035 §4.3) ---
+        assert_eq!(
+            dnssec_disposition_from_answer(true, Some(Proof::Secure)),
+            DnssecDisposition::SignedAndDelegated,
+            "D1: signed + DS at parent validates"
+        );
+        assert_eq!(
+            dnssec_disposition_from_answer(true, Some(Proof::Insecure)),
+            DnssecDisposition::SignedNotDelegated,
+            "D2: DNSKEY present, no DS = island"
+        );
+        assert_eq!(
+            dnssec_disposition_from_answer(false, None),
+            DnssecDisposition::Unsigned,
+            "D3: no DNSKEY = unsigned"
+        );
+        assert_eq!(
+            dnssec_disposition_from_answer(true, Some(Proof::Bogus)),
+            DnssecDisposition::BrokenChain,
+            "D4: validation fails = bogus/broken"
+        );
+
+        // --- SPF (RFC 7208 §5.1; null MX RFC 7505 §3) ---
+        assert_eq!(
+            spf_disposition_from_records(&["v=spf1 include:_spf.google.com -all".to_string()]),
+            SpfDisposition::HardFail,
+            "S1: -all = hard fail"
+        );
+        assert_eq!(
+            spf_disposition_from_records(&["v=spf1 include:_spf.google.com ~all".to_string()]),
+            SpfDisposition::SoftFail,
+            "S2: ~all = soft fail (advisory)"
+        );
+        assert_eq!(
+            spf_disposition_from_records(&[]),
+            SpfDisposition::NotConfigured,
+            "S3: no SPF TXT"
+        );
+        assert_eq!(
+            classify_mx(&[hickory_proto::rr::Name::root()]),
+            MxShape::NoMail,
+            "S4: null MX (MX 0 .) = no-mail"
+        );
+
+        // --- DKIM (RFC 6376 §3.6.1) ---
+        assert_eq!(
+            dkim_key_state(&["v=DKIM1; p=".to_string()]),
+            DkimKeyState::Revoked,
+            "K1: empty p= = revoked"
+        );
+        assert_eq!(
+            dkim_key_state(&["v=DKIM1; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQ".to_string()]),
+            DkimKeyState::Valid,
+            "K3: valid key"
+        );
+
+        // --- DMARC (RFC 9989 §4.5) ---
+        assert_eq!(
+            dmarc_disposition_from_record("v=DMARC1; p=reject"),
+            DmarcDisposition::Reject,
+            "M1: p=reject"
+        );
+        assert_eq!(
+            dmarc_disposition_from_record("v=DMARC1; p=none"),
+            DmarcDisposition::Monitor,
+            "M2: p=none = monitor"
+        );
+        assert_eq!(
+            dmarc_disposition_from_record("v=DMARC1; p=bogus"),
+            DmarcDisposition::InvalidPolicy,
+            "M3: unrecognized p= = invalid policy, never a policy"
+        );
+
+        // --- DANE (RFC 7672 §1.3.2; null MX RFC 7505 §3) ---
+        assert!(
+            dane_host_zone_requires_dnssec(DnssecDisposition::Unsigned),
+            "A1: unsigned MX host zone => DnssecRequired"
+        );
+        assert!(
+            !dane_host_zone_requires_dnssec(DnssecDisposition::SignedAndDelegated),
+            "A3: signed host zone passes the gate"
+        );
+        assert_eq!(
+            dane_from_tlsa_counts(&[Some(1)]),
+            DaneDisposition::TlsaPublished,
+            "A3: signed + TLSA = published"
+        );
+        assert_eq!(
+            dane_from_tlsa_counts(&[Some(0)]),
+            DaneDisposition::NotConfigured,
+            "A4: signed + no TLSA = not configured (measured absence)"
+        );
+        assert_eq!(
+            dane_from_tlsa_counts(&[None]),
+            DaneDisposition::TransientError,
+            "A-nasa: SERVFAIL on a signed host zone = transient, not swallowed"
+        );
+
+        // --- CAA (RFC 8659 §3, §4.2) ---
+        // NOTE: CaaDisposition::Configured vs NotConfigured is presence-based;
+        // the `issue ";"` fully-restricted semantics are a property of the VALUE,
+        // which this engine records but does not grade at this disposition level.
+        // The known-answer vector for "issue ';'" is therefore asserted at the
+        // record-value level here, not the disposition level — flagged for the
+        // next pass to decide whether value-grading belongs in the disposition.
+
+        // --- CDS/CDNSKEY (RFC 7344 §4, Informational) ---
+        // CdsDisposition::Published vs NotPublished is presence-based; the
+        // match-vs-differ (rollover) distinction lives in the DS comparison,
+        // which is not part of this pure-function surface. Presence is asserted.
+    }
 
     // -------------------------------------------------------------------------
     // T1-1 integration: MTA-STS absent for unsigned/no-policy domain

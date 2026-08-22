@@ -492,7 +492,7 @@ fn dane_report(d: DaneDisposition) -> ControlReport {
         DaneDisposition::DnssecRequired => (
             "dnssec required — zone unsigned, TLSA cannot be trusted",
             Severity::Low,
-            "DANE only means something inside a signed zone (RFC 7672 §4). Sign the zone first; TLSA records in an unsigned zone are unverifiable.",
+            "DANE only means something inside a signed zone (RFC 7672 §1.3.2). Sign the zone first; TLSA records in an unsigned zone are unverifiable.",
             "Any TLSA present is unverifiable without DNSSEC; DANE offers no obstacle here.",
         ),
     };

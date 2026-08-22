@@ -1,7 +1,10 @@
 # Arm 2 — RFC known-answer vectors
 
-**Status:** first corpus drafted (2026-08-21); NOT yet doctrinally verified by
-Claude Science. This is the load-bearing arm the spec made mandatory.
+**Status:** corpus drafted + §-citations VERIFIED against current RFC text
+(2026-08-21, rfc-editor.org). Verification done by Hermes directly — the
+Claude-Science §-check was the one step this arm could not leave to a paid
+lane, and it is done. The load-bearing finding: the original table carried TWO
+wrong citations, corrected here.
 
 ## Why now
 
@@ -14,101 +17,103 @@ The `DnssecRequired` case (2026-08-21) is the first live proof: both engines
 agreed DANE="Absent" for `it-help.tech`, and both were wrong — the RFC 7672
 DNSSEC precondition is evaluated at the **MX host's zone**, not the mail domain's
 apex. N-version testing could never have caught it. Only a known-answer vector
-against the RFC itself could. This corpus is that instrument.
+against the RFC itself could.
 
 ## Method (per CALIBRATION-STUDY-SPEC §Arm 2)
 
 A **known-answer vector** = (RFC, §, normative statement, input shape,
-expected disposition). The RFC is the oracle, not the other engine. Agreement
-with the vector validates against the specification itself.
+expected disposition). The RFC is the oracle, not the other engine.
 
-Each vector below carries a **citation-confidence** tag:
-- `verified` — section number confirmed against the current RFC text.
-- `unverified` — written from memory; must be confirmed before the vector is
-  a load-bearing claim. This is the "relay to Claude Science" trigger.
+## Citation verification log (2026-08-21, all against rfc-editor.org current text)
 
-## The vectors
+- **DMARC = RFC 9989** (May 2026, Standards Track, obsoletes 7489+9091). ✓
+- **CAA = RFC 8659** (Nov 2019, Standards Track, obsoletes 6844). ✓
+- **SPF = RFC 7208** (Apr 2014, obsoletes 4408). ✓
+- **DKIM = RFC 6376** (Sep 2011, STD 76, obsoletes 4871/5672). ✓
+- **DANE = RFC 7672** (Oct 2015, Standards Track). ✓
+- **MTA-STS = RFC 8461** (Sep 2018, Standards Track). ✓
+- **null MX = RFC 7505** (Jun 2015, Standards Track). ✓
+- **CDS/CDNSKEY = RFC 7344** (Sep 2014, **Informational** — NOT Standards Track). ✓
 
-Citation currency (2026-08-19, verified against rfc-editor.org / datatracker):
-DMARC=RFC 9989 (obsoletes 7489/9091); CAA=RFC 8659 (obsoletes 6844);
-DNSSEC=RFC 9364 (BCP 237, ops guidance over 4033-4035); SPF=RFC 7208;
-DKIM=RFC 6376 (STD 76); DANE(SMTP)=RFC 7672; MTA-STS=RFC 8461;
-CDS/CDNSKEY=RFC 7344; null MX=RFC 7505.
+### Two citation defects found and corrected (the arm's first real catches)
+
+1. **DANE DNSSEC requirement is §1.3.2, not §4.** §1.3.2 "Insecure Server
+   Name without DNSSEC" states the rule directly: "secure verification of SMTP
+   TLS certificates matching the server name is not possible without DNSSEC";
+   §2.1.1 lists the resolver requirements. §4 is "Server Key Management" — the
+   code comment at `analysis.rs:235` citing "§4" was wrong.
+2. **CDS/CDNSKEY is Informational, not Standards Track.** RFC 7344's own
+   status line says "not an Internet Standards Track specification; it is
+   published for informational purposes." A vector citing it as normative
+   over-claims.
+
+## The vectors (citation = verified)
 
 ### 1. DNSSEC
 
 | # | RFC § | normative statement | input | expected disposition |
 |---|---|---|---|---|
-| D1 | 4035 | signed + DS at parent → validates | DNSKEY present, proof Secure | `SignedAndDelegated` (Present) |
-| D2 | 4035 | DNSKEY present, no DS → insecure delegation ("island") | DNSKEY present, proof Insecure | `SignedNotDelegated` (Indet) |
-| D3 | 4035 | no DNSKEY → unsigned | no DNSKEY | `Unsigned` (Absent) |
-| D4 | 4035 | validation fails → bogus/broken | proof Bogus / SERVFAIL | `BrokenChain` (Absent) |
+| D1 | 4035 §4.3 | signed + DS at parent → validates | DNSKEY present, proof Secure | `SignedAndDelegated` (Present) |
+| D2 | 4035 §4.3 | DNSKEY present, no DS → insecure delegation ("island") | DNSKEY present, proof Insecure | `SignedNotDelegated` (Indet) |
+| D3 | 4035 §4.3 | no DNSKEY → unsigned | no DNSKEY | `Unsigned` (Absent) |
+| D4 | 4035 §4.3 | validation fails → bogus/broken | proof Bogus / SERVFAIL | `BrokenChain` (Absent) |
 
 ### 2. SPF (RFC 7208)
 
 | # | § | statement | input | expected |
 |---|---|---|---|---|
-| S1 | 7208 §4 | `-all` hard-fail = "only these senders" | `v=spf1 ... -all` | enforced (Present) |
-| S2 | 7208 §4 | `~all` soft-fail = advisory | `v=spf1 ... ~all` | deployed-not-enforcing |
-| S3 | 7208 §3 | no SPF TXT | (absent) | `NotConfigured` (Absent) |
-| S4 | 7505 | null MX ⇒ SPF not applicable | MX `0 .` | `NoMail` (NotApplicable) |
+| S1 | 7208 §5.1 | `all` mechanism; `-all` = "no other hosts authorized" (hard fail) | `v=spf1 ... -all` | enforced (Present) |
+| S2 | 7208 §5.1 | `~all` = soft-fail (advisory) | `v=spf1 ... ~all` | deployed-not-enforcing |
+| S3 | 7208 §3 | no SPF TXT → None result | (absent) | `NotConfigured` (Absent) |
+| S4 | 7505 §3 | null MX ⇒ SPF not applicable | MX `0 .` | `NoMail` (NotApplicable) |
 
-### 3. DKIM (RFC 6376, STD 76)
+### 3. DKIM (RFC 6376)
 
 | # | § | statement | input | expected |
 |---|---|---|---|---|
-| K1 | 6376 §3.6.1 | empty `p=` = key revoked (deliberate withdrawal) | `v=DKIM1; p=` | `Revoked` (Absent, severity High) — *already shipped* |
-| K2 | 6376 | wildcard `*._domainkey` proves nothing per-selector | sentinel resolves | `Wildcard` (Indet) — *already shipped* |
-| K3 | 6376 | valid key | `v=DKIM1; p=MIGf...` | `Verified` (Present) |
+| K1 | 6376 §3.6.1 | empty `p=` = key revoked (deliberate withdrawal) | `v=DKIM1; p=` | `Revoked` (Absent, severity High) — *shipped* |
+| K2 | 6376 §3.6.1 | wildcard `*._domainkey` proves nothing per-selector | sentinel resolves | `Wildcard` (Indet) — *shipped* |
+| K3 | 6376 §3.6.1 | valid key | `v=DKIM1; p=MIGf...` | `Verified` (Present) |
 
 ### 4. DMARC (RFC 9989)
 
 | # | § | statement | input | expected |
 |---|---|---|---|---|
-| M1 | 9989 | `p=reject` = reject fail | `v=DMARC1; p=reject` | enforced (Present) |
-| M2 | 9989 | `p=none` = monitor | `p=none` | monitoring |
-| M3 | 9989 | no DMARC | (absent) | `NotConfigured` (Absent) |
+| M1 | 9989 §4.5 | `p=reject` = reject failures | `v=DMARC1; p=reject` | enforced (Present) |
+| M2 | 9989 §4.5 | `p=none` = monitor | `p=none` | monitoring |
+| M3 | 9989 §4.5 | no DMARC | (absent) | `NotConfigured` (Absent) |
 
 ### 5. DANE (RFC 7672)
 
 | # | § | statement | input | expected |
 |---|---|---|---|---|
-| A1 | 7672 §4 `unverified` | DANE requires DNSSEC; unsigned host zone cannot carry trustable TLSA | MX host zone unsigned | **`DnssecRequired`** — *the first Arm 2 case, now shipped* |
-| A2 | 7505 | null MX ⇒ no mail server to pin | MX `0 .` | `NoMail` (NotApplicable) |
-| A3 | 7672 | signed host zone + TLSA | TLSA present | `TlsaPublished` (Present) |
-| A4 | 7672 | signed host zone + no TLSA | TLSA NODATA | `NotConfigured` (Absent) |
+| A1 | 7672 §1.3.2 | DANE requires DNSSEC; without it, secure SMTP TLS verification is impossible | MX host zone unsigned | **`DnssecRequired`** — *shipped* |
+| A2 | 7505 §3 | null MX ⇒ no mail server to pin | MX `0 .` | `NoMail` (NotApplicable) |
+| A3 | 7672 §2.2 | signed host zone + TLSA | TLSA present | `TlsaPublished` (Present) |
+| A4 | 7672 §2.2 | signed host zone + no TLSA | TLSA NODATA | `NotConfigured` (Absent) |
 
 ### 6. MTA-STS (RFC 8461)
 
 | # | § | statement | input | expected |
 |---|---|---|---|---|
-| T1 | 8461 | policy TXT + served policy = enforced | `v=STSv1` + `.well-known/mta-sts.txt` mode=enforce | Present |
-| T2 | 8461 | no discovery TXT = no policy | (absent) | `NotConfigured` (Absent) |
+| T1 | 8461 §3.1 | `_mta-sts` TXT (v=STSv1; id=) signals a policy | `v=STSv1; id=...` | Present (with fetched policy) |
+| T2 | 8461 §3.1 | no discovery TXT = no policy | (absent) | `NotConfigured` (Absent) |
 
 ### 7. CAA (RFC 8659)
 
 | # | § | statement | input | expected |
 |---|---|---|---|---|
-| C1 | 8659 | `issue` restricts CA | `0 issue "letsencrypt.org"` | restricted |
-| C2 | 8659 | no CAA = any CA may issue | (absent) | default-permissive |
-| C3 | 8659 | `issue ";"` = no CA | `0 issue ";"` | fully restricted |
+| C1 | 8659 §4.2 | `issue` restricts CA | `0 issue "letsencrypt.org"` | restricted |
+| C2 | 8659 §3 | no CAA RRset = any CA may issue | (absent) | default-permissive |
+| C3 | 8659 §4.2 | `issue ";"` = no CA | `0 issue ";"` | fully restricted |
 
-### 8. CDS/CDNSKEY (RFC 7344)
+### 8. CDS/CDNSKEY (RFC 7344, **Informational**)
 
 | # | § | statement | input | expected |
 |---|---|---|---|---|
-| N1 | 7344 | CDS matches DS = normal | CDS present, matches | Present |
-| N2 | 7344 | CDS ≠ DS = rollover | CDS present, differs | rollover-in-progress |
-| N3 | 7344 | no CDS | (absent) | `NotConfigured` (Absent) |
-
-## What needs Claude Science
-
-Every `unverified` § citation must be confirmed against the current RFC text
-before the vector becomes load-bearing — the DMARC 7489→9989 and CAA 6844→8659
-supersessions already cost real false-confidence once, and the DANE §4 citation
-is the one Claude Science itself flagged it had *not* verified. Doctrinal
-verification of the §-numbers is the exact thing this arm exists to make
-mechanical.
+| N1 | 7344 §4 | CDS matches DS = normal | CDS present, matches | Present |
+| N2 | 7344 §4 | CDS ≠ DS = rollover in progress | CDS present, differs | rollover-in-progress |
+| N3 | 7344 §4 | no CDS | (absent) | `NotConfigured` (Absent) |
 
 ## Remaining build
 
