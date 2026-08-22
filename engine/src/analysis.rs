@@ -817,6 +817,26 @@ fn soa_owner_from_error(e: &NetError) -> Option<String> {
     }
 }
 
+/// Pure: collapse a SOA lookup's Ok/Err into the containing apex name. Extracted
+/// from `zone_apex_of` so the Ok/Err dispatch is unit-pinned without a resolver
+/// (the async wrapper's only remaining job is the I/O call itself). The three
+/// mutation survivors in the old wrapper were the two match-arm return-value
+/// delegates; this function makes that delegation a tested decision.
+///
+/// Precedence: the answer section wins over the error's authority section (a
+/// lookup is either Ok or Err, so at most one is populated — but the function is
+/// total and `answers` takes priority by construction).
+fn apex_from_soa_result(
+    answers: Option<&[hickory_proto::rr::Record]>,
+    error: Option<&NetError>,
+) -> Option<String> {
+    match (answers, error) {
+        (Some(a), _) => soa_owner_from_answers(a),
+        (None, Some(e)) => soa_owner_from_error(e),
+        (None, None) => None,
+    }
+}
+
 /// Derive the zone apex that CONTAINS `name` by asking for the SOA and reading
 /// its owner. If `name` is itself the apex the SOA comes back in the answer
 /// section; if it is a leaf the SOA arrives in the authority section
@@ -825,8 +845,8 @@ fn soa_owner_from_error(e: &NetError) -> Option<String> {
 async fn zone_apex_of(resolver: &TokioResolver, name: &str) -> Option<String> {
     use hickory_proto::rr::RecordType;
     match resolver.lookup(name, RecordType::SOA).await {
-        Ok(resp) => soa_owner_from_answers(resp.answers()),
-        Err(e) => soa_owner_from_error(&e),
+        Ok(resp) => apex_from_soa_result(Some(resp.answers()), None),
+        Err(e) => apex_from_soa_result(None, Some(&e)),
     }
 }
 
@@ -2323,6 +2343,60 @@ mod tests {
     #[test]
     fn soa_owner_from_error_is_none_on_transient() {
         assert_eq!(soa_owner_from_error(&servfail_err()), None);
+    }
+
+    // --- apex_from_soa_result: the Ok/Err dispatch (zone_apex_of's 3 survivors) ---
+    // The three return-value delegates in the old zone_apex_of were the two
+    // match-arm bodies and their collapse. Extracted into this pure dispatcher;
+    // one assertion per arm, per the method rule.
+
+    #[test]
+    fn apex_result_delegates_answers_to_soa_owner() {
+        use hickory_proto::rr::rdata::SOA;
+        use hickory_proto::rr::{Name, RData, Record};
+        let soa = SOA::new(
+            Name::from_ascii("ns1.example.com.").unwrap(),
+            Name::from_ascii("hostmaster.example.com.").unwrap(),
+            1,
+            3600,
+            600,
+            86400,
+            3600,
+        );
+        let rec = Record::from_rdata(
+            Name::from_ascii("example.com.").unwrap(),
+            3600,
+            RData::SOA(soa),
+        );
+        assert_eq!(
+            apex_from_soa_result(Some(&[rec]), None),
+            Some("example.com.".to_string())
+        );
+    }
+
+    #[test]
+    fn apex_result_delegates_error_to_soa_owner() {
+        let e = nxdomain_err_with_soa("example.com.");
+        assert_eq!(
+            apex_from_soa_result(None, Some(&e)),
+            Some("example.com.".to_string())
+        );
+    }
+
+    #[test]
+    fn apex_result_prefers_answers_over_error() {
+        // The (Some(a), _) arm wins over the (None, Some(e)) arm: empty answers
+        // => None, even though the error carries a populated SOA. Pins the
+        // `_` in the answers arm (the precedence, not just the happy path).
+        let e = nxdomain_err_with_soa("example.com.");
+        assert_eq!(apex_from_soa_result(Some(&[]), Some(&e)), None);
+    }
+
+    #[test]
+    fn apex_result_is_none_on_no_answers_and_no_error() {
+        // Totality: the (None, None) arm. Unreachable from a real Result (lookup
+        // is Ok or Err), but the function must be total.
+        assert_eq!(apex_from_soa_result(None, None), None);
     }
 
     // --- tlsa_err_to_count: the NXDomain guard must not read transient as ---
