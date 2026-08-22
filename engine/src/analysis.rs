@@ -375,7 +375,16 @@ impl std::fmt::Display for DmarcDisposition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CaaDisposition {
-    Configured,    // CAA record present
+    /// `issue ";"` — no CA may issue ANY certificate for this domain
+    /// (RFC 8659 §4.2). The strongest CAA state: issuance is affirmatively
+    /// prohibited outright, not delegated to a list.
+    FullyRestricted,
+    Configured, // CAA record present (issue restriction)
+    /// `issuewild ";"` — no CA may issue a wildcard certificate for this
+    /// domain (RFC 8659 §4.3). A distinct, more restrictive state than a
+    /// named-CA `issue` restriction: wildcard issuance is affirmatively
+    /// prohibited rather than delegated to a list.
+    WildcardFullyRestricted,
     NotConfigured, // zone exists, no CAA
     NoZone,        // NXDOMAIN — domain missing
     TransientError,
@@ -384,7 +393,9 @@ pub enum CaaDisposition {
 impl CaaDisposition {
     pub fn chain(self) -> TriState {
         match self {
+            CaaDisposition::FullyRestricted => TriState::Present,
             CaaDisposition::Configured => TriState::Present,
+            CaaDisposition::WildcardFullyRestricted => TriState::Present,
             CaaDisposition::NotConfigured => TriState::Absent,
             CaaDisposition::NoZone => TriState::Indet,
             CaaDisposition::TransientError => TriState::Indet,
@@ -395,7 +406,11 @@ impl CaaDisposition {
 impl std::fmt::Display for CaaDisposition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            CaaDisposition::FullyRestricted => write!(f, "fully-restricted (issue ;)"),
             CaaDisposition::Configured => write!(f, "configured"),
+            CaaDisposition::WildcardFullyRestricted => {
+                write!(f, "wildcard-fully-restricted (issuewild ;)")
+            }
             CaaDisposition::NotConfigured => write!(f, "not-configured"),
             CaaDisposition::NoZone => write!(f, "no-zone"),
             CaaDisposition::TransientError => write!(f, "transient-error"),
@@ -413,7 +428,12 @@ impl std::fmt::Display for CaaDisposition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CdsDisposition {
-    Published,    // CDS or CDNSKEY present
+    Published, // CDS or CDNSKEY present
+    /// Null CDS/CDNSKEY (algorithm 0) — the operator has signaled "remove my
+    /// DS records", i.e. deliberate DNSSEC decommissioning (RFC 8078 §4).
+    /// Present-but-negative: the record exists, and its value requests the
+    /// parent delete the DS RRset. Measured presence, NOT the same as absence.
+    DeletionRequested,
     NotPublished, // zone exists, no CDS/CDNSKEY
     NoZone,       // NXDOMAIN — domain missing
     TransientError,
@@ -423,6 +443,7 @@ impl CdsDisposition {
     pub fn chain(self) -> TriState {
         match self {
             CdsDisposition::Published => TriState::Present,
+            CdsDisposition::DeletionRequested => TriState::Present,
             CdsDisposition::NotPublished => TriState::Absent,
             CdsDisposition::NoZone => TriState::Indet,
             CdsDisposition::TransientError => TriState::Indet,
@@ -434,6 +455,9 @@ impl std::fmt::Display for CdsDisposition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CdsDisposition::Published => write!(f, "published"),
+            CdsDisposition::DeletionRequested => {
+                write!(f, "deletion-requested (null CDS — DS removal signaled)")
+            }
             CdsDisposition::NotPublished => write!(f, "not-published"),
             CdsDisposition::NoZone => write!(f, "no-zone"),
             CdsDisposition::TransientError => write!(f, "transient-error"),
@@ -1516,6 +1540,60 @@ fn mta_sts_enforced(policy: &str) -> bool {
     mta_sts_policy_state(policy) == MtaStsPolicyState::Enforce
 }
 
+/// Pure CAA value-grading: does any CAA record publish `issue ";"` — the
+/// "no CA may issue ANY certificate" signal (RFC 8659 §4.2)? Detected by
+/// tag == "issue" (case-insensitive) and the raw value being exactly the
+/// no-issuer sentinel `;` (hickory encodes an absent issuer name as a lone
+/// semicolon). This is the strongest CAA state — it wins over every other
+/// grading (a domain that forbids all issuance cannot be "restricted to a
+/// list"). Extracted pure so the detection is regression-pinned without
+/// network.
+fn caa_fully_restricted(records: &[hickory_proto::rr::Record]) -> bool {
+    records.iter().any(|rec| {
+        if let hickory_proto::rr::RData::CAA(caa) = &rec.data {
+            caa.tag.eq_ignore_ascii_case("issue") && caa.value == b";"
+        } else {
+            false
+        }
+    })
+}
+
+/// Pure CAA value-grading: does any CAA record publish `issuewild ";"` — the
+/// "no CA may issue a wildcard certificate" signal (RFC 8659 §4.3)? Detected
+/// by tag == "issuewild" (case-insensitive) and the raw value being exactly the
+/// no-issuer sentinel `;` (hickory encodes an absent issuer name as a lone
+/// semicolon). Extracted pure so the detection is regression-pinned without
+/// network.
+fn caa_wildcard_fully_restricted(records: &[hickory_proto::rr::Record]) -> bool {
+    records.iter().any(|rec| {
+        if let hickory_proto::rr::RData::CAA(caa) = &rec.data {
+            caa.tag.eq_ignore_ascii_case("issuewild") && caa.value == b";"
+        } else {
+            false
+        }
+    })
+}
+
+/// Pure CDS/CDNSKEY value-grading: does any record carry the null (delete)
+/// signal? hickory models RFC 8078 §4's delete algorithm as `algorithm: None` —
+/// a CDS/CDNSKEY with no algorithm field means "remove the DS RRset", not a
+/// normal rollover hint. Extracted pure so the deletion detection is
+/// regression-pinned without network.
+fn cds_deletion_requested(records: &[hickory_proto::rr::Record]) -> bool {
+    use hickory_proto::dnssec::rdata::DNSSECRData;
+    records.iter().any(|rec| {
+        if let hickory_proto::rr::RData::DNSSEC(dnssec) = &rec.data {
+            match dnssec {
+                DNSSECRData::CDS(cds) => cds.algorithm().is_none(),
+                DNSSECRData::CDNSKEY(cdnskey) => cdnskey.algorithm().is_none(),
+                _ => false,
+            }
+        } else {
+            false
+        }
+    })
+}
+
 async fn score_caa(resolver: &TokioResolver, domain: &str) -> CaaDisposition {
     // CAA record lookup.
     // RecordType::CAA = 257, confirmed present in hickory 0.26 (hickory_rr_types.md).
@@ -1527,7 +1605,13 @@ async fn score_caa(resolver: &TokioResolver, domain: &str) -> CaaDisposition {
     match resolver.lookup(domain, RecordType::CAA).await {
         Ok(resp) => {
             if answers_present(resp.answers()) {
-                CaaDisposition::Configured
+                if caa_fully_restricted(resp.answers()) {
+                    CaaDisposition::FullyRestricted // issue ";" — no CA at all
+                } else if caa_wildcard_fully_restricted(resp.answers()) {
+                    CaaDisposition::WildcardFullyRestricted
+                } else {
+                    CaaDisposition::Configured
+                }
             } else {
                 CaaDisposition::NotConfigured
             }
@@ -1557,7 +1641,11 @@ async fn score_cds_cdnskey(resolver: &TokioResolver, domain: &str) -> CdsDisposi
     let cds_absent = match resolver.lookup(domain, RecordType::CDS).await {
         Ok(resp) => {
             if answers_present(resp.answers()) {
-                return CdsDisposition::Published; // CDS record found
+                return if cds_deletion_requested(resp.answers()) {
+                    CdsDisposition::DeletionRequested // null CDS — DS removal (RFC 8078 §4)
+                } else {
+                    CdsDisposition::Published // CDS record found
+                };
             }
             true // empty answer section → absent, check CDNSKEY
         }
@@ -1579,7 +1667,11 @@ async fn score_cds_cdnskey(resolver: &TokioResolver, domain: &str) -> CdsDisposi
     match resolver.lookup(domain, RecordType::CDNSKEY).await {
         Ok(resp) => {
             if answers_present(resp.answers()) {
-                CdsDisposition::Published
+                if cds_deletion_requested(resp.answers()) {
+                    CdsDisposition::DeletionRequested // null CDNSKEY — DS removal
+                } else {
+                    CdsDisposition::Published
+                }
             } else if cds_absent {
                 CdsDisposition::NotPublished // both empty
             } else {
@@ -1931,18 +2023,157 @@ mod tests {
             "A-nasa: SERVFAIL on a signed host zone = transient, not swallowed"
         );
 
-        // --- CAA (RFC 8659 §3, §4.2) ---
-        // NOTE: CaaDisposition::Configured vs NotConfigured is presence-based;
-        // the `issue ";"` fully-restricted semantics are a property of the VALUE,
-        // which this engine records but does not grade at this disposition level.
-        // The known-answer vector for "issue ';'" is therefore asserted at the
-        // record-value level here, not the disposition level — flagged for the
-        // next pass to decide whether value-grading belongs in the disposition.
+        // --- MTA-STS (RFC 8461 §3.2 field enumeration; §5 mode semantics) ---
+        // G3: enforce-vs-testing is ALREADY distinguished — the pure policy
+        // classifier mta_sts_policy_state splits Enforce vs TestingOrNone, and
+        // the report maps them to severity Ok vs Medium. SciSpace's G3 called
+        // this a code-gap; it is a doc-gap (the distinction shipped, never
+        // asserted). These two assertions pin it + a negative control.
+        assert_eq!(
+            mta_sts_policy_state("version: STSv1\nmode: enforce\nmx: mail.example.com"),
+            MtaStsPolicyState::Enforce,
+            "G3: mode=enforce => Enforce (severity Ok)"
+        );
+        assert_eq!(
+            mta_sts_policy_state("version: STSv1\nmode: testing\nmx: mail.example.com"),
+            MtaStsPolicyState::TestingOrNone,
+            "G3: mode=testing => TestingOrNone (deployed, not enforcing)"
+        );
+        assert_eq!(
+            mta_sts_policy_state("version: STSv1\nmode: none\nmx: mail.example.com"),
+            MtaStsPolicyState::TestingOrNone,
+            "G3-none: mode=none => TestingOrNone (RFC 8461 §5: no active policy)"
+        );
+        assert_eq!(
+            mta_sts_policy_state("version: STSv1\nmode: enforce"),
+            MtaStsPolicyState::Invalid,
+            "G3-negative: no mx= line is invalid, never read as a mode"
+        );
 
-        // --- CDS/CDNSKEY (RFC 7344 §4.1/§5/§6.2, Informational) ---
-        // CdsDisposition::Published vs NotPublished is presence-based; the
-        // match-vs-differ (rollover) distinction lives in the DS comparison,
-        // which is not part of this pure-function surface. Presence is asserted.
+        // --- CAA (RFC 8659 §3, §4.2, §4.3) ---
+        // Value-grading now ships: `issue ";"` (RFC 8659 §4.2) is a distinct
+        // FullyRestricted state — ALL issuance prohibited — and `issuewild ";"`
+        // (RFC 8659 §4.3) is WildcardFullyRestricted. Neither collapses into
+        // presence-only Configured.
+        {
+            use hickory_proto::rr::rdata::CAA;
+            use hickory_proto::rr::{RData, Record};
+            // Ruling A — issue ";" (RFC 8659 §4.2): no CA may issue ANY cert.
+            let fully_restricted = Record::from_rdata(
+                mx_name("example.com."),
+                300,
+                RData::CAA(CAA::new_issue(false, None, vec![])),
+            );
+            assert!(
+                caa_fully_restricted(&[fully_restricted]),
+                "Ruling A: issue ';' = no CA may issue any cert (FullyRestricted)"
+            );
+            let named_issue = Record::from_rdata(
+                mx_name("example.com."),
+                300,
+                RData::CAA(CAA::new_issue(
+                    false,
+                    Some(mx_name("ca.example.net.")),
+                    vec![],
+                )),
+            );
+            assert!(
+                !caa_fully_restricted(&[named_issue]),
+                "Ruling A-negative: issue with a named CA is not fully restricted"
+            );
+            let wildcard_restricted = Record::from_rdata(
+                mx_name("example.com."),
+                300,
+                RData::CAA(CAA::new_issuewild(false, None, vec![])),
+            );
+            assert!(
+                caa_wildcard_fully_restricted(std::slice::from_ref(&wildcard_restricted)),
+                "G4: issuewild ';' = wildcard fully restricted"
+            );
+            assert!(
+                !caa_fully_restricted(std::slice::from_ref(&wildcard_restricted)),
+                "Ruling A-vs-G4: issuewild ';' is NOT issue ';' (different tags)"
+            );
+            let named_wildcard = Record::from_rdata(
+                mx_name("example.com."),
+                300,
+                RData::CAA(CAA::new_issuewild(
+                    false,
+                    Some(mx_name("ca.example.net.")),
+                    vec![],
+                )),
+            );
+            assert!(
+                !caa_wildcard_fully_restricted(&[named_wildcard]),
+                "G4-negative: issuewild with a named CA is not fully restricted"
+            );
+            let normal_issue = Record::from_rdata(
+                mx_name("example.com."),
+                300,
+                RData::CAA(CAA::new_issue(
+                    false,
+                    Some(mx_name("ca.example.net.")),
+                    vec![],
+                )),
+            );
+            assert!(
+                !caa_wildcard_fully_restricted(&[normal_issue]),
+                "G4-negative: a plain issue record is not issuewild"
+            );
+        }
+
+        // --- CDS/CDNSKEY (RFC 7344 §4.1/§5/§6.2; null CDS = RFC 8078 §4) ---
+        // Value-grading ships: the null CDS/CDNSKEY (algorithm 0) is a distinct
+        // DeletionRequested state — the operator requests DS removal — NOT
+        // collapsed into presence-only Published.
+        {
+            use hickory_proto::dnssec::rdata::{DNSSECRData, CDNSKEY, CDS};
+            use hickory_proto::dnssec::{Algorithm, DigestType};
+            use hickory_proto::rr::{RData, Record};
+            let null_cds = Record::from_rdata(
+                mx_name("example.com."),
+                300,
+                RData::DNSSEC(DNSSECRData::CDS(CDS::new(
+                    0,
+                    None,
+                    DigestType::SHA256,
+                    vec![],
+                ))),
+            );
+            assert!(
+                cds_deletion_requested(&[null_cds]),
+                "G2: null CDS (algorithm 0) = DS deletion requested (RFC 8078 §4)"
+            );
+            let normal_cds = Record::from_rdata(
+                mx_name("example.com."),
+                300,
+                RData::DNSSEC(DNSSECRData::CDS(CDS::new(
+                    2371,
+                    Some(Algorithm::ECDSAP256SHA256),
+                    DigestType::SHA256,
+                    vec![0xAB, 0xCD],
+                ))),
+            );
+            assert!(
+                !cds_deletion_requested(&[normal_cds]),
+                "G2-negative: a normal CDS is not a deletion request"
+            );
+            let null_cdnskey = Record::from_rdata(
+                mx_name("example.com."),
+                300,
+                RData::DNSSEC(DNSSECRData::CDNSKEY(CDNSKEY::new(
+                    false,
+                    false,
+                    false,
+                    None,
+                    vec![],
+                ))),
+            );
+            assert!(
+                cds_deletion_requested(&[null_cdnskey]),
+                "G2-cdnskey: null CDNSKEY (algorithm 0) = DS deletion requested"
+            );
+        }
     }
 
     // -------------------------------------------------------------------------
