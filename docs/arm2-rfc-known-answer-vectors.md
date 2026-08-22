@@ -203,13 +203,26 @@ this is the same class as G1/G5 (doc-gap, not code-gap), now pinned.
 "distinct state" ask is closed as a real enum variant, not left as a code
 comment.
 
-## Remaining build
+## Built (was "Remaining build" — now shipped, not open)
 
-- A harness that turns the table into a runnable, content-addressed corpus
-  (frozen inputs, not live DNS) — RFC vectors are mostly *constructed inputs*
-  (a TXT string, a proof state), so they're deterministic and offline-testable.
-- Feed the same vectors to the Go analyzer to close the shared-error gap on
-  that side too.
+The two items below were previously listed as "remaining"; both are now closed,
+so this section records the shipped state rather than an open task.
+
+- **The known-answer corpus is shipped as `rfc_known_answer_vectors()` in
+  `engine/src/analysis.rs` (one `#[test]`, ~22 assertions, CI-enforced).** The
+  vectors are *constructed inputs* (a TXT string, a `Proof` state, a CAA record)
+  mapped to expected dispositions — deterministic and fully offline, exactly as
+  the spec required. Every vector in the table above (D/S/K/M/A/T/C/N) is
+  asserted here, plus the gap-vectors (G1 quarantine, G3 enforce/testing/none,
+  G5 +all). The "feed the same vectors to Go" half is closed by the Go-parent
+  port (PR #472, below).
+
+- **Residual (form, not gap):** the corpus lives as inline `assert_eq!`s in one
+  test function, not as a separate SHA3-addressed JSON artifact. That is a
+  provenance-nicety (a frozen corpus file with its own seal) that would let a
+  third party re-run the vectors against a DIFFERENT engine without reading Rust.
+  Worth a card if a non-Rust consumer ever needs the vectors; not a correctness
+  gap — the assertions are content-frozen by being committed and CI-run.
 
 ## Go-parent port (2026-08-22) — two live CAA false verdicts found + fixed
 
