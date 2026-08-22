@@ -15,7 +15,7 @@
  *   Andronick, J. et al. (2013). Formally verified system initialisation.
  *   DOI: 10.1007/978-3-642-41202-8_6
  *
- *   /home/sandbox/lionsOS-compartment-demo-spec.md  §4 (capability table)
+ *   docs/lionsos-compartment-demo-spec.md            §4 (capability table)
  *                                                    §7 (boot sequence)
  *
  * Tool: generate with `capdl-tool` from the seL4 project, or validate with
@@ -42,7 +42,7 @@
  * ==========================================================================
  */
 
-arch ia32      /* replace with aarch64 for ARM target board */
+arch aarch64    /* matches the aarch64-unknown-none target the native [[bin]] builds for */
 
 /*
  * ── Objects ─────────────────────────────────────────────────────────────────
