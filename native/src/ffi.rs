@@ -27,6 +27,31 @@
 // No network, no resolver, no tokio. The functions are `#[no_mangle] pub
 // extern "C"` so they are globally visible symbols the Microkit toolchain can
 // link against.
+//
+// ── HARDENING TRACK (SciSpace second-opinion 2026-08-22, tracked not done) ──
+//   1A (Low):     monotonic u64 attempt-counter for forensics — a static
+//                 AtomicU64 bumped on each tamper/parse failure, exposed over a
+//                 second query message type or a read-only memory_region. Not a
+//                 soundness fix; NULL + caller-logged is already correct.
+//   1B (Stage 3): migrate the wire format serde_json → postcard. The seal is
+//                 computed over canonical_input (NOT the wire bytes), so JSON
+//                 cannot cause a silent integrity failure — only a liveness
+//                 failure (false NULL on malformed input). postcard shrinks the
+//                 TCB (parser LOC) inside the compartment; it is a DoS-surface
+//                 reduction, not a correctness fix. Do NOT block Stage 2 on it.
+//   1C (now-done): allocator strategy — bump allocator, see main_native.rs.
+//                 INVARIANT: dealloc is a no-op; the heap is sized (64 KiB) for
+//                 the demo's single-verdict-per-boot model and does NOT reset
+//                 within an epoch. A store receiving many verdicts per boot
+//                 needs a proper allocator (linked_list_allocator/dlmalloc) or
+//                 per-verdict heap reset — Stage 3.
+//   3  (Stage 2):  SEAL_SCHEME version exchange — the engine sends produced_by
+//                 (engine version) but NOT the seal scheme constant. If the
+//                 engine bumps resolution-scope-sha3-512-v2 → v3 while the store
+//                 still holds v2, every verdict fails verification (NULL) with no
+//                 diagnostic distinguishing version-skew from tamper. Fix (option
+//                 a, SciSpace): carry the scheme over the boundary and assert it
+//                 matches before re-deriving, so skew is a distinct failure class.
 
 use alloc::ffi::CString;
 use alloc::string::String;

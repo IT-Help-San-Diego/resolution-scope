@@ -40,6 +40,15 @@ use resolution_scope_native::{demo_verdict, render_text, seal_versioned, verify_
 // capability-granted memory frame, a static bump heap is the honest spike
 // allocator: sufficient for a single verdict, never reused, panic-adjacent on
 // exhaustion.
+//
+// ALLOCATOR INVARIANT (SciSpace 1C, 2026-08-22): this is a BUMP allocator —
+// `dealloc` is a no-op, so memory grows monotonically and does NOT reset within
+// a boot epoch. The 64 KiB heap is sized for the demo's single-verdict-per-boot
+// model (one ScoredAnalysis JSON in + one rendered report out). A production
+// store that receives MANY verdicts per boot epoch MUST either adopt a proper
+// allocator (linked_list_allocator / dlmalloc) or reset the heap per verdict —
+// otherwise `rs_store_free`'s no-op dealloc leaks and the heap exhausts. This
+// is a Stage-3 item, tracked in native/src/ffi.rs's hardening track.
 
 const HEAP_SIZE: usize = 64 * 1024;
 

@@ -4,8 +4,11 @@
 // RULE: no raw DNS data, no resolver IP addresses, no query timing crosses
 // this boundary.  Only ScoredAnalysis fields (see analysis.rs) are permitted.
 //
-// Full capDL capability wiring is described in:
-//   native/capdl/dns_sovereign_compartment.cdl
+// Full capability wiring is described in the Microkit system description:
+//   native/microkit/dns_sovereign_compartment.system
+// (The hand-written capDL sketch native/capdl/… was superseded 2026-08-22 —
+// LionsOS's bin/microkit GENERATES capDL from the .system XML; capDL is not
+// hand-authored. See docs/capdl-syntax-finding-20260822.md.)
 //
 // Stub: serialise ScoredAnalysis to a fixed-size byte buffer for the IPC call.
 // Real implementation replaces this with seL4 IPC message registers or a
