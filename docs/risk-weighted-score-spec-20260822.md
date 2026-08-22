@@ -298,25 +298,34 @@ pub fn risk_weighted_score(reports: &[ControlReport; 8]) -> Option<u32> {
 
 ---
 
-## 12. One open design point (for the review)
+## 12. DECISION — identity-weighting (confirmed 2026-08-22)
 
-The `Severity::Ok` edge exposes a real question: is the *weight* a property of the **control's
-identity** (fixed: DMARC always "weighs" 3 regardless of state) or of its **current state**
-(p=none DMARC "weighs" 2, reject DMARC "weighs" 0-as-covered)?
+**Resolved by Carey: identity-weighting.** Each control has ONE fixed weight, derived from
+its **absent-state** severity (the "you don't have this" consequence): DMARC=3, DNSSEC=3,
+SPF=3, DKIM=3, MTA-STS=3, DANE=1, CAA=1, CDS/CDNSKEY=1. A control that is `Present`
+contributes its full identity weight to the numerator; `Absent` contributes it to the
+denominator only. The enforcement nuance (`p=reject` vs `p=quarantine` vs `p=none`) is
+carried by the **severity label** (Ok vs Medium) and the **finding narrative** — never a
+fractional weight.
 
-- **Identity-weighting** is simpler and matches "reallocation of a fixed denominator" most
-  literally — every measured control has one fixed weight, present → numerator, absent → not.
-  This is what test #2's DMARC-vs-CAA contrast assumes.
-- **State-weighting** is more precise (a p=none DMARC genuinely covers *less*) but makes
-  `Ok → 0` ambiguous as shown.
+**Why identity, not state (the ruling rationale, verbatim logic):** state-weighting would
+require a numeric ranking of *how safe* each configuration is ("quarantine = 2.5, reject =
+3"), which fabricates precision for a deliberate-choice axis. A high-value target that runs
+`p=quarantine` to *monitor* who attacks it is not "83% as safe as a `p=reject` domain" — it is
+*safe, differently*, for a disclosed reason. Identity-weighting lets all genuinely-safe
+configurations read as safe (Present = full weight) while the *difference* between them is told
+in words — the exact "CIA vs Apple vs NSA all look safe like they are, disclose the why" rule.
 
-**My recommendation: identity-weighting** — `weight(control)` is fixed by the control, derived
-from its **absent-state** severity (DMARC=3, CAA=1, etc.), and "present" contributes the full
-identity weight to the numerator while "absent" contributes it only to the denominator. This
-keeps the formula bounded, the degenerate case trivially correct (all-Present = 18/18 = 100),
-and the p=none nuance carries in the **severity label** rather than a fractional weight. The
-state-weighting precision is real but is already fully expressed by the per-finding severity
-the user sees.
+**Consequence for the formula:** the weight is a function of the control's **identity**, not
+its **state**. `Severity::Ok` and `Severity::Medium` therefore never appear as distinct weights —
+a Present control earns its identity weight whether it's enforcing (Ok) or deployed-but-not
+enforcing (Medium). The enforcement gap is a severity fact, never a presence fact, and never a
+weight fact.
 
-**This is the one thing to confirm before code.** Everything else in §10–§11 is settled by the
-decisions above.
+**Implementation note:** this simplifies the sketch in §11 — the weight is
+`identity_weight(control)`, not `severity_weight(state)`. The mapping is keyed on `ControlId`,
+derived from the absent-state severity of that control (so a future severity re-ruling still
+propagates to the weight automatically, via the `*_report` constructor it reads).
+
+**This closes the last open design point. The spec is settled; implementation is unblocked
+pending Carey's review of §3 (formula), §10 (acceptance tests), and §11 (sketch).**
