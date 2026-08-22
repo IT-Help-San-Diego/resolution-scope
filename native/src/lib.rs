@@ -35,8 +35,8 @@ pub use types::ScoredAnalysis;
 /// Verify a claimed seal against the verdict it purports to bind.
 ///
 /// Tamper-evidence (the store's whole job): recompute the seal over the verdict
-/// + the producing engine's version, and compare to the claimed seal that
-/// crossed the boundary. Mismatch = the verdict was altered after sealing.
+/// and the producing engine's version, then compare to the claimed seal that
+/// crossed the boundary. A mismatch means the verdict was altered after sealing.
 pub fn verify_seal(analysis: &ScoredAnalysis, produced_by: &str, claimed: &str) -> bool {
     seal_versioned(analysis, produced_by) == claimed
 }

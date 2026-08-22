@@ -26,6 +26,7 @@
 //! ```
 
 #![no_std]
+#![no_main]
 
 extern crate alloc;
 
@@ -74,11 +75,9 @@ unsafe impl GlobalAlloc for BumpAllocator {
 #[global_allocator]
 static ALLOCATOR: BumpAllocator = BumpAllocator;
 
-#[alloc_error_handler]
-fn alloc_error(_layout: Layout) -> ! {
-    // No recovery path for a store that cannot allocate. Halt.
-    loop {}
-}
+// NOTE: no `#[alloc_error_handler]` — that attribute is nightly-only. On stable
+// the `alloc` crate's default `handle_alloc_error` aborts, which is the correct
+// failure mode for a store that cannot allocate (there is no recovery path).
 
 // ─── Panic handler (bare-metal: panic = abort) ───────────────────────────────
 
@@ -86,7 +85,9 @@ fn alloc_error(_layout: Layout) -> ! {
 fn panic_handler(info: &core::panic::PanicInfo) -> ! {
     // STUB: in production, write info to the IPC log endpoint before halting.
     let _ = info;
-    loop {}
+    loop {
+        core::hint::spin_loop();
+    }
 }
 
 // ─── Entry point ─────────────────────────────────────────────────────────────
@@ -96,12 +97,15 @@ fn panic_handler(info: &core::panic::PanicInfo) -> ! {
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
     main();
-    loop {} // unreachable — main() is -> ! — but satisfies the ! return type
+    loop {
+        core::hint::spin_loop();
+    }
 }
 
-/// The store compartment's job, end to end.
+/// The store compartment's job, end to end. Ends in a diverging spin halt so it
+/// never returns; the trailing loop in `_start` is the halt if it ever did.
 #[no_mangle]
-pub fn main() -> ! {
+pub fn main() {
     // ── Receive ──────────────────────────────────────────────────────────────
     // STUB: receive the ScoredAnalysis + producing engine version over
     // ep_results_in. In the spike, embed a demo verdict to prove the
@@ -132,7 +136,9 @@ pub fn main() -> ! {
     let _ = &report;
 
     // In seL4, a finished thread suspends its own TCB (seL4_TCB_Suspend).
-    loop {}
+    loop {
+        core::hint::spin_loop();
+    }
 }
 
 /// A demo verdict — exercises every TriState variant and 8 distinct
