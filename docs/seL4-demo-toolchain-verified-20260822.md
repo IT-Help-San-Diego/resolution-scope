@@ -116,5 +116,7 @@ is the next wiring step, not a shape change.
 - LionsOS at `~/lionsos`.
 - Microkit build contract: `MICROKIT_SDK` + `MICROKIT_BOARD=qemu_virt_aarch64`
   + `MICROKIT_CONFIG=debug`, `make` from an example dir.
-- The build env vars + `aarch64-none-elf` PATH are NOT persisted to shell
-  profile yet — set per-session or add to `~/.bashrc`.
+- The build env vars + `aarch64-none-elf` PATH are **now persisted** to
+  `~/.bashrc` (interactive login resolves `aarch64-none-elf-gcc`,
+  `MICROKIT_SDK`, `LIONSOS`) — a fresh login shell can build without
+  re-exporting. Fixed 2026-08-22 during the foundation audit.
