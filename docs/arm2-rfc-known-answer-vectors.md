@@ -36,6 +36,8 @@ expected disposition). The RFC is the oracle, not the other engine.
 - **MTA-STS = RFC 8461** (Sep 2018, Standards Track). ✓
 - **null MX = RFC 7505** (Jun 2015, Standards Track). ✓
 - **CDS/CDNSKEY = RFC 7344** (Sep 2014, **Informational** — NOT Standards Track). ✓
+- **CDS/CDNSKEY delete signal = RFC 8078** (Mar 2017, Standards Track,
+  **Updates 7344**) — the null-CDS "remove my DS" algorithm. ✓
 
 ### Two citation defects found and corrected (the arm's first real catches)
 
@@ -67,6 +69,26 @@ acceptance** (SPF 7208: §4.6.2 qualifier table + §4.5 "none" result; DMARC
 
 The arm's prior "two defects" (DANE §1.3.2, CDS Informational) were both
 re-confirmed by SciSpace as correct.
+
+### SciSpace's own gap-section citations were wrong (corrected first-hand)
+
+The two *new* claims in SciSpace's "gaps" section carried fabricated citations,
+caught only because every §-claim is re-verified against the RFC before code is
+written:
+
+- **G2 (null CDS delete-DS):** SciSpace cited "RFC 7344 §4.3" with RDATA
+  `0 0 0 00`. RFC 7344 has **no §4.3**, and its §4.1 explicitly states "this
+  document does not support removing all keys." The null-CDS delete signal is
+  actually **RFC 8078 §4 "DNSSEC Delete Algorithm"** (Standards Track, Updates
+  7344), with canonical RDATA `CDS 0 0 0 0` — hickory models it first-class as
+  `algorithm: None` (the "requesting deletion" branch).
+- **G4 (CAA `issuewild`):** SciSpace cited "RFC 8659 §4.2". The `issuewild`
+  property is **§4.3** — §4.2 is the `issue` property, §4.3 is `issuewild`.
+
+The lesson is symmetric and load-bearing for the whole verification loop: a
+verifier that correctly checks an *existing* table can still hallucinate the
+*citations of its own new claims*. The only defense is the one already in
+force — never accept a §-citation on a peer's say-so, re-read the RFC first.
 
 ## The vectors (citation = verified)
 
@@ -127,14 +149,16 @@ re-confirmed by SciSpace as correct.
 | C1 | 8659 §4.2 | `issue` restricts CA | `0 issue "letsencrypt.org"` | restricted |
 | C2 | 8659 §3 | no CAA RRset = any CA may issue | (absent) | default-permissive |
 | C3 | 8659 §4.2 | `issue ";"` = no CA | `0 issue ";"` | fully restricted |
+| C4 | 8659 §4.3 | `issuewild ";"` = no wildcard cert | `0 issuewild ";"` | `WildcardFullyRestricted` — *shipped* |
 
-### 8. CDS/CDNSKEY (RFC 7344, **Informational**)
+### 8. CDS/CDNSKEY (RFC 7344 **Informational**; delete signal = RFC 8078)
 
 | # | § | statement | input | expected |
 |---|---|---|---|---|
 | N1 | 7344 §4.1 (§5) | CDS matches DS = normal | CDS present, matches | Present |
 | N2 | 7344 §6.2 | CDS ≠ DS = rollover in progress | CDS present, differs | rollover-in-progress |
 | N3 | 7344 §4.1 | no CDS | (absent) | `NotConfigured` (Absent) |
+| N4 | 8078 §4 | null CDS/CDNSKEY (algorithm 0) = delete DS | `CDS 0 0 0 0` | `DeletionRequested` — *shipped* |
 
 ## SciSpace design rulings + corpus gaps (accepted 2026-08-22)
 
@@ -166,9 +190,9 @@ code-gap.
 |---|---|---|---|
 | G1 — `p=quarantine` | 9989 §4.7 | `DmarcDisposition::Quarantine` **already exists** | doc-gap — assertion added |
 | G5 — SPF `+all` | 7208 §4.6.2 | `SpfDisposition::OtherPolicy` **already covers it** (never misread as HardFail) | doc-gap — assertion added; the "open-relay red flag" *severity* nuance is a design refinement, carded |
-| G2 — null CDS `0 0 0 00` (delete-DS) | 7344 §4.3 | not distinguished — presence-based | **code-gap**, carded |
+| G2 — null CDS (delete-DS) | **8078 §4** (not 7344 §4.3) | **`CdsDisposition::DeletionRequested` shipped** | code-gap — closed |
 | G3 — MTA-STS `mode=testing` vs `enforce` | 8461 §3.3 | `MtaStsDisposition::Enforced`/`NotEnforced` exist, but mode-grading in the fetched body is not asserted here | doc-gap (partial) — carded |
-| G4 — CAA `issuewild` | 8659 §4.2 | not distinguished — presence-based | **code-gap**, carded |
+| G4 — CAA `issuewild ";"` | **8659 §4.3** (not §4.2) | **`CaaDisposition::WildcardFullyRestricted` shipped** | code-gap — closed |
 
 ## Remaining build
 

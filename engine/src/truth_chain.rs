@@ -565,6 +565,12 @@ fn caa_report(d: CaaDisposition) -> ControlReport {
             "Only the listed CAs may issue certificates for this domain; all others must refuse.",
             "Mis-issuance requires compromising one of the named CAs specifically, not just any CA.",
         ),
+        CaaDisposition::WildcardFullyRestricted => (
+            "wildcard-fully-restricted — issuewild \";\"",
+            Severity::Ok,
+            "The domain affirmatively prohibits wildcard-certificate issuance (RFC 8659 §4.3): no CA may issue for *.example. This is stricter than a named-CA restriction.",
+            "A wildcard-certificate mis-issuance would require a CA to violate an explicit no-issuance property, not just pick a different CA.",
+        ),
         CaaDisposition::NotConfigured => (
             "not configured — zone exists, no CAA",
             Severity::Low,
@@ -602,6 +608,12 @@ fn cds_report(d: CdsDisposition) -> ControlReport {
             Severity::Ok,
             "The zone advertises CDS/CDNSKEY, so the parent can maintain the DS automatically — key rollovers won't strand the chain.",
             "DS rotation is automated; a stale-DS window during rollover is unlikely.",
+        ),
+        CdsDisposition::DeletionRequested => (
+            "deletion-requested — null CDS/CDNSKEY (RFC 8078 §4)",
+            Severity::High,
+            "The operator has published the DNSSEC delete signal (algorithm 0): the parent is asked to remove the DS RRset. This zone is being deliberately decommissioned from DNSSEC.",
+            "The zone is transitioning to unsigned — every DNSSEC-provided guarantee (authenticity, integrity) is being withdrawn by the operator's own signed instruction.",
         ),
         CdsDisposition::NotPublished => (
             "not published — zone exists, no CDS/CDNSKEY",
