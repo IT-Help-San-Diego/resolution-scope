@@ -42,8 +42,12 @@ sha3 = { version = "0.10", default-features = false }
 
 # IPC payload (de)serialization. The ScoredAnalysis is the boundary-crossing
 # value (spec §5); serde derives match the engine's type surface. alloc-only.
-# serde_json (the wire serializer) is deferred until the IPC endpoint is wired.
 serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
+
+# JSON wire format for the IPC boundary (ffi.rs). This is the SAME format the
+# engine emits (serde_json on the std side), so a verdict serialised by the
+# engine deserialises byte-identically in the no_std store. alloc-only.
+serde_json = { version = "1", default-features = false, features = ["alloc"] }
 
 [profile.release]
 opt-level     = "z"    # minimise binary footprint inside the seL4 compartment

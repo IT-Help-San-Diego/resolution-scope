@@ -33,11 +33,7 @@ extern crate alloc;
 use core::alloc::{GlobalAlloc, Layout};
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-use resolution_scope_native::types::{
-    CaaDisposition, CdsDisposition, DaneDisposition, DkimDisposition, DmarcDisposition,
-    DnssecDisposition, MtaStsDisposition, SpfDisposition,
-};
-use resolution_scope_native::{render_text, seal_versioned, verify_seal, ScoredAnalysis, TriState};
+use resolution_scope_native::{demo_verdict, render_text, seal_versioned, verify_seal};
 
 // ─── Global allocator (bump over a static heap) ──────────────────────────────
 // The seal/render path allocates Strings. Until the seL4 runtime provides a
@@ -111,7 +107,7 @@ pub fn main() {
     // ep_results_in. In the spike, embed a demo verdict to prove the
     // seal-verify + render path compiles and links bare-metal. Replace with
     // actual IPC receive (sel4-runtime) when wired.
-    let a: ScoredAnalysis = demo_verdict();
+    let a = demo_verdict();
     let produced_by: &str = "0.1.0";
 
     // ── Verify ───────────────────────────────────────────────────────────────
@@ -138,33 +134,5 @@ pub fn main() {
     // In seL4, a finished thread suspends its own TCB (seL4_TCB_Suspend).
     loop {
         core::hint::spin_loop();
-    }
-}
-
-/// A demo verdict — exercises every TriState variant and 8 distinct
-/// dispositions. Used only until the IPC receive is wired; it is the same
-/// fixture the golden-seal test pins, so the seal is the known golden value.
-fn demo_verdict() -> ScoredAnalysis {
-    ScoredAnalysis {
-        domain: "example.com".into(),
-        session_id: 1,
-        timestamp_local: 1_700_000_000,
-        resolver_identity: "default".into(),
-        dnssec_chain: TriState::Present,
-        dnssec_disposition: DnssecDisposition::SignedAndDelegated,
-        spf: TriState::Present,
-        spf_disposition: SpfDisposition::SoftFail,
-        dkim: TriState::Absent,
-        dkim_disposition: DkimDisposition::NotFoundDefaults,
-        dmarc: TriState::Present,
-        dmarc_disposition: DmarcDisposition::Reject,
-        dane: TriState::NotApplicable,
-        dane_disposition: DaneDisposition::NoMail,
-        mta_sts: TriState::Present,
-        mta_sts_disposition: MtaStsDisposition::Enforced,
-        caa: TriState::Absent,
-        caa_disposition: CaaDisposition::NotConfigured,
-        cds_cdnskey: TriState::Absent,
-        cds_disposition: CdsDisposition::NotPublished,
     }
 }

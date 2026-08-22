@@ -119,37 +119,12 @@ fn hex(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
     use crate::tristate::TriState;
-    use crate::types::{
-        CaaDisposition, CdsDisposition, DaneDisposition, DkimDisposition, DmarcDisposition,
-        DnssecDisposition, MtaStsDisposition, ScoredAnalysis, SpfDisposition,
-    };
-    use alloc::string::ToString;
+    use crate::types::ScoredAnalysis;
 
-    /// The canonical fixture. Every TriState variant and 8 distinct dispositions
-    /// are exercised, so a single-field flip is observable in the seal.
+    /// The canonical fixture — the single producer (`crate::fixtures`), shared
+    /// with the bin and the FFI tests. The golden seal pins it.
     fn fixture() -> ScoredAnalysis {
-        ScoredAnalysis {
-            domain: "example.com".to_string(),
-            session_id: 1,
-            timestamp_local: 1_700_000_000,
-            resolver_identity: "default".to_string(),
-            dnssec_chain: TriState::Present,
-            dnssec_disposition: DnssecDisposition::SignedAndDelegated,
-            spf: TriState::Present,
-            spf_disposition: SpfDisposition::SoftFail,
-            dkim: TriState::Absent,
-            dkim_disposition: DkimDisposition::NotFoundDefaults,
-            dmarc: TriState::Present,
-            dmarc_disposition: DmarcDisposition::Reject,
-            dane: TriState::NotApplicable,
-            dane_disposition: DaneDisposition::NoMail,
-            mta_sts: TriState::Present,
-            mta_sts_disposition: MtaStsDisposition::Enforced,
-            caa: TriState::Absent,
-            caa_disposition: CaaDisposition::NotConfigured,
-            cds_cdnskey: TriState::Absent,
-            cds_disposition: CdsDisposition::NotPublished,
-        }
+        crate::fixtures::demo_verdict()
     }
 
     /// The GOLDEN SEAL, computed from the ENGINE (`seal_versioned(&fixture(),
