@@ -77,7 +77,13 @@ The Rust compartment code now compiles bare-metal, but the *system* is not yet
 built. Remaining, in order:
 
 1. **LionsOS SDK checkout** + seL4 kernel + CAmkES + capDL tooling (toolchain is
-   installed on the Beelink; the SDK is not yet cloned).
+   installed on the Beelink; the SDK is not yet cloned). **Note (2026-08-22):**
+   `repo init -u https://github.com/au-ts/lionsos.git` fails with
+   `manifest 'default.xml' not available` — the LionsOS repo structure has
+   moved/changed since these docs were written. The current setup command must
+   be re-read from the live `lionsos.org/docs/tutorials/gettingstarted/` (the
+   site is JS-rendered, so fetch it in a browser or the SciSpace lane, not curl).
+   The `repo` tool is already installed at `~/bin/repo` on the Beelink.
 2. **capDL validation** — machine-check `native/capdl/dns_sovereign_compartment.cdl`
    with `capdl-tool` (the hand-written draft is a sketch, never machine-checked).
    This is SciSpace gating question #3.
