@@ -1,86 +1,42 @@
 // =============================================================================
-// resolution-scope-native — lib.rs
+// resolution-scope-native — lib.rs (Option B: report/store receiver)
 // =============================================================================
 //
-// R2 MITIGATION (compile-error regression guard):
+// Under Option B (docs/ARCHITECTURE.md §7) the no_std compartment is the
+// report/store receiver: it receives a ScoredAnalysis produced by the std
+// engine, re-derives the verdict seal (SHA3-512), renders, and writes through
+// a granted capability. No network, no resolver, no tokio — no smoltcp, no
+// hickory-proto, no ring (the pre-B "DNS engine inside the compartment" shape
+// that Option B abandoned; see docs/seL4-demo-state-and-model-drift-20260822.md).
 //
-//   If the "dnssec-ring" feature is absent from the build graph, hickory-dns
-//   compiles cleanly but DNSSEC validation is silently disabled.  This guard
-//   converts that silent failure into a hard compile error so it is caught at
-//   `cargo check` time, not at runtime or in production scoring.
+// The load-bearing contract is the SEAL: canonical_input + seal_versioned must
+// be byte-identical to engine/src/seal.rs. The golden-seal test in seal.rs pins
+// this mirror to a value computed from the engine.
 //
-//   If you need to build without DNSSEC (e.g. a minimal test harness), you
-//   must disable the default "dnssec" feature explicitly:
-//
-//       cargo test --no-default-features
-//
-//   and record the architectural justification in a PR description.
-//   See: docs/ARCHITECTURE.md
-//   See: docs/ARCHITECTURE.md §1
-//
-#[cfg(not(feature = "dnssec-ring"))]
-compile_error!(
-    "Feature `dnssec-ring` is required. \
-     Building resolution-scope-native without DNSSEC validation silently disables \
-     signature verification — all DNSSEC scores will be wrong. \
-     Add `dnssec-ring` to the feature set, or use `--no-default-features` \
-     only with a recorded architectural justification. \
-     See Cargo.toml [features] and docs/ARCHITECTURE.md."
-);
-
-// =============================================================================
-// Module structure
+// MIRROR NOTICE — the types (tristate, types) and seal are thin copies of the
+// engine's. The correct long-term shape is a shared no_std crate (single-
+// producer rule); the header in types.rs names the follow-up.
 // =============================================================================
 
-// Phase 1 modules depend on hickory-resolver and tokio, which are absent from
-// the Phase 2 (native/Cargo.toml) dependency tree.
-// Gate them so Phase 2 builds compile cleanly without modification.
-#[cfg(not(feature = "phase2-native"))]
-pub mod analysis;
-#[cfg(not(feature = "phase2-native"))]
-pub mod ipc;
-#[cfg(not(feature = "phase2-native"))]
+#![no_std]
+
+extern crate alloc;
+
 pub mod report;
+pub mod seal;
 pub mod tristate;
+pub mod types;
 
-/// Phase 2 native path: sDDF-to-smoltcp `Device` trait adapter.
-///
-/// Gated on the `phase2-native` feature so Phase 1 builds (which have no
-/// smoltcp dependency) compile cleanly without modification.
-///
-/// **How to activate for Phase 2**:
-/// 1. Add `phase2-native = []` under `[features]` in
-///    `native/Cargo.toml`.
-/// 2. Add `phase2-native` to the `default` feature list in that manifest.
-/// 3. Add `smoltcp` to `[dependencies]` (already present in the native
-///    Cargo.toml; not needed in Phase 1's Cargo.toml).
-///
-/// Phase 2 `[[bin]]` targets (`src/main_native.rs`) may also declare
-/// `mod sddf_device;` directly without going through this lib — both paths
-/// are valid during the spike.  Once Phase 2 is promoted, the standalone
-/// declaration in `main_native.rs` should be removed in favour of this
-/// re-export.
-#[cfg(feature = "phase2-native")]
-pub mod sddf_device;
-
-// Re-export the most-used surface types so callers can write
-// `resolution_scope_native::ScoredAnalysis` without a full module path.
-#[cfg(not(feature = "phase2-native"))]
-pub use analysis::ScoredAnalysis;
+pub use report::render_text;
+pub use seal::{canonical_input, seal_versioned, SEAL_SCHEME};
 pub use tristate::TriState;
+pub use types::ScoredAnalysis;
 
-// =============================================================================
-// TriState — the core scoring primitive
-// =============================================================================
-//
-// (Full implementation lives in tristate.rs; the type is re-exported above.)
-//
-// TriState encodes the Sensitivity Row Requirement (resolution-scope-native test plan
-// Section F): every scored control MUST emit exactly one of three values.
-// "Warning" is not a valid output — it maps to Absent (see T1-1 fix note).
-//
-// ┌─────────────────────────────────────────────────────────────────────────┐
-// │  Present  │ Control exists and is valid                                 │
-// │  Absent   │ Control is missing or invalid (counts in denominator)       │
-// │  Indet    │ Could not measure (excluded from denominator, shown as "?") │
-// └─────────────────────────────────────────────────────────────────────────┘
+/// Verify a claimed seal against the verdict it purports to bind.
+///
+/// Tamper-evidence (the store's whole job): recompute the seal over the verdict
+/// + the producing engine's version, and compare to the claimed seal that
+/// crossed the boundary. Mismatch = the verdict was altered after sealing.
+pub fn verify_seal(analysis: &ScoredAnalysis, produced_by: &str, claimed: &str) -> bool {
+    seal_versioned(analysis, produced_by) == claimed
+}
