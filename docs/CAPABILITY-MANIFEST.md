@@ -17,11 +17,16 @@ for v in $VAR; do
 done
 ```
 
-## Measured facts (2026-08-17, dns-tool-intel main @ 74d2f5845)
+## Measured facts (2026-08-17, dns-tool-intel main @ 74d2f5845; RE-VERIFIED 2026-08-22 @ be1b4b149)
 
 - The Go parent reads **34 distinct environment variables** (secrets and config
   mixed). The "20 secrets" figure in early drafts was a proxy — this manifest
   derives from the tree, not the estimate.
+- **Re-verification (2026-08-22):** the producing command was re-run at
+  `dns-tool-intel` HEAD `be1b4b149` and returns the **exact same 34 variables**
+  — zero drift. The earlier "flagged stale before Arm 2" concern was a false
+  alarm: the *data* never went stale, only the measurement-stamp sha below was
+  old. The sha is the only thing that moved.
 - **Every read funnels through `internal/config`.** No other package calls
   `os.Getenv`/`os.LookupEnv` outside tests.
 - Consumer packages holding secret *values* after config hands them out:

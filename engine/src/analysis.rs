@@ -375,6 +375,10 @@ impl std::fmt::Display for DmarcDisposition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CaaDisposition {
+    /// `issue ";"` — no CA may issue ANY certificate for this domain
+    /// (RFC 8659 §4.2). The strongest CAA state: issuance is affirmatively
+    /// prohibited outright, not delegated to a list.
+    FullyRestricted,
     Configured, // CAA record present (issue restriction)
     /// `issuewild ";"` — no CA may issue a wildcard certificate for this
     /// domain (RFC 8659 §4.3). A distinct, more restrictive state than a
@@ -389,6 +393,7 @@ pub enum CaaDisposition {
 impl CaaDisposition {
     pub fn chain(self) -> TriState {
         match self {
+            CaaDisposition::FullyRestricted => TriState::Present,
             CaaDisposition::Configured => TriState::Present,
             CaaDisposition::WildcardFullyRestricted => TriState::Present,
             CaaDisposition::NotConfigured => TriState::Absent,
@@ -401,6 +406,7 @@ impl CaaDisposition {
 impl std::fmt::Display for CaaDisposition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            CaaDisposition::FullyRestricted => write!(f, "fully-restricted (issue ;)"),
             CaaDisposition::Configured => write!(f, "configured"),
             CaaDisposition::WildcardFullyRestricted => {
                 write!(f, "wildcard-fully-restricted (issuewild ;)")
@@ -1534,6 +1540,24 @@ fn mta_sts_enforced(policy: &str) -> bool {
     mta_sts_policy_state(policy) == MtaStsPolicyState::Enforce
 }
 
+/// Pure CAA value-grading: does any CAA record publish `issue ";"` — the
+/// "no CA may issue ANY certificate" signal (RFC 8659 §4.2)? Detected by
+/// tag == "issue" (case-insensitive) and the raw value being exactly the
+/// no-issuer sentinel `;` (hickory encodes an absent issuer name as a lone
+/// semicolon). This is the strongest CAA state — it wins over every other
+/// grading (a domain that forbids all issuance cannot be "restricted to a
+/// list"). Extracted pure so the detection is regression-pinned without
+/// network.
+fn caa_fully_restricted(records: &[hickory_proto::rr::Record]) -> bool {
+    records.iter().any(|rec| {
+        if let hickory_proto::rr::RData::CAA(caa) = &rec.data {
+            caa.tag.eq_ignore_ascii_case("issue") && caa.value == b";"
+        } else {
+            false
+        }
+    })
+}
+
 /// Pure CAA value-grading: does any CAA record publish `issuewild ";"` — the
 /// "no CA may issue a wildcard certificate" signal (RFC 8659 §4.3)? Detected
 /// by tag == "issuewild" (case-insensitive) and the raw value being exactly the
@@ -1581,7 +1605,9 @@ async fn score_caa(resolver: &TokioResolver, domain: &str) -> CaaDisposition {
     match resolver.lookup(domain, RecordType::CAA).await {
         Ok(resp) => {
             if answers_present(resp.answers()) {
-                if caa_wildcard_fully_restricted(resp.answers()) {
+                if caa_fully_restricted(resp.answers()) {
+                    CaaDisposition::FullyRestricted // issue ";" — no CA at all
+                } else if caa_wildcard_fully_restricted(resp.answers()) {
                     CaaDisposition::WildcardFullyRestricted
                 } else {
                     CaaDisposition::Configured
@@ -1997,21 +2023,76 @@ mod tests {
             "A-nasa: SERVFAIL on a signed host zone = transient, not swallowed"
         );
 
+        // --- MTA-STS (RFC 8461 §3.2 field enumeration; §5 mode semantics) ---
+        // G3: enforce-vs-testing is ALREADY distinguished — the pure policy
+        // classifier mta_sts_policy_state splits Enforce vs TestingOrNone, and
+        // the report maps them to severity Ok vs Medium. SciSpace's G3 called
+        // this a code-gap; it is a doc-gap (the distinction shipped, never
+        // asserted). These two assertions pin it + a negative control.
+        assert_eq!(
+            mta_sts_policy_state("version: STSv1\nmode: enforce\nmx: mail.example.com"),
+            MtaStsPolicyState::Enforce,
+            "G3: mode=enforce => Enforce (severity Ok)"
+        );
+        assert_eq!(
+            mta_sts_policy_state("version: STSv1\nmode: testing\nmx: mail.example.com"),
+            MtaStsPolicyState::TestingOrNone,
+            "G3: mode=testing => TestingOrNone (deployed, not enforcing)"
+        );
+        assert_eq!(
+            mta_sts_policy_state("version: STSv1\nmode: none\nmx: mail.example.com"),
+            MtaStsPolicyState::TestingOrNone,
+            "G3-none: mode=none => TestingOrNone (RFC 8461 §5: no active policy)"
+        );
+        assert_eq!(
+            mta_sts_policy_state("version: STSv1\nmode: enforce"),
+            MtaStsPolicyState::Invalid,
+            "G3-negative: no mx= line is invalid, never read as a mode"
+        );
+
         // --- CAA (RFC 8659 §3, §4.2, §4.3) ---
-        // Value-grading now ships: `issuewild ";"` (RFC 8659 §4.3) is a distinct
-        // WildcardFullyRestricted state — wildcard issuance affirmatively
-        // prohibited — NOT collapsed into presence-only Configured.
+        // Value-grading now ships: `issue ";"` (RFC 8659 §4.2) is a distinct
+        // FullyRestricted state — ALL issuance prohibited — and `issuewild ";"`
+        // (RFC 8659 §4.3) is WildcardFullyRestricted. Neither collapses into
+        // presence-only Configured.
         {
             use hickory_proto::rr::rdata::CAA;
             use hickory_proto::rr::{RData, Record};
+            // Ruling A — issue ";" (RFC 8659 §4.2): no CA may issue ANY cert.
+            let fully_restricted = Record::from_rdata(
+                mx_name("example.com."),
+                300,
+                RData::CAA(CAA::new_issue(false, None, vec![])),
+            );
+            assert!(
+                caa_fully_restricted(&[fully_restricted]),
+                "Ruling A: issue ';' = no CA may issue any cert (FullyRestricted)"
+            );
+            let named_issue = Record::from_rdata(
+                mx_name("example.com."),
+                300,
+                RData::CAA(CAA::new_issue(
+                    false,
+                    Some(mx_name("ca.example.net.")),
+                    vec![],
+                )),
+            );
+            assert!(
+                !caa_fully_restricted(&[named_issue]),
+                "Ruling A-negative: issue with a named CA is not fully restricted"
+            );
             let wildcard_restricted = Record::from_rdata(
                 mx_name("example.com."),
                 300,
                 RData::CAA(CAA::new_issuewild(false, None, vec![])),
             );
             assert!(
-                caa_wildcard_fully_restricted(&[wildcard_restricted]),
+                caa_wildcard_fully_restricted(std::slice::from_ref(&wildcard_restricted)),
                 "G4: issuewild ';' = wildcard fully restricted"
+            );
+            assert!(
+                !caa_fully_restricted(std::slice::from_ref(&wildcard_restricted)),
+                "Ruling A-vs-G4: issuewild ';' is NOT issue ';' (different tags)"
             );
             let named_wildcard = Record::from_rdata(
                 mx_name("example.com."),

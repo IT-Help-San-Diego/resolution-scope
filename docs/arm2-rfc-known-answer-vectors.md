@@ -169,13 +169,11 @@ code-gap.
 
 ### Rulings
 
-- **Ruling A — CAA `issue ";"` is a distinct third state, not "has CAA".**
+- **Ruling A — CAA `issue ";"` is a distinct state, not "has CAA".**
   RFC 8659 §4.2 gives `issue ";"` an explicit normative definition ("request
-  no issuance"). Accepted in principle. **Engine status:** `CaaDisposition` is
-  presence-based (Configured/NotConfigured) today; the fully-restricted
-  semantics are recorded at the record-value level but not graded. This is the
-  "value-grading" next-pass decision the code comment at `analysis.rs`
-  (CAA block) already flags — carded, not yet built.
+  no issuance"). **SHIPPED** — `CaaDisposition::FullyRestricted` is now a
+  distinct state wired ahead of `Configured` (and `WildcardFullyRestricted`)
+  in the CAA scoring arm, with a §4.2-anchored assertion + negative controls.
 - **Ruling B — keep CDS match-vs-differ, with an Informational calibration
   note.** The rollover-in-progress inference is grounded in §6.2 and is
   security-relevant, but RFC 7344 is Informational — so the disposition is an
@@ -191,8 +189,19 @@ code-gap.
 | G1 — `p=quarantine` | 9989 §4.7 | `DmarcDisposition::Quarantine` **already exists** | doc-gap — assertion added |
 | G5 — SPF `+all` | 7208 §4.6.2 | `SpfDisposition::OtherPolicy` **already covers it** (never misread as HardFail) | doc-gap — assertion added; the "open-relay red flag" *severity* nuance is a design refinement, carded |
 | G2 — null CDS (delete-DS) | **8078 §4** (not 7344 §4.3) | **`CdsDisposition::DeletionRequested` shipped** | code-gap — closed |
-| G3 — MTA-STS `mode=testing` vs `enforce` | 8461 §3.3 | `MtaStsDisposition::Enforced`/`NotEnforced` exist, but mode-grading in the fetched body is not asserted here | doc-gap (partial) — carded |
+| G3 — MTA-STS `mode=testing` vs `enforce` | **8461 §3.2 (fields) / §5 (mode semantics)** — *not §3.3* | `mta_sts_policy_state` **already splits** Enforce vs TestingOrNone; report maps them to severity **Ok vs Medium** | doc-gap — assertions added (4: enforce/testing/none/invalid) |
 | G4 — CAA `issuewild ";"` | **8659 §4.3** (not §4.2) | **`CaaDisposition::WildcardFullyRestricted` shipped** | code-gap — closed |
+
+**G3 correction:** SciSpace cited "RFC 8461 §3.3" for the mode semantics.
+§3.3 is "HTTPS Policy Fetching". The mode field is enumerated in **§3.2**
+("MTA-STS Policies") and its three-mode *semantics* ("enforce" MUST NOT
+deliver / "testing" report-but-deliver / "none" no active policy) are in **§5**
+("Policy Application"). The distinction itself already existed in the engine —
+this is the same class as G1/G5 (doc-gap, not code-gap), now pinned.
+
+**Ruling A is now also shipped** (`CaaDisposition::FullyRestricted`), so the
+"distinct state" ask is closed as a real enum variant, not left as a code
+comment.
 
 ## Remaining build
 

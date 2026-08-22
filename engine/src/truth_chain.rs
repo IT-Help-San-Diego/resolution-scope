@@ -559,6 +559,12 @@ fn mta_sts_report(d: MtaStsDisposition) -> ControlReport {
 
 fn caa_report(d: CaaDisposition) -> ControlReport {
     let (measured, severity, blue, red) = match d {
+        CaaDisposition::FullyRestricted => (
+            "fully-restricted — issue \";\"",
+            Severity::Ok,
+            "The domain affirmatively prohibits ALL certificate issuance (RFC 8659 §4.2): no CA may issue any certificate. The strongest CAA state.",
+            "Certificate mis-issuance would require a CA to violate an explicit no-issuance property outright — there is no authorized CA to compromise.",
+        ),
         CaaDisposition::Configured => (
             "configured — issuance restricted to named CAs",
             Severity::Ok,
