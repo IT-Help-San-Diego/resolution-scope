@@ -1,6 +1,15 @@
 # Calibration Study — the next validation layer
 
-**Status:** proposed. Nothing here is measured yet.
+**Status:** proposed → **all three arms have run** (2026-08-20 through 2026-08-22).
+This header is updated from "proposed / nothing measured" to record that the study
+is no longer a proposal. Results live in their own homes: **Arm 1** (N-version
+differential, 8-domain join, 2 real findings) → `docs/arm1-20260821/`; **Arm 2**
+(RFC known-answer corpus, CI-enforced `rfc_known_answer_vectors()` + Go-parent
+port PR #472) → `docs/arm2-rfc-known-answer-vectors.md`; **Arm 3** (mutation,
+the three `zone_apex_of` survivors closed 2026-08-22, re-measure in
+`docs/mutation-analysis-20260820/`). The "before" table below is the pre-study
+baseline that motivated the work — a snapshot, kept for provenance, not a live
+count (analysis.rs has since grown from 1,918 → ~2,886 lines and 29 → 70 tests).
 
 ## The gap this closes
 
