@@ -60,29 +60,37 @@ struct Palette {
 }
 
 impl Palette {
+    // Both palettes use Color::Indexed (256-color ANSI indices) rather than
+    // Color::Rgb (24-bit truecolor). Rationale: the covert/red-team mode is
+    // DESIGNED to run on stripped headless terminals (fbterm, raw tty), and
+    // fbterm is 256-color only — truecolor RGB sequences get misparsed into
+    // magenta/cyan garbage there. Indexed colors render identically on every
+    // terminal (256-color AND truecolor), so the palette is deterministic
+    // across the whole "truecolor → 256 → 16-color" downgrade ladder. This is
+    // the same "one look everywhere" doctrine as the single truth-chain.
     const BLUE: Self = Self {
-        bg: Color::Rgb(10, 10, 10),
-        fg: Color::Rgb(224, 224, 224),
-        accent: Color::Rgb(64, 160, 255),
-        warn: Color::Rgb(255, 180, 40),
-        fail: Color::Rgb(255, 70, 70),
-        pass: Color::Rgb(70, 200, 100),
-        muted: Color::Rgb(100, 100, 100),
-        border: Color::Rgb(50, 50, 55),
-        highlight: Color::Rgb(40, 40, 48),
-        header_bg: Color::Rgb(30, 30, 38),
+        bg: Color::Indexed(233),        // #121212 near-black
+        fg: Color::Indexed(252),        // #d0d0d0 light grey
+        accent: Color::Indexed(33),     // #0087ff blue
+        warn: Color::Indexed(214),      // #ffaf00 amber
+        fail: Color::Indexed(203),      // #ff5f5f salmon red
+        pass: Color::Indexed(71),       // #5faf5f green
+        muted: Color::Indexed(244),     // #808080 grey
+        border: Color::Indexed(238),    // #444444
+        highlight: Color::Indexed(235), // #262626
+        header_bg: Color::Indexed(234), // #1c1c1c
     };
     const COVERT: Self = Self {
-        bg: Color::Rgb(6, 4, 2),
-        fg: Color::Rgb(210, 150, 70),
-        accent: Color::Rgb(230, 60, 20),
-        warn: Color::Rgb(210, 130, 30),
-        fail: Color::Rgb(250, 50, 30),
-        pass: Color::Rgb(30, 170, 50),
-        muted: Color::Rgb(70, 45, 25),
-        border: Color::Rgb(50, 30, 15),
-        highlight: Color::Rgb(25, 15, 8),
-        header_bg: Color::Rgb(18, 10, 6),
+        bg: Color::Indexed(232),        // #080808 essentially black
+        fg: Color::Indexed(180),        // #d7af87 warm tan (scotopic-friendly)
+        accent: Color::Indexed(160),    // #d70000 deep red (title/chrome)
+        warn: Color::Indexed(208),      // #ff8700 orange (warnings)
+        fail: Color::Indexed(196),      // #ff0000 bright red (failures POP)
+        pass: Color::Indexed(28),       // #008700 dim forest green (scotopic)
+        muted: Color::Indexed(240),     // #585858 dim grey
+        border: Color::Indexed(52),     // #5f0000 dark red
+        highlight: Color::Indexed(235), // #262626
+        header_bg: Color::Indexed(233), // #121212
     };
 }
 
