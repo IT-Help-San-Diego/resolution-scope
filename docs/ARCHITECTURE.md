@@ -77,8 +77,9 @@ underneath. True bare metal is `.metal` instances or owned hardware.
 spike (local, Rust + hickory dnssec feature) → compartment demo on the
 seL4 builder (proves §3) → local compartment tier → cloud box provisioned
 seL4-native from birth (fixed-size, separate). Named, unmeasured risks:
-sDDF throughput at DNS query rates; LionsOS v0.3 maturity. Neither is
-asserted without a benchmark.
+sDDF throughput at DNS query rates; LionsOS v0.4 maturity (0.4.0 shipped
+2026-08-21 — re-verified 2026-08-22). Neither is asserted without a
+benchmark.
 
 ## 7. The no_std DNSSEC decision (2026-08-17, measured)
 
@@ -94,8 +95,10 @@ does not need to re-derive to be isolated.
 - **B (adopted, unblocks the demo):** DNSSEC validation runs in the std
   Phase-1 engine; only sealed verdicts cross into the compartment.
 - **A (long-term, no deadline):** upstream no_std DNSSEC in hickory. The
-  maintainers are actively merging no_std PRs (#2104, #2821, #2806);
-  `__dnssec` is the last std-gated feature and is unclaimed.
+  no_std foundation landed in `hickory-proto` (PRs #2104, #2821, #2806, all
+  merged 2025-03); `__dnssec` remains std-gated and unclaimed — re-verified
+  2026-08-22 against `main` HEAD and crates.io (see
+  `SCISPACE_nostd_dnssec_status.md`).
 - **C (argued-against):** hand-rolling RRSIG verification on bare `ring` is
   exactly the surface where a subtle implementation error produces confident
   wrong verdicts — the failure class this project exists to detect in others.

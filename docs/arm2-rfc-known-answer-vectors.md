@@ -155,8 +155,8 @@ force — never accept a §-citation on a peer's say-so, re-read the RFC first.
 
 | # | § | statement | input | expected |
 |---|---|---|---|---|
-| N1 | 7344 §4.1 (§5) | CDS matches DS = normal | CDS present, matches | Present |
-| N2 | 7344 §6.2 | CDS ≠ DS = rollover in progress | CDS present, differs | rollover-in-progress |
+| N1 | 7344 §4.1 (§5) | CDS matches DS = normal | CDS present, matches | Present — **deferred** (see `cds-match-differ-scope-out.md`) |
+| N2 | 7344 §6.2 | CDS ≠ DS = rollover in progress | CDS present, differs | rollover-in-progress — **deferred** (cross-zone comparison, not measured) |
 | N3 | 7344 §4.1 | no CDS | (absent) | `NotConfigured` (Absent) |
 | N4 | 8078 §4 | null CDS/CDNSKEY (algorithm 0) = delete DS | `CDS 0 0 0 0` | `DeletionRequested` — *shipped* |
 

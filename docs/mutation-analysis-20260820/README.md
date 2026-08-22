@@ -18,6 +18,8 @@ carried a full study.
 | `f8dd0db` | 114 | 59 | 21 | 34 | close the over-correction: `tlsa_err_to_count` routes NODATA→measured (new function, 4 caught/0 missed — a wrong-verdict fix, so `missed` unchanged) |
 | `cdeecf8` | 114 | 59 | 21 | 34 | docs + the trailing-dot test now in production shape (test-only; `missed` and `total` unchanged) |
 | `85a87ae` | 115 | 68 | **12** | 35 | close the nine scoring-path survivors: centralize the four `!is_empty()` gates into `answers_present`, extract `mta_sts_absent_without_hint` + `mta_sts_policy_from_response` (fetch inlined — no `Result`-returning async helper left to fabricate), pin `mta_sts_policy_state`'s testing-or-none arm — the 12 left are all cosmetic |
+| `main` (post-PR #14, `d7d99eb`) | 149 | 95 | **19** | 35 | Arm 3 baseline: the DnssecRequired work (2026-08-21) + PR #14's three dispositions re-grew 7 scoring-path survivors — `dkim_txt_chunks` 3, `zone_apex_of` 3, `tlsa_err_to_count` NXDomain-guard 1 (the 12 cosmetic unchanged) |
+| Arm 3 close | 156 | 106 | **15** | 35 | extract `zone_apex_of`'s pure cores (`soa_owner_from_answers` + `soa_owner_from_error`), pin `dkim_txt_chunks` + the `tlsa_err_to_count` NXDomain guard — 4 of 7 scoring-path survivors closed; the remaining 3 are all `zone_apex_of` *return-value delegates* on the async wrapper (thin-shell, pure cores now 0-missed) |
 
 **Only `missed` is comparable across steps.** Extraction creates new pure
 functions, so `total` and `caught` grow (101→109) as the mutable surface expands
