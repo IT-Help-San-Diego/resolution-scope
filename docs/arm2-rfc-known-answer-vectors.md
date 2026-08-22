@@ -210,3 +210,24 @@ comment.
   (a TXT string, a proof state), so they're deterministic and offline-testable.
 - Feed the same vectors to the Go analyzer to close the shared-error gap on
   that side too.
+
+## Go-parent port (2026-08-22) — two live CAA false verdicts found + fixed
+
+Feeding the vectors to the **Go production analyzer** (`dns-tool-intel`) found
+two live RFC-violating false verdicts, measured by driving `parseCAARecords` /
+`identifyCAIssuer` / `buildCAAMessage` against the oracle cases:
+
+- `issue ";"` (RFC 8659 §4.2 = no CA may issue) rendered `issuers=[;]` →
+  "only ; can issue certificates" — the sentinel was read as a CA named `;`.
+- `issuewild ";"` (RFC 8659 §4.3 = no wildcard) rendered `wildcardIssuers=[;]`.
+
+Fixed in `dns-tool-intel` PR #472 (`hermes/caa-issue-semicolon-fix`, commit
+`ec966eb55`): `identifyCAIssuer` returns empty for the `;` sentinel,
+`caaParsedRecords` gains `fullyRestricted`/`wildcardFullyRestricted` (distinct
+from default-permissive no-records), `buildCAAMessage` renders the honest
+RFC wording. Regression-pinned by `TestCAASemicolonSentinel` + negative
+controls. This closes the shared-error gap on the production instrument — the
+Rust side already shipped the equivalent (`CaaDisposition::FullyRestricted` /
+`WildcardFullyRestricted`) in PR #14. Everything else the probe touched (SPF,
+DMARC, DKIM revoked, MTA-STS modes, CDS null-delete, DANE host-zone gate) was
+already correct in Go.
