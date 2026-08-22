@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  dns_sovereign_compartment.system — Resolution Scope store compartment
+  (seL4 Microkit system description, Option B)
+
+  Copyright 2026, IT Help San Diego Inc.
+  SPDX-License-Identifier: AGPL-3.0-or-later
+
+  This is the AUTHORING artifact (not the hand-written .cdl, which is obsolete —
+  the microkit tool GENERATES capDL from this file). It encodes the capability
+  table from docs/lionsos-compartment-demo-spec.md §4:
+
+    - `engine` PD  — the std (Phase 1) query engine. In the first cut it is a
+      C shim standing in for the Rust engine; under Option B the real DNSSEC
+      validation runs outside the compartment. It holds the SEND end of the
+      results channel only.
+    - `store` PD   — the no_std report/store receiver (this compartment). It
+      holds the RECEIVE end of the results channel and the write-only output
+      region. It has NO <irq>, NO network <map>, NO network <memory_region> —
+      "no network capability" is the ABSENCE of those elements, which is the
+      kernel-enforced property the §3 theorem protects.
+
+  This is a faithful reduction of passive_server.system (the canonical two-PD
+  IPC template) to the store-compartment shape. The engine side is a stub
+  because under Option B it is the std Rust binary running OUTSIDE seL4 (on the
+  Linux host); the seL4 system only needs the store side + a channel to hand it
+  a verdict. A full engine-inside-seL4 shape is explicitly a NON-goal (§3).
+-->
+
+<system>
+    <!-- The store compartment: passive (no active scheduling context), no IRQs,
+         no network. It only ever receives a verdict over the channel and writes
+         the report to the write-only region. -->
+    <protection_domain name="store" priority="100" passive="true">
+        <program_image path="store.elf" />
+    </protection_domain>
+
+    <!-- The engine stub: the SEND end. Under Option B this is replaced by the
+         std Rust engine running on the Linux host; for the seL4-only boot test
+         it is a minimal C PD that sends one sealed verdict over the channel. -->
+    <protection_domain name="engine" priority="99">
+        <program_image path="engine.elf" />
+    </protection_domain>
+
+    <!-- The single IPC surface: engine → store. The store receives on id 0;
+         nothing else reaches it. This is the ONLY connection, and it carries a
+         ScoredAnalysis (a small enumerated value), never a capability. -->
+    <channel>
+        <end pd="store" id="0" />
+        <end pd="engine" id="0" pp="true" />
+    </channel>
+</system>
