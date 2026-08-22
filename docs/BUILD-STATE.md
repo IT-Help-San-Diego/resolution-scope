@@ -10,17 +10,18 @@ between a std+tokio crate and a no_std crate is a real hazard).
   `cargo build` ✅, `cargo test` ✅ (19 pass, 5 ignored live-network).
   `cargo check --no-default-features` **fails as designed** (exit 101) — the
   `dnssec-ring` compile guard fires; negative assertion verified.
-- `native/` — Phase 2: no_std + smoltcp + hickory-proto. **Library builds on
-  host** (`cargo build --lib` ✅, `cargo test --lib` ✅ 4 pass: tristate +
-  sddf_device bounds). The `[[bin]]` (main_native.rs) is bare-metal only:
-  `#![no_std]`, custom `#[panic_handler]`, `#[no_mangle] main`.
-  **Measured 2026-08-19: the bin does NOT compile even apart from the
-  target** — 12 errors against hickory-proto 0.26.1's no_std API surface
-  (`Message::new()` takes `(u16, MessageType, OpCode)` there; the std-side
-  setter methods `set_id`/`set_op_code`/`header()`/`extensions_mut()` don't
-  exist without default features). Pre-existing, untouched by the truth-chain
-  work; whoever opens the seL4 lane ports main_native.rs's message
-  construction first. The ledger's contract for this crate remains `--lib`.
+- `native/` — Phase 2: **Option-B report/store receiver** (no_std + sha3 + serde;
+  no smoltcp, no hickory-proto, no ring — the pre-B "DNS engine inside the
+  compartment" shape was removed 2026-08-22, resolving the model drift recorded
+  in `seL4-demo-state-and-model-drift-20260822.md`). **Library builds + tests**
+  (`cargo build --lib` ✅, `cargo test --lib` ✅ 5 pass incl. the golden-seal
+  test pinning byte-identity with the engine). The `[[bin]]` (main_native.rs) is
+  bare-metal: `#![no_std]` + `#![no_main]`, `#[panic_handler]`, `#[no_mangle]
+  main`/`_start`, bump allocator. **Measured 2026-08-22: the bin LINKS for
+  `aarch64-unknown-none --release`** (82KB stripped statically-linked ELF) —
+  the `ring`→`assert.h` blocker is gone because sha3 (pure Rust) replaced ring.
+  Full record: `docs/seL4-demo-native-receiver-milestone-20260822.md`. The
+  ledger's contract for this crate remains `--lib` (see `native-lib` CI job).
 
 ## Engine arms — complete (2026-08-18 evening)
 
