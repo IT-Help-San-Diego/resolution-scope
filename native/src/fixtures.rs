@@ -13,10 +13,9 @@
 // over the IPC channel" until the receive path is wired. It deliberately
 // exercises every TriState variant and all 8 distinct dispositions.
 
-use crate::tristate::TriState;
-use crate::types::{
+use resolution_scope_types::{
     CaaDisposition, CdsDisposition, DaneDisposition, DkimDisposition, DmarcDisposition,
-    DnssecDisposition, MtaStsDisposition, ScoredAnalysis, SpfDisposition,
+    DnssecDisposition, MtaStsDisposition, ScoredAnalysis, SpfDisposition, TriState,
 };
 
 pub fn demo_verdict() -> ScoredAnalysis {

@@ -99,9 +99,16 @@ dependencies = [
 name = "resolution-scope-native"
 version = "0.1.0"
 dependencies = [
- "serde",
+ "resolution-scope-types",
  "serde_json",
  "sha3",
+]
+
+[[package]]
+name = "resolution-scope-types"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

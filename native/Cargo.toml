@@ -35,14 +35,15 @@ path = "src/main_native.rs"
 test = false
 
 [dependencies]
+# The verdict type surface (TriState, the eight dispositions, ScoredAnalysis) —
+# the single producer, shared with engine/. Replaces the former hand-kept mirror
+# (native/src/{tristate,types}.rs, now deleted).
+resolution-scope-types = { path = "../types" }
+
 # SHA3-512 for the verdict seal. Pure Rust, no_std, no C sources — this is what
 # removed the `ring` → `assert.h` cross-compile blocker that stalled the pre-B
 # shape (ring has C; sha3 does not).
 sha3 = { version = "0.10", default-features = false }
-
-# IPC payload (de)serialization. The ScoredAnalysis is the boundary-crossing
-# value (spec §5); serde derives match the engine's type surface. alloc-only.
-serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
 
 # JSON wire format for the IPC boundary (ffi.rs). This is the SAME format the
 # engine emits (serde_json on the std side), so a verdict serialised by the

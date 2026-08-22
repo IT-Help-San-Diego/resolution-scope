@@ -11,14 +11,15 @@
 //
 // The load-bearing contract is the SEAL: canonical_input + seal_versioned must
 // be byte-identical to engine/src/seal.rs. The golden-seal test in seal.rs pins
-// this mirror to a value computed from the engine.
+// this to a value computed from the engine.
 //
 // The C ABI (ffi.rs) is the seam between the std engine (outside seL4) and this
 // no_std store compartment (inside) — the exact Rust↔Microkit boundary.
 //
-// MIRROR NOTICE — the types (tristate, types) and seal are thin copies of the
-// engine's. The correct long-term shape is a shared no_std crate (single-
-// producer rule); the header in types.rs names the follow-up.
+// The type surface (TriState, the eight dispositions, ScoredAnalysis) now comes
+// from the shared `resolution-scope-types` crate (single producer) — the former
+// hand-kept mirror (native/src/{tristate,types}.rs) is DELETED, so drift is
+// structurally impossible rather than merely detected.
 // =============================================================================
 
 #![no_std]
@@ -29,14 +30,15 @@ pub mod ffi;
 pub mod fixtures;
 pub mod report;
 pub mod seal;
-pub mod tristate;
-pub mod types;
 
 pub use fixtures::demo_verdict;
 pub use report::render_text;
 pub use seal::{canonical_input, seal_versioned, SEAL_SCHEME};
-pub use tristate::TriState;
-pub use types::ScoredAnalysis;
+
+// The verdict type surface, re-exported so `resolution_scope_native::{TriState,
+// ScoredAnalysis}` keep resolving for callers while the definitions live in one
+// place (resolution-scope-types).
+pub use resolution_scope_types::{ScoredAnalysis, TriState};
 
 /// Verify a claimed seal against the verdict it purports to bind.
 ///

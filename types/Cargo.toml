@@ -1,0 +1,13 @@
+[package]
+name        = "resolution-scope-types"
+version     = "0.1.0"
+edition     = "2021"
+description = "Resolution Scope — shared no_std type definitions (TriState, dispositions, ScoredAnalysis)"
+license     = "AGPL-3.0"
+repository  = "https://github.com/IT-Help-San-Diego/resolution-scope"
+
+[dependencies]
+# Derive + alloc only (no std). The verdict wire format (serde_json) stays at
+# the IPC boundary in the engine/native crates; this crate only defines the
+# types both sides serialize.
+serde = { version = "1", default-features = false, features = ["derive", "alloc"] }

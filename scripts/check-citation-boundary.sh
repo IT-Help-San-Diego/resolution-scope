@@ -8,11 +8,11 @@
 # by a failure — this script is what makes the next one a failure).
 #
 # Per-crate copies of a guard test are the hand-maintained-mirror pattern the
-# guard exists to prevent, and with three sibling crates and no workspace a
+# guard exists to prevent, and with sibling crates and no workspace a
 # workspace-level test is unavailable. So this script ENUMERATES crates:
-# every directory holding a Cargo.toml except engine/ is scanned. A new
-# renderer crate (web, flipper) is covered the day its Cargo.toml exists —
-# by default, not by memory.
+# every directory holding a Cargo.toml except engine/ and types/ is scanned.
+# A new renderer crate (web, flipper) is covered the day its Cargo.toml exists
+# — by default, not by memory.
 #
 # Written for bash 3.2 (macOS ships it): no mapfile, no assoc arrays.
 set -euo pipefail
@@ -57,8 +57,12 @@ scanned=0
 while IFS= read -r manifest; do
     crate_dir="$(dirname "$manifest")"
     crate_name="$(basename "$crate_dir")"
-    if [ "$crate_name" = "engine" ]; then
-        continue # the single licensed producer of citations
+    if [ "$crate_name" = "engine" ] || [ "$crate_name" = "types" ]; then
+        # Licensed citation producers. engine/ holds the requirement layer
+        # (truth_chain.rs) and the scoring logic; types/ holds the disposition
+        # semantics, whose RFC citations live in the enum doc comments and move
+        # WITH the type so the semantics and their authority stay colocated.
+        continue
     fi
     scanned=$((scanned + 1))
     src_dir="$crate_dir/src"
@@ -99,11 +103,11 @@ done < <(find . -name Cargo.toml -not -path '*/target/*' | sort)
 # Apparatus check: a gate that enumerated nothing must fail, not pass —
 # "could this command have succeeded while measuring nothing?"
 if [ "$scanned" -eq 0 ]; then
-    echo "✗ no non-engine crates found — the enumeration is broken; failing closed"
+    echo "✗ no non-engine/types crates found — the enumeration is broken; failing closed"
     exit 1
 fi
 
 if [ "$fail" -ne 0 ]; then
     exit 1
 fi
-echo "CITATION BOUNDARY: PASSED ($scanned non-engine crate(s) scanned)"
+echo "CITATION BOUNDARY: PASSED ($scanned non-engine/types crate(s) scanned)"

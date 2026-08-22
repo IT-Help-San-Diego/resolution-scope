@@ -34,6 +34,12 @@ dnssec-ring = [
 ]
 
 [dependencies]
+# The verdict type surface (TriState, the eight dispositions, ScoredAnalysis) —
+# the single producer, shared with native/. Replaces the former in-crate type
+# section (removed from analysis.rs) so the seal's variant-name contract has one
+# source.
+resolution-scope-types = { path = "../types" }
+
 hickory-resolver = { version = "0.26", features = ["dnssec-ring", "tls-ring"] }
 hickory-proto     = { version = "0.26", features = ["dnssec-ring"] }
 

@@ -25,14 +25,16 @@ jobs:
   # here, not a copied job (the hand-maintained-mirror lesson: flipper shipped
   # with no CI job because the per-crate jobs were copies). native is separate
   # below: its contract is --lib only. The three surface crates (tui/web/flipper)
-  # collapsed into `cli` on 2026-08-20 — one binary, subcommands.
+  # collapsed into `cli` on 2026-08-20 — one binary, subcommands. `types` (the
+  # shared no_std type crate) is a normal member: its tests pin the seal's
+  # variant-name contract.
   crates:
     name: ${{ matrix.crate }} — fmt, test, strict clippy
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        crate: [engine, cli, store]
+        crate: [engine, cli, store, types]
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -56,6 +58,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-none
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: native
@@ -64,6 +68,13 @@ jobs:
       - run: cargo build --lib
         working-directory: native
       - run: cargo test --lib
+        working-directory: native
+      # Bare-metal compile gate: the lib must build for the no_std target it is
+      # destined for (aarch64-unknown-none), not just the host. Catches the
+      # "compiles on host, breaks on target" class — e.g. an accidental std::
+      # reference that a host `cargo build --lib` (which links std) would not
+      # surface. No SDK needed; check is type-only (~30s), no link.
+      - run: cargo check --lib --target aarch64-unknown-none
         working-directory: native
 
   # License gate (deny.toml): v2 config is deny-by-default — any license not
@@ -76,7 +87,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        crate: [engine, cli, native, store]
+        crate: [engine, cli, native, store, types]
     steps:
       - uses: actions/checkout@v5
       - uses: EmbarkStudios/cargo-deny-action@v2

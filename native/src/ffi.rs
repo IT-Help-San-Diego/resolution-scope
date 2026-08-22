@@ -34,7 +34,7 @@ use core::ffi::{c_char, CStr};
 
 use crate::report::render_text;
 use crate::seal::seal_versioned;
-use crate::types::ScoredAnalysis;
+use resolution_scope_types::ScoredAnalysis;
 
 /// Read a NUL-terminated C string into an owned String (empty on null pointer).
 unsafe fn cstr_to_string(ptr: *const c_char) -> String {

@@ -15,7 +15,7 @@ use alloc::format;
 use alloc::string::String;
 
 use crate::seal::{canonical_input, seal_versioned};
-use crate::types::ScoredAnalysis;
+use resolution_scope_types::ScoredAnalysis;
 
 /// Render a text report for a verdict produced by `produced_by` (the engine
 /// version the verdict was sealed under — passed in, never this crate's own).

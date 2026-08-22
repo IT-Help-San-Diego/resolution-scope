@@ -2166,6 +2166,7 @@ dependencies = [
  "hickory-proto",
  "hickory-resolver",
  "reqwest",
+ "resolution-scope-types",
  "serde",
  "serde_json",
  "sha3",
@@ -2185,6 +2186,13 @@ dependencies = [
  "tokio",
  "tokio-postgres",
  "tracing",
+]
+
+[[package]]
+name = "resolution-scope-types"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

@@ -24,7 +24,7 @@ use sha3::{Digest, Sha3_512};
 use alloc::format;
 use alloc::string::String;
 
-use crate::types::ScoredAnalysis;
+use resolution_scope_types::ScoredAnalysis;
 
 /// Versioned identifier for the seal scheme. Changing the canonical form MUST
 /// bump this string, or old seals silently become unverifiable.
@@ -118,8 +118,8 @@ fn hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tristate::TriState;
-    use crate::types::ScoredAnalysis;
+    use resolution_scope_types::ScoredAnalysis;
+    use resolution_scope_types::TriState;
 
     /// The canonical fixture — the single producer (`crate::fixtures`), shared
     /// with the bin and the FFI tests. The golden seal pins it.
