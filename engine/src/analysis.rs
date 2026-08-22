@@ -1265,33 +1265,39 @@ fn zone_contains_host(host: &str, zone: &str) -> bool {
     z.contains('.') && (h == z || h.ends_with(&format!(".{}", z)))
 }
 
+/// Pure: the SOA owner name from an answer section. The SOA owner name is, by
+/// definition, the zone cut — this is what separates `smtp.google.com` (apex
+/// `google.com`) from `mail.example.com` (apex `example.com`) without a PSL
+/// table. `None` when no SOA is present in the answers.
+fn soa_owner_from_answers(answers: &[hickory_proto::rr::Record]) -> Option<String> {
+    answers
+        .iter()
+        .find(|r| matches!(&r.data, hickory_proto::rr::RData::SOA(_)))
+        .map(|r| r.name.to_ascii())
+}
+
+/// Pure: the SOA owner name carried in a lookup error's authority section. A
+/// leaf name's SOA arrives in `NoRecordsFound` (the containing zone); `None`
+/// for a transient error (ServFail/timeout) — couldn't measure the zone, not
+/// "no zone".
+fn soa_owner_from_error(e: &NetError) -> Option<String> {
+    use hickory_resolver::net::DnsError;
+    match e {
+        NetError::Dns(DnsError::NoRecordsFound(nr)) => nr.soa.as_ref().map(|s| s.name.to_ascii()),
+        _ => None,
+    }
+}
+
 /// Derive the zone apex that CONTAINS `name` by asking for the SOA and reading
-/// its owner. The SOA owner name is, by definition, the zone cut — this is what
-/// separates `smtp.google.com` (apex `google.com`) from `mail.example.com`
-/// (apex `example.com`) without a PSL table. `None` when the lookup errored
+/// its owner. If `name` is itself the apex the SOA comes back in the answer
+/// section; if it is a leaf the SOA arrives in the authority section
+/// (`NoRecordsFound` with `soa` populated). `None` when the lookup errored
 /// (couldn't measure the zone, not \"no zone\").
 async fn zone_apex_of(resolver: &TokioResolver, name: &str) -> Option<String> {
     use hickory_proto::rr::RecordType;
-    // Ask the resolver for SOA at `name`. If `name` is itself the apex, the
-    // SOA comes back in the answer; if it is a leaf, the SOA arrives in the
-    // authority section (NoRecordsFound with `soa` populated).
     match resolver.lookup(name, RecordType::SOA).await {
-        Ok(resp) => {
-            // SOA in the answer section: `name` is the apex.
-            resp.answers()
-                .iter()
-                .find(|r| matches!(&r.data, hickory_proto::rr::RData::SOA(_)))
-                .map(|r| r.name.to_ascii())
-        }
-        Err(e) => {
-            // SOA in the authority section (leaf name): the containing zone.
-            use hickory_resolver::net::DnsError;
-            if let NetError::Dns(DnsError::NoRecordsFound(nr)) = &e {
-                nr.soa.as_ref().map(|s| s.name.to_ascii())
-            } else {
-                None
-            }
-        }
+        Ok(resp) => soa_owner_from_answers(resp.answers()),
+        Err(e) => soa_owner_from_error(&e),
     }
 }
 
@@ -2703,6 +2709,125 @@ mod tests {
         // NXDOMAIN with the TLD's SOA -> the domain itself is missing -> Indet.
         let e = nxdomain_err_with_soa("com.");
         assert_eq!(record_absence_verdict(&e, "example.com"), TriState::Indet);
+    }
+
+    // --- dkim_txt_chunks: the pure DKIM TXT-collection core -------------------
+    // Three survivors were in dkim_txt_chunks (the DKIM key's p= may span
+    // multiple TXT strings, RFC 6376 §3.6.1). The function was pure but had no
+    // direct test — score_dkim (its only caller) is async and untested, so its
+    // return-value mutants survived. These two pin it: every chunk collected,
+    // and non-TXT records ignored.
+
+    #[test]
+    fn dkim_txt_chunks_collects_every_txt_string() {
+        use hickory_proto::rr::rdata::TXT;
+        use hickory_proto::rr::{RData, Record};
+        let txt = RData::TXT(TXT::new(vec![
+            "v=DKIM1; p=".to_string(),
+            "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQ".to_string(),
+        ]));
+        let rec = Record::from_rdata(mx_name("sel._domainkey.example.com."), 300, txt);
+        assert_eq!(
+            dkim_txt_chunks(&[rec]),
+            vec![
+                "v=DKIM1; p=".to_string(),
+                "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQ".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn dkim_txt_chunks_ignores_non_txt_records() {
+        use hickory_proto::rr::rdata::A;
+        use hickory_proto::rr::{RData, Record};
+        use std::net::Ipv4Addr;
+        let a = Record::from_rdata(
+            mx_name("example.com."),
+            300,
+            RData::A(A(Ipv4Addr::new(1, 2, 3, 4))),
+        );
+        assert!(dkim_txt_chunks(&[a]).is_empty());
+    }
+
+    // --- soa_owner_from_answers / soa_owner_from_error -----------------------
+    // The pure core extracted from zone_apex_of (the async DnssecRequired
+    // helper). Three return-value survivors in zone_apex_of were the
+    // observe_flux shape — a network wrapper whose pure core had no test.
+    // Extracted; these four pin both directions of both cores.
+
+    #[test]
+    fn soa_owner_from_answers_reads_the_apex_name() {
+        use hickory_proto::rr::rdata::SOA;
+        use hickory_proto::rr::{Name, RData, Record};
+        let soa = SOA::new(
+            Name::from_ascii("ns1.example.com.").unwrap(),
+            Name::from_ascii("hostmaster.example.com.").unwrap(),
+            1,
+            3600,
+            600,
+            86400,
+            3600,
+        );
+        let rec = Record::from_rdata(
+            Name::from_ascii("example.com.").unwrap(),
+            3600,
+            RData::SOA(soa),
+        );
+        assert_eq!(
+            soa_owner_from_answers(&[rec]),
+            Some("example.com.".to_string())
+        );
+    }
+
+    #[test]
+    fn soa_owner_from_answers_is_none_without_soa() {
+        // A non-SOA answer (an A record) carries no apex.
+        assert_eq!(soa_owner_from_answers(&[one_record()]), None);
+    }
+
+    #[test]
+    fn soa_owner_from_error_reads_the_containing_zone() {
+        let e = nxdomain_err_with_soa("example.com.");
+        assert_eq!(soa_owner_from_error(&e), Some("example.com.".to_string()));
+    }
+
+    #[test]
+    fn soa_owner_from_error_is_none_on_transient() {
+        assert_eq!(soa_owner_from_error(&servfail_err()), None);
+    }
+
+    // --- tlsa_err_to_count: the NXDomain guard must not read transient as ---
+    // measured absence. The guard `response_code == NXDomain` is what keeps a
+    // non-NXDOMAIN NoRecordsFound from being promoted to Some(0) ("no TLSA").
+    // A ServFail that happens to carry an SOA must still be None — the guard,
+    // not the SOA, decides.
+
+    #[test]
+    fn tlsa_err_to_count_non_nxdomain_with_soa_is_unmeasured() {
+        use hickory_proto::op::{Query, ResponseCode};
+        use hickory_proto::rr::{rdata::SOA, Name, Record, RecordType};
+        use hickory_resolver::net::{DnsError, NoRecords};
+        let q = Query::query(
+            Name::from_ascii("_25._tcp.mail3.example.com.").unwrap(),
+            RecordType::TLSA,
+        );
+        let soa = SOA::new(
+            Name::from_ascii("ns1.example.com.").unwrap(),
+            Name::from_ascii("hostmaster.example.com.").unwrap(),
+            1,
+            3600,
+            600,
+            86400,
+            3600,
+        );
+        let rec: Record<SOA> =
+            Record::from_rdata(Name::from_ascii("example.com.").unwrap(), 3600, soa);
+        let mut nr = NoRecords::new(Box::new(q), ResponseCode::ServFail);
+        nr.soa = Some(Box::new(rec));
+        let e = NetError::Dns(DnsError::NoRecordsFound(nr));
+        // ServFail with a containing SOA is a transient failure, NOT a measured
+        // "no TLSA" — the NXDomain guard is what enforces this.
+        assert_eq!(tlsa_err_to_count(&e, "mail3.example.com"), None);
     }
 
     #[test]

@@ -235,6 +235,17 @@ checkable by anyone on crates.io without a cross-compiler. (The bare-metal
 `cargo check --target aarch64-unknown-none` failure in `percent-encoding` /
 `getrandom` corroborates it but is not the load-bearing evidence.)
 
+> **Re-verified 2026-08-22 against `main` HEAD:** the three no_std PRs
+> previously recorded as "open" are all **MERGED** — #2806 (std→core/alloc,
+> commit `8a286eb`, Mar 1 2025), #2821 (MSRV no_std, ~Mar 12 2025), #2104
+> (full no_std proto, ~Mar 18 2025). They delivered **parsing-layer**
+> portability only; `__dnssec` still gates on `std` at HEAD, and zero open
+> issues/PRs target "dnssec no_std". The full upstream-contribution plan is
+> `UPSTREAM-NOSTD-DNSSEC-SCOPE.md`. LionsOS shipped **0.4.0** (2026-08-21) with
+> an sDDF update (PR #335) — see `phase2-sddf-compatibility.md` for the Phase 2
+> impact assessment (conclusion: the version-agnostic stub survives the bump).
+> Finding unchanged: no no_std DNSSEC path exists upstream.
+
 ## The bare-metal bin build is therefore **deferred, not abandoned** — the
 host-verified library + this finding is the honest spike state.
 
