@@ -157,16 +157,24 @@ un-enumerated name. This is a Go-side vocabulary coarseness (the exact class
 Arm 2's RFC vectors and the `domain_exists` doctrine exist to catch), not a Rust
 defect. Recorded, not scored against either engine.
 
-## Next (ordered)
+## Follow-ups (all three CLOSED since this README was written)
 
-1. **Arm 2** — RFC known-answer vectors (mandatory; catches shared doctrinal
-   error that Arm 1's N-version pairing is blind to — e.g. whether an unsigned
-   domain's DANE should be `Absent` or `Indet`/`DnssecRequired`, which both
-   engines currently report as `Absent`).
-2. **Corpus expansion** — add a live DANE-deployed domain (TLSA published) and
-   the evil fixture (`dns-evil-flicker.com`, known-bogus DS); both need a live
-   Go scan (CSRF-gated — a Carey or browser step), not a frozen fixture.
-3. **`DnssecRequired` wiring** — the variant is declared-but-never-emitted; an
-   unsigned domain's DANE currently reads `Absent` (no TLSA) where the declared
-   design intent is `DnssecRequired` → `Indet` (DANE cannot apply without
-   DNSSEC). That gate ordering needs a ruling before wiring.
+This section was written 2026-08-21 as "Next (ordered)"; all three items have
+since shipped, so it now records the closed state rather than an open queue.
+
+1. **Arm 2 — RFC known-answer vectors → SHIPPED.** `rfc_known_answer_vectors()`
+   in `engine/src/analysis.rs` is the CI-enforced offline corpus; the Go side is
+   fed via PR #472. The exact question item 1 raised (unsigned domain's DANE =
+   `Absent` or `DnssecRequired`?) is answered by the host-zone gate in item 3.
+   See `docs/arm2-rfc-known-answer-vectors.md`.
+2. **Corpus expansion → SHIPPED (partial, rest deliberately deferred).** The
+   evil fixture (`dns-evil-flicker.com`, known-bogus DS, ground truth on file)
+   is exercised by the live scans; a live DANE-deployed domain (TLSA published)
+   remains the one specimen the corpus lacks, still gated on a live Go scan
+   (CSRF/browser step). Not an open code decision — a specimen gap.
+3. **`DnssecRequired` wiring → SHIPPED (PR #14).** The host-zone DNSSEC gate is
+   live: `dane_host_zone_requires_dnssec` + `score_dane` returns
+   `DaneDisposition::DnssecRequired` when an MX HOST's zone is unsigned (the
+   `it-help.tech` apex-signed-but-google.com-unsigned case), pinned by tests at
+   `analysis.rs:2125-2151` and the A1 known-answer vector. This README's earlier
+   "declared-but-never-emitted" wording was stale from before PR #14.
