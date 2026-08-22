@@ -73,13 +73,33 @@ The DKIM path is genuinely clean: `dkim_disposition_from_counts` 12/0,
 longer CONTAINING killable logic** (their only remaining mutants are "unviable"
 — the tool could not compile a testable form). Do not read 0/0 as coverage.
 
-## What remains (9 scoring-path + 12 cosmetic)
+## What remains (3 scoring-path + 12 cosmetic)
 
-- `fetch_mta_sts_policy` 3 (HTTP fetch)
-- `score_cds_cdnskey` 2 (`delete !` on empty-answer guards)
-- `score_caa` 1, `score_dnssec` 1 (inline `!answers.is_empty()`),
-  `score_mta_sts` 1, `mta_sts_policy_state` 1
-- 12 cosmetic (8 `Display::fmt` + `rand_session_id` + `unix_now`)
+- `zone_apex_of` **3** — the async wrapper's *return-value delegates*: the `Ok(resp) =>`
+  and `Err(e) =>` match arms and their collapse. The pure cores (`soa_owner_from_answers`,
+  `soa_owner_from_error`) are **0-missed and pinned**; the survivors are the wrapper's
+  delegation glue, which cannot be driven without a mock-resolver seam — hickory's
+  `TokioResolver` has no test seam, so the extraction-not-mocking method bottoms out here.
+  Planned fix (the `observe_flux` shape): inject a resolver seam, or extract a pure
+  `apex_from_result(answers, error)` dispatcher so the Ok/Err decision is testable.
+- 12 cosmetic (8 `Display::fmt` + `rand_session_id` + `unix_now`).
+
+> The earlier "9 scoring-path" list (`fetch_mta_sts_policy`, `score_cds_cdnskey`,
+> `score_caa`, `score_dnssec`, `score_mta_sts`, `mta_sts_policy_state`) was **closed** in
+> `85a87ae` (the "close the nine scoring-path survivors" step); a later pass re-grew 7
+> (post-PR #14) and Arm 3 closed 4 of those, leaving the 3 `zone_apex_of` delegates above.
+
+## Provenance honesty (the outcomes.json gap)
+
+Only **one** `outcomes.json` is committed to the tree — the `85a87ae` state
+(`total=115 caught=68 missed=12 unviable=35`). The progression table's last two rows
+(post-PR #14 = 19 missed, Arm 3 close = 15 missed) are **author-recorded numbers without
+a committed backing file**, which breaks this README's own rule ("each step's raw
+`outcomes.json` committed, reproducible"). The code for Arm 3 (the `zone_apex_of` pure-core
+extraction) IS on main; the re-run that would produce the 156/106/15/35 file has not been
+committed. Until it is, the "15 missed" figure is a claim to re-measure, not a recorded
+measurement. Reproduce with `cargo mutants --file src/analysis.rs` against current HEAD,
+then `python3 scripts/mutation_summary.py mutants.out/outcomes.json`.
 
 ## Method: one assertion per source (mutation-detectable test defects)
 
