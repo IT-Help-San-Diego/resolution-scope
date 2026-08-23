@@ -2189,6 +2189,20 @@ mod tests {
             classify_tlsa_zone(Some("amazon.com"), Some("amazon-smtp.amazon.com")),
             TlsaZone::DescendantZone
         );
+        // apple.com -> g.apple.com — a DIFFERENT descendant topology: the apex
+        // is a delegated intermediate zone (g.apple.com), not the MX host name
+        // itself. The amazon case's apex IS the host name; this one isn't, so
+        // the descendant branch is pinned by two distinct shapes.
+        assert_eq!(
+            classify_tlsa_zone(Some("apple.com"), Some("g.apple.com")),
+            TlsaZone::DescendantZone
+        );
+        // outlook.com -> olc.protection.outlook.com — third-party-looking but
+        // actually the operator's own delegated zone (same family as microsoft).
+        assert_eq!(
+            classify_tlsa_zone(Some("outlook.com"), Some("olc.protection.outlook.com")),
+            TlsaZone::DescendantZone
+        );
         // microsoft.com -> protection.outlook.com — foreign zone.
         assert_eq!(
             classify_tlsa_zone(Some("microsoft.com"), Some("protection.outlook.com")),
@@ -2214,6 +2228,26 @@ mod tests {
         assert_eq!(
             classify_tlsa_zone(Some("Amazon.COM."), Some("amazon-smtp.amazon.com.")),
             TlsaZone::DescendantZone
+        );
+    }
+
+    #[test]
+    fn classify_tlsa_zone_label_boundary_negative() {
+        use super::TlsaZone;
+        // The `.` prefix in the `.{d}` suffix form is load-bearing: a bare
+        // `ends_with(d)` would classify `notamazon.com` as a DESCENDANT of
+        // `amazon.com`. This negative test pins the label boundary — the same
+        // un-normalized-input discipline as the trailing-dot trim, because
+        // cargo-mutants cannot see a dropped character in a format string.
+        assert_eq!(
+            classify_tlsa_zone(Some("amazon.com"), Some("notamazon.com")),
+            TlsaZone::ForeignZone
+        );
+        // The same boundary on the suffix side: a host that merely shares a
+        // string tail is foreign, not a descendant.
+        assert_eq!(
+            classify_tlsa_zone(Some("apple.com"), Some("pineapple.com")),
+            TlsaZone::ForeignZone
         );
     }
 
