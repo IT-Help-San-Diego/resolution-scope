@@ -30,6 +30,6 @@ mod tristate;
 
 pub use dispositions::{
     CaaDisposition, CdsDisposition, DaneDisposition, DkimDisposition, DmarcDisposition,
-    DnssecDisposition, MtaStsDisposition, ScoredAnalysis, SpfDisposition,
+    DnssecDisposition, MtaStsDisposition, ScoredAnalysis, SpfDisposition, TlsaZone,
 };
 pub use tristate::TriState;

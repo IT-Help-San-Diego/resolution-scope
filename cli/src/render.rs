@@ -255,7 +255,7 @@ mod tests {
     use super::*;
     use resolution_scope_engine::analysis::{
         CaaDisposition, CdsDisposition, DaneDisposition, DkimDisposition, DmarcDisposition,
-        DnssecDisposition, MtaStsDisposition, SpfDisposition,
+        DnssecDisposition, MtaStsDisposition, SpfDisposition, TlsaZone,
     };
 
     fn fixture(domain: &str) -> ScoredAnalysis {
@@ -282,6 +282,7 @@ mod tests {
             dmarc_disposition: dmarc,
             dane: dane.chain(),
             dane_disposition: dane,
+            tlsa_zone: TlsaZone::ForeignZone,
             mta_sts: mta.chain(),
             mta_sts_disposition: mta,
             caa: caa.chain(),
@@ -472,7 +473,7 @@ mod tests {
         let tampered = stored("example.test", SEAL_SCHEME, "deadbeef".repeat(64));
         assert_eq!(seal_check_label(&tampered), "MISMATCH");
 
-        let future = stored("example.test", "resolution-scope-sha3-512-v3", good);
+        let future = stored("example.test", "resolution-scope-sha3-512-v4", good);
         assert_eq!(seal_check_label(&future), "UNVERIFIABLE (scheme)");
     }
 

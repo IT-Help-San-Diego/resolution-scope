@@ -15,7 +15,7 @@
 
 use resolution_scope_types::{
     CaaDisposition, CdsDisposition, DaneDisposition, DkimDisposition, DmarcDisposition,
-    DnssecDisposition, MtaStsDisposition, ScoredAnalysis, SpfDisposition, TriState,
+    DnssecDisposition, MtaStsDisposition, ScoredAnalysis, SpfDisposition, TlsaZone, TriState,
 };
 
 pub fn demo_verdict() -> ScoredAnalysis {
@@ -34,6 +34,7 @@ pub fn demo_verdict() -> ScoredAnalysis {
         dmarc_disposition: DmarcDisposition::Reject,
         dane: TriState::NotApplicable,
         dane_disposition: DaneDisposition::NoMail,
+        tlsa_zone: TlsaZone::NoMxHost,
         mta_sts: TriState::Present,
         mta_sts_disposition: MtaStsDisposition::Enforced,
         caa: TriState::Absent,

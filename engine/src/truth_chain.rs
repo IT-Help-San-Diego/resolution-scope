@@ -35,7 +35,7 @@
 
 use crate::analysis::{
     CaaDisposition, CdsDisposition, DaneDisposition, DkimDisposition, DmarcDisposition,
-    DnssecDisposition, MtaStsDisposition, ScoredAnalysis, SpfDisposition,
+    DnssecDisposition, MtaStsDisposition, ScoredAnalysis, SpfDisposition, TlsaZone,
 };
 use crate::tristate::TriState;
 use serde::{Deserialize, Serialize};
@@ -158,6 +158,11 @@ pub struct ControlReport {
     pub tri: TriState,
     /// Consequence-derived severity for ordering.
     pub severity: Severity,
+    /// DANE-only: the MX-host zone relationship (the `tlsa_zone` attribution
+    /// measurement). `None` for every other control. A measurement, never an
+    /// ownership claim — the renderer turns it into the "lives outside your
+    /// zone" narrative, not a "your provider is blocking you" verdict.
+    pub tlsa_zone: Option<TlsaZone>,
     consequence_blue: &'static str,
     consequence_red: &'static str,
 }
@@ -168,6 +173,22 @@ impl ControlReport {
         match audience {
             Audience::BlueTeam => self.consequence_blue,
             Audience::RedTeam => self.consequence_red,
+        }
+    }
+
+    /// The DANE attribution narrative — fired only for `ForeignZone`, the one
+    /// case where the MX host lives in a zone the domain owner does not
+    /// control. `None` otherwise. A measurement-faithful statement, never an
+    /// ownership claim: the zone cut is observed, the "who" is left to the
+    /// reader. Surfaces render this as a continuation line under the DANE row,
+    /// never as a verdict or a severity.
+    pub fn dane_attribution(&self) -> Option<&'static str> {
+        match self.tlsa_zone {
+            Some(TlsaZone::ForeignZone) => Some(
+                "MX host lives outside this domain's own zone — DANE requires either that \
+                 operator publishing TLSA or moving MX to a host you control",
+            ),
+            _ => None,
         }
     }
 }
@@ -271,6 +292,7 @@ fn dnssec_report(d: DnssecDisposition) -> ControlReport {
         measured,
         tri: d.chain(),
         severity,
+        tlsa_zone: None,
         consequence_blue: blue,
         consequence_red: red,
     }
@@ -321,6 +343,7 @@ fn spf_report(d: SpfDisposition) -> ControlReport {
         measured,
         tri: d.chain(),
         severity,
+        tlsa_zone: None,
         consequence_blue: blue,
         consequence_red: red,
     }
@@ -383,6 +406,7 @@ fn dkim_report(d: DkimDisposition) -> ControlReport {
         measured,
         tri: d.chain(),
         severity,
+        tlsa_zone: None,
         consequence_blue: blue,
         consequence_red: red,
     }
@@ -439,12 +463,13 @@ fn dmarc_report(d: DmarcDisposition) -> ControlReport {
         measured,
         tri: d.chain(),
         severity,
+        tlsa_zone: None,
         consequence_blue: blue,
         consequence_red: red,
     }
 }
 
-fn dane_report(d: DaneDisposition) -> ControlReport {
+fn dane_report(d: DaneDisposition, z: TlsaZone) -> ControlReport {
     let (measured, severity, blue, red) = match d {
         DaneDisposition::TlsaPublished => (
             "TLSA published at _25._tcp.<mx> — certificate match not verified by this pass",
@@ -503,6 +528,7 @@ fn dane_report(d: DaneDisposition) -> ControlReport {
         measured,
         tri: d.chain(),
         severity,
+        tlsa_zone: Some(z),
         consequence_blue: blue,
         consequence_red: red,
     }
@@ -553,6 +579,7 @@ fn mta_sts_report(d: MtaStsDisposition) -> ControlReport {
         measured,
         tri: d.chain(),
         severity,
+        tlsa_zone: None,
         consequence_blue: blue,
         consequence_red: red,
     }
@@ -603,6 +630,7 @@ fn caa_report(d: CaaDisposition) -> ControlReport {
         measured,
         tri: d.chain(),
         severity,
+        tlsa_zone: None,
         consequence_blue: blue,
         consequence_red: red,
     }
@@ -647,6 +675,7 @@ fn cds_report(d: CdsDisposition) -> ControlReport {
         measured,
         tri: d.chain(),
         severity,
+        tlsa_zone: None,
         consequence_blue: blue,
         consequence_red: red,
     }
@@ -664,7 +693,7 @@ pub fn truth_chain(a: &ScoredAnalysis) -> [ControlReport; 8] {
         spf_report(a.spf_disposition),
         dkim_report(a.dkim_disposition),
         dmarc_report(a.dmarc_disposition),
-        dane_report(a.dane_disposition),
+        dane_report(a.dane_disposition, a.tlsa_zone),
         mta_sts_report(a.mta_sts_disposition),
         caa_report(a.caa_disposition),
         cds_report(a.cds_disposition),
@@ -788,7 +817,7 @@ mod tests {
             DaneDisposition::TransientError,
             DaneDisposition::DnssecRequired,
         ] {
-            v.push(dane_report(d));
+            v.push(dane_report(d, TlsaZone::SameZone));
         }
         for d in [
             MtaStsDisposition::Enforced,
@@ -912,7 +941,7 @@ mod tests {
     /// the emitted-on-presence variant must say so and must not claim a match.
     #[test]
     fn tlsa_presence_is_not_verification() {
-        let r = dane_report(DaneDisposition::TlsaPublished);
+        let r = dane_report(DaneDisposition::TlsaPublished, TlsaZone::SameZone);
         assert!(r.measured.contains("not verified"));
         assert!(!r
             .consequence(Audience::BlueTeam)
@@ -928,7 +957,7 @@ mod tests {
             Severity::Critical
         );
         assert_eq!(
-            dane_report(DaneDisposition::Mismatch).severity,
+            dane_report(DaneDisposition::Mismatch, TlsaZone::SameZone).severity,
             Severity::Critical
         );
         assert_eq!(
@@ -1029,14 +1058,14 @@ mod tests {
     #[test]
     fn by_severity_orders_and_preserves() {
         let model = [
-            dnssec_report(DnssecDisposition::Unsigned),      // High
-            spf_report(SpfDisposition::HardFail),            // Ok
-            dkim_report(DkimDisposition::NotProbed),         // Unmeasured
-            dmarc_report(DmarcDisposition::Monitor),         // Medium
-            dane_report(DaneDisposition::Mismatch),          // Critical
+            dnssec_report(DnssecDisposition::Unsigned), // High
+            spf_report(SpfDisposition::HardFail),       // Ok
+            dkim_report(DkimDisposition::NotProbed),    // Unmeasured
+            dmarc_report(DmarcDisposition::Monitor),    // Medium
+            dane_report(DaneDisposition::Mismatch, TlsaZone::SameZone), // Critical
             mta_sts_report(MtaStsDisposition::RecordAbsent), // High
-            caa_report(CaaDisposition::NotConfigured),       // Low
-            cds_report(CdsDisposition::NotPublished),        // Low
+            caa_report(CaaDisposition::NotConfigured),  // Low
+            cds_report(CdsDisposition::NotPublished),   // Low
         ];
         let sorted = by_severity(&model);
         let severities: Vec<Severity> = sorted.iter().map(|r| r.severity).collect();
@@ -1059,7 +1088,7 @@ mod tests {
             spf_report(SpfDisposition::NotConfigured),            // Absent
             dkim_report(DkimDisposition::NotProbed),              // Indet
             dmarc_report(DmarcDisposition::Reject),               // Present
-            dane_report(DaneDisposition::NoMail),                 // N/A
+            dane_report(DaneDisposition::NoMail, TlsaZone::SameZone), // N/A
             mta_sts_report(MtaStsDisposition::TransientError),    // Indet
             caa_report(CaaDisposition::Configured),               // Present
             cds_report(CdsDisposition::NotPublished),             // Absent
@@ -1077,7 +1106,7 @@ mod tests {
             spf_report(SpfDisposition::TransientError),
             dkim_report(DkimDisposition::NotProbed),
             dmarc_report(DmarcDisposition::TransientError),
-            dane_report(DaneDisposition::TransientError),
+            dane_report(DaneDisposition::TransientError, TlsaZone::SameZone),
             mta_sts_report(MtaStsDisposition::TransientError),
             caa_report(CaaDisposition::TransientError),
             cds_report(CdsDisposition::TransientError),

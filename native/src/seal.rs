@@ -28,7 +28,7 @@ use resolution_scope_types::ScoredAnalysis;
 
 /// Versioned identifier for the seal scheme. Changing the canonical form MUST
 /// bump this string, or old seals silently become unverifiable.
-pub const SEAL_SCHEME: &str = "resolution-scope-sha3-512-v2";
+pub const SEAL_SCHEME: &str = "resolution-scope-sha3-512-v3";
 
 /// Compute the hex-encoded SHA3-512 seal for a verdict produced by a SPECIFIC
 /// engine version. Deterministic over (domain, the 8 dispositions, the 8
@@ -78,6 +78,11 @@ pub fn canonical_input(analysis: &ScoredAnalysis, produced_by_version: &str) -> 
         &analysis.dane_disposition,
         &analysis.dane,
     ));
+    // tlsa_zone is a primary measurement (DANE attribution zone), sealed as its
+    // own `tlsa_zone=<variant>` line (variant NAME via Debug, same as every
+    // disposition). Byte-identical to the engine.
+    s.push_str("tlsa_zone=");
+    s.push_str(&format!("{:?}\n", analysis.tlsa_zone));
     s.push_str(&control_line(
         "mta_sts",
         &analysis.mta_sts_disposition,
@@ -136,7 +141,7 @@ mod tests {
     fn seal_matches_engine_golden_value() {
         assert_eq!(
             seal_versioned(&fixture(), "0.1.0"),
-            "9a0b7790ff865f24df52ae0449284809cd7f61c5d4ea267f292de8650adcdb2bfdee735e15d4a9bf7ea84052c5b3f6c49cbd0062e30c1f13d4f37ebd70203a35"
+            "874eaa678ebf9c2258ca9e202e53b5a8605e6eefd8927a738e6de763f24677ad4c013aaeadeb17305cf1cfde8aa1b7530cdd458148e70ad2a606d2db2066552b"
         );
     }
 
@@ -146,12 +151,13 @@ mod tests {
         // a seal scheme that drifts is a seal that lies.
         assert_eq!(
             canonical_input(&fixture(), "0.1.0"),
-            "resolution-scope-sha3-512-v2\nexample.com\n0.1.0\ndefault\n\
+            "resolution-scope-sha3-512-v3\nexample.com\n0.1.0\ndefault\n\
              dnssec=SignedAndDelegated=Present\n\
              spf=SoftFail=Present\n\
              dkim=NotFoundDefaults=Absent\n\
              dmarc=Reject=Present\n\
              dane=NoMail=NotApplicable\n\
+             tlsa_zone=NoMxHost\n\
              mta_sts=Enforced=Present\n\
              caa=NotConfigured=Absent\n\
              cds=NotPublished=Absent\n"

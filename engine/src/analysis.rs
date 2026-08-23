@@ -22,7 +22,7 @@ use crate::TriState;
 // — which is exactly why the definitions must not be duplicated anywhere.
 pub use resolution_scope_types::{
     CaaDisposition, CdsDisposition, DaneDisposition, DkimDisposition, DmarcDisposition,
-    DnssecDisposition, MtaStsDisposition, ScoredAnalysis, SpfDisposition,
+    DnssecDisposition, MtaStsDisposition, ScoredAnalysis, SpfDisposition, TlsaZone,
 };
 
 // =============================================================================
@@ -77,7 +77,7 @@ pub async fn analyse_domain_with_selectors(
     let dkim = dkim_disposition.chain();
     let dmarc_disposition = score_dmarc(resolver, domain).await;
     let dmarc = dmarc_disposition.chain();
-    let dane_disposition = score_dane(resolver, domain).await;
+    let (dane_disposition, tlsa_zone) = score_dane(resolver, domain).await;
     let dane = dane_disposition.chain();
     let mta_sts_disposition = score_mta_sts(resolver, domain).await;
     let mta_sts = mta_sts_disposition.chain();
@@ -101,6 +101,7 @@ pub async fn analyse_domain_with_selectors(
         dmarc_disposition,
         dane,
         dane_disposition,
+        tlsa_zone,
         mta_sts,
         mta_sts_disposition,
         caa,
@@ -794,6 +795,35 @@ fn zone_contains_host(host: &str, zone: &str) -> bool {
     z.contains('.') && (h == z || h.ends_with(&format!(".{}", z)))
 }
 
+/// Pure: classify the MX host's zone relationship to the scanned domain's zone
+/// from the two zone cut (SOA owner) names. The DANE attribution field — a
+/// measurement, never an ownership claim (the "provider-gated" verdict was
+/// retracted because DNS observes zone cuts, not contracts).
+///
+/// - `SameZone`       — host apex == domain apex (self-operated mail).
+/// - `DescendantZone` — host apex is a strict subdomain of domain apex (still
+///   owner-controlled, e.g. `amazon.com` -> `amazon-smtp.amazon.com`).
+/// - `ForeignZone`    — host apex is neither (someone else's infra, e.g.
+///   `microsoft.com` -> `protection.outlook.com`).
+/// - `ZoneUnmeasured` — either apex is `None` (SOA walk failed).
+///
+/// `None` for either apex means the zone cut couldn't be measured — an honest
+/// non-classification, never a guess.
+fn classify_tlsa_zone(domain_apex: Option<&str>, host_apex: Option<&str>) -> TlsaZone {
+    let (Some(d), Some(h)) = (domain_apex, host_apex) else {
+        return TlsaZone::ZoneUnmeasured;
+    };
+    let d = d.trim_end_matches('.').to_ascii_lowercase();
+    let h = h.trim_end_matches('.').to_ascii_lowercase();
+    if h == d {
+        TlsaZone::SameZone
+    } else if h.ends_with(&format!(".{}", d)) {
+        TlsaZone::DescendantZone
+    } else {
+        TlsaZone::ForeignZone
+    }
+}
+
 /// Pure: the SOA owner name from an answer section. The SOA owner name is, by
 /// definition, the zone cut — this is what separates `smtp.google.com` (apex
 /// `google.com`) from `mail.example.com` (apex `example.com`) without a PSL
@@ -863,7 +893,7 @@ fn dane_host_zone_requires_dnssec(d: DnssecDisposition) -> bool {
     matches!(d, DnssecDisposition::Unsigned | DnssecDisposition::NoZone)
 }
 
-async fn score_dane(resolver: &TokioResolver, domain: &str) -> DaneDisposition {
+async fn score_dane(resolver: &TokioResolver, domain: &str) -> (DaneDisposition, TlsaZone) {
     // DANE for SMTP (RFC 7672): TLSA at _25._tcp.<mx-host> for each MX target.
     // NOT _443._tcp.<domain> — that is HTTPS DANE (RFC 6698 for browsers), the
     // wrong surface for an email-security instrument. A mail domain may host no
@@ -881,6 +911,13 @@ async fn score_dane(resolver: &TokioResolver, domain: &str) -> DaneDisposition {
     //                    ("we know why DANE doesn't apply"), not "couldn't
     //                    measure".
     //   Indet          — domain missing (NXDOMAIN) or transient lookup error.
+    //
+    // Returns the disposition AND the DANE attribution zone (`tlsa_zone`) — the
+    // zone-cut relationship of the MX host to the scanned domain, a sealed
+    // primary measurement (see types::TlsaZone). It is orthogonal to the
+    // disposition: two domains can both read `NotConfigured` while one hosts
+    // its own MX (its gap) and the other points at a third-party operator (the
+    // operator's gap).
     use hickory_proto::rr::RecordType;
 
     match resolver.lookup(domain, RecordType::MX).await {
@@ -892,9 +929,23 @@ async fn score_dane(resolver: &TokioResolver, domain: &str) -> DaneDisposition {
                 .collect();
 
             match classify_mx(&exchanges) {
-                MxShape::NoMx => DaneDisposition::NoMx,
-                MxShape::NoMail => DaneDisposition::NoMail,
+                MxShape::NoMx => (DaneDisposition::NoMx, TlsaZone::NoMxHost),
+                MxShape::NoMail => (DaneDisposition::NoMail, TlsaZone::NoMxHost),
                 MxShape::Hosts(hosts) => {
+                    // ── DANE attribution zone (the tlsa_zone measurement) ──
+                    // The zone-cut relationship of the PRIMARY MX host to the
+                    // scanned domain. First resolvable host wins (the primary
+                    // MX determines the mail architecture).
+                    let domain_apex = zone_apex_of(resolver, domain).await;
+                    let mut tlsa_zone = TlsaZone::ZoneUnmeasured;
+                    for host in &hosts {
+                        if let Some(host_apex) = zone_apex_of(resolver, host).await {
+                            tlsa_zone =
+                                classify_tlsa_zone(domain_apex.as_deref(), Some(&host_apex));
+                            break;
+                        }
+                    }
+
                     // ── DNSSEC precondition gate (Claude Science 2026-08-21) ──
                     // DANE's TLSA lives in the MX HOST's zone, not the mail
                     // domain's apex. A host in an UNSIGNED zone cannot carry a
@@ -916,7 +967,7 @@ async fn score_dane(resolver: &TokioResolver, domain: &str) -> DaneDisposition {
                                     apex = %apex,
                                     "SMTP DANE host zone unsigned — DnssecRequired"
                                 );
-                                return DaneDisposition::DnssecRequired;
+                                return (DaneDisposition::DnssecRequired, tlsa_zone);
                             }
                         }
                         // zone_apex_of None = couldn't measure the host zone;
@@ -926,7 +977,7 @@ async fn score_dane(resolver: &TokioResolver, domain: &str) -> DaneDisposition {
 
                     let mut counts = Vec::with_capacity(hosts.len());
                     for host in &hosts {
-                        let tlsa_name = format!("_25._tcp.{}", host);
+                        let tlsa_name = format!("_25._tcp.{host}");
                         match resolver.lookup(tlsa_name.as_str(), RecordType::TLSA).await {
                             Ok(resp) => counts.push(Some(resp.answers().len())),
                             Err(e) => {
@@ -939,7 +990,7 @@ async fn score_dane(resolver: &TokioResolver, domain: &str) -> DaneDisposition {
                             }
                         }
                     }
-                    dane_from_tlsa_counts(&counts)
+                    (dane_from_tlsa_counts(&counts), tlsa_zone)
                 }
             }
         }
@@ -948,7 +999,12 @@ async fn score_dane(resolver: &TokioResolver, domain: &str) -> DaneDisposition {
             // record_absence_verdict applies the SOA disambiguation — the same
             // mechanism _dmarc/_mta-sts use, now generalized to the MX lookup.
             warn!(domain, error = %e, "MX lookup error for DANE");
-            record_absence_to_dane(&e, domain)
+            let disposition = record_absence_to_dane(&e, domain);
+            let zone = match disposition {
+                DaneDisposition::NoMx => TlsaZone::NoMxHost,
+                _ => TlsaZone::ZoneUnmeasured,
+            };
+            (disposition, zone)
         }
     }
 }
@@ -2113,6 +2169,66 @@ mod tests {
         assert!(zone_contains_host("example.com", "example.com"));
         assert!(!zone_contains_host("mail.example.com", "com"));
         assert!(!zone_contains_host("example.com", "com"));
+    }
+
+    // --- the DANE attribution zone classifier (tlsa_zone) --------------------
+    // The zone-cut relationship is the observable proxy for "whose MX host is
+    // this" — never an ownership claim. Pinned against the measured fixtures
+    // (Science's retracted google.com case is deliberately ABSENT).
+
+    #[test]
+    fn classify_tlsa_zone_measured_fixtures() {
+        use super::TlsaZone;
+        // google.com -> smtp.google.com (host apex == domain apex) — same zone.
+        assert_eq!(
+            classify_tlsa_zone(Some("google.com"), Some("google.com")),
+            TlsaZone::SameZone
+        );
+        // amazon.com -> amazon-smtp.amazon.com — host zone is a subdomain.
+        assert_eq!(
+            classify_tlsa_zone(Some("amazon.com"), Some("amazon-smtp.amazon.com")),
+            TlsaZone::DescendantZone
+        );
+        // microsoft.com -> protection.outlook.com — foreign zone.
+        assert_eq!(
+            classify_tlsa_zone(Some("microsoft.com"), Some("protection.outlook.com")),
+            TlsaZone::ForeignZone
+        );
+        // dhs.gov -> gpphosted.com (Proofpoint) — foreign, the discriminating pair.
+        assert_eq!(
+            classify_tlsa_zone(Some("dhs.gov"), Some("gpphosted.com")),
+            TlsaZone::ForeignZone
+        );
+        // cia.gov (self-hosted) -> cia.gov — same zone.
+        assert_eq!(
+            classify_tlsa_zone(Some("cia.gov"), Some("cia.gov")),
+            TlsaZone::SameZone
+        );
+    }
+
+    #[test]
+    fn classify_tlsa_zone_trailing_dot_and_case_insensitive() {
+        use super::TlsaZone;
+        // zone_apex_of returns `to_ascii()` names with a trailing dot; the
+        // classifier must trim + lowercase before comparing.
+        assert_eq!(
+            classify_tlsa_zone(Some("Amazon.COM."), Some("amazon-smtp.amazon.com.")),
+            TlsaZone::DescendantZone
+        );
+    }
+
+    #[test]
+    fn classify_tlsa_zone_unmeasured_when_either_apex_missing() {
+        use super::TlsaZone;
+        assert_eq!(
+            classify_tlsa_zone(None, Some("example.com")),
+            TlsaZone::ZoneUnmeasured
+        );
+        assert_eq!(
+            classify_tlsa_zone(Some("example.com"), None),
+            TlsaZone::ZoneUnmeasured
+        );
+        assert_eq!(classify_tlsa_zone(None, None), TlsaZone::ZoneUnmeasured);
     }
 
     // --- the DANE host-zone DNSSEC gate (Claude Science 2026-08-21) -----------

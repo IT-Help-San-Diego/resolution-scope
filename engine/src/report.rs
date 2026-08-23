@@ -46,6 +46,12 @@ pub fn render_text(a: &ScoredAnalysis) -> String {
     out.push_str("──────────────  ───────  ────────\n");
     for rep in &model {
         out.push_str(&row(rep.control.name(), rep.tri, rep.measured));
+        // The DANE attribution continuation line — rendered as its OWN line,
+        // never bolted onto `measured` (which would clip in a fixed-width
+        // terminal). Only fires for ForeignZone (MX in a third party's zone).
+        if let Some(attr) = rep.dane_attribution() {
+            out.push_str(&format!("  \u{21b3} {attr}\n"));
+        }
     }
 
     let t = Tally::of(&model);
@@ -105,6 +111,7 @@ mod tests {
             dmarc_disposition: crate::analysis::DmarcDisposition::TransientError,
             dane: TriState::Indet,
             dane_disposition: crate::analysis::DaneDisposition::TransientError,
+            tlsa_zone: crate::analysis::TlsaZone::ZoneUnmeasured,
             mta_sts: TriState::Indet,
             mta_sts_disposition: crate::analysis::MtaStsDisposition::TransientError,
             caa: TriState::Indet,
@@ -156,5 +163,27 @@ mod tests {
                 rep.control.name()
             );
         }
+    }
+
+    #[test]
+    fn report_renders_dane_attribution_only_for_foreign_zone() {
+        // The DANE attribution line ("lives outside this domain's own zone")
+        // fires ONLY for ForeignZone — a measurement-faithful statement, never
+        // a verdict. SameZone (self-hosted) and ZoneUnmeasured (couldn't walk
+        // the cut) must NOT render it.
+        let attr = "lives outside this domain's own zone";
+        let mut foreign = minimal();
+        foreign.dane_disposition = crate::analysis::DaneDisposition::NotConfigured;
+        foreign.dane = TriState::Absent;
+        foreign.tlsa_zone = crate::analysis::TlsaZone::ForeignZone;
+        assert!(render_text(&foreign).contains(attr));
+
+        let mut same = foreign.clone();
+        same.tlsa_zone = crate::analysis::TlsaZone::SameZone;
+        assert!(!render_text(&same).contains(attr));
+
+        let mut unmeasured = foreign.clone();
+        unmeasured.tlsa_zone = crate::analysis::TlsaZone::ZoneUnmeasured;
+        assert!(!render_text(&unmeasured).contains(attr));
     }
 }

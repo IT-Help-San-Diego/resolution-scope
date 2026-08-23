@@ -49,6 +49,7 @@
 //   dkim=<disposition>=<tri>
 //   dmarc=<disposition>=<tri>
 //   dane=<disposition>=<tri>
+//   tlsa_zone=<variant>
 //   mta_sts=<disposition>=<tri>
 //   caa=<disposition>=<tri>
 //   cds=<disposition>=<tri>
@@ -58,6 +59,12 @@
 // and correctly breaks the seal). A "2500-year" hardening would pin explicit
 // integer discriminants per variant; v1 uses variant names, which are already
 // part of the public API and unambiguous within a fieldless enum.
+//
+// `tlsa_zone` (added in v3) is a primary DNS measurement — the MX host's zone
+// relationship to the scanned domain — not a disposition and not run metadata.
+// It is sealed because two verdicts that differ only in *whose* MX host is
+// involved (dhs.gov vs cia.gov, both dane=NotConfigured) mean different things
+// and must not seal identically.
 // =============================================================================
 
 use sha3::{Digest, Sha3_512};
@@ -68,7 +75,8 @@ use crate::analysis::ScoredAnalysis;
 /// (field set, order, encoding) MUST bump this string, or old seals silently
 /// become unverifiable — a seal scheme that drifts is a seal that lies.
 /// v2 added `resolver_identity` (the observer's vantage) to the input set.
-pub const SEAL_SCHEME: &str = "resolution-scope-sha3-512-v2";
+/// v3 added `tlsa_zone` (the MX-host zone relationship — DANE attribution).
+pub const SEAL_SCHEME: &str = "resolution-scope-sha3-512-v3";
 
 /// Compute the hex-encoded SHA3-512 seal of a measurement's verdict content.
 ///
@@ -151,6 +159,12 @@ pub fn canonical_input(analysis: &ScoredAnalysis, produced_by_version: &str) -> 
         &analysis.dane_disposition,
         &analysis.dane,
     ));
+    // tlsa_zone is a primary measurement (the DANE attribution zone), sealed
+    // as its own line — its variant NAME is the seal's stable identity, same
+    // as every disposition. Not a control (no tri-state), so a bare
+    // `tlsa_zone=<variant>` line, not the `name=disposition=tri` shape.
+    s.push_str("tlsa_zone=");
+    s.push_str(&format!("{:?}\n", analysis.tlsa_zone));
     s.push_str(&control_line(
         "mta_sts",
         &analysis.mta_sts_disposition,
@@ -224,6 +238,7 @@ mod tests {
             dmarc_disposition: DmarcDisposition::Reject,
             dane: TriState::NotApplicable,
             dane_disposition: DaneDisposition::NoMail,
+            tlsa_zone: crate::analysis::TlsaZone::NoMxHost,
             mta_sts: TriState::Present,
             mta_sts_disposition: MtaStsDisposition::Enforced,
             caa: TriState::Absent,
@@ -300,6 +315,22 @@ mod tests {
         let mut other = baseline();
         other.resolver_identity = "google".to_string();
         assert_ne!(seal(&baseline()), seal(&other));
+    }
+
+    #[test]
+    fn seal_changes_when_tlsa_zone_changes() {
+        // The negative proof from the DANE ruling (§7): two domains can both
+        // read dane=NotConfigured while one hosts its own MX (its gap) and the
+        // other points at a third-party operator (the operator's gap). The
+        // attribution must be sealed, or dhs.gov and cia.gov seal
+        // byte-identically while meaning opposite things.
+        let mut foreign = baseline();
+        foreign.dane_disposition = DaneDisposition::NotConfigured;
+        foreign.dane = TriState::Absent;
+        foreign.tlsa_zone = crate::analysis::TlsaZone::ForeignZone;
+        let mut own = foreign.clone(); // same verdict, different attribution
+        own.tlsa_zone = crate::analysis::TlsaZone::SameZone;
+        assert_ne!(seal(&foreign), seal(&own));
     }
 
     #[test]

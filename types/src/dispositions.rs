@@ -456,6 +456,52 @@ impl core::fmt::Display for CdsDisposition {
     }
 }
 
+// =============================================================================
+// TlsaZone — where the MX host lives, relative to the scanned domain's zone
+// =============================================================================
+//
+// The DANE attribution field — a MEASUREMENT, never a verdict (the
+// "provider-gated" disposition was retracted: it asserted an ownership
+// relationship DNS cannot observe). The only observable is the SOA zone-cut
+// relationship: does the MX host's zone apex equal, descend from, or lie
+// outside the scanned domain's zone apex? Read directly from the zone cut
+// (no PSL) — RFC 7672 §2.2.3 puts the TLSA key `_25._tcp.<mx-host>` in the MX
+// host's zone by delegation, so the zone cut answers "who must publish for
+// DANE to work?"
+//
+// Sealed (SEAL_SCHEME v3): it is a primary DNS measurement that changes the
+// verdict's attribution, so two verdicts that differ only here must not seal
+// identically (dhs.gov vs cia.gov both read dane=NotConfigured, but one is the
+// operator's gap and the other the owner's).
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TlsaZone {
+    /// MX host lives in the scanned domain's own zone (apex equal) — self-operated.
+    SameZone,
+    /// MX host in a subdomain-zone of the scanned domain — still owner-controlled
+    /// (e.g. amazon.com -> amazon-smtp.amazon.com).
+    DescendantZone,
+    /// MX host in a zone that is NOT a descendant of the scanned domain —
+    /// someone else's infrastructure (e.g. microsoft.com -> protection.outlook.com).
+    ForeignZone,
+    /// Couldn't walk the zone cut (SOA unresolvable) — honest non-classification.
+    ZoneUnmeasured,
+    /// No MX host exists to classify (no MX records, or null-MX "no mail").
+    NoMxHost,
+}
+
+impl core::fmt::Display for TlsaZone {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            TlsaZone::SameZone => write!(f, "same-zone"),
+            TlsaZone::DescendantZone => write!(f, "descendant-zone"),
+            TlsaZone::ForeignZone => write!(f, "foreign-zone"),
+            TlsaZone::ZoneUnmeasured => write!(f, "zone-unmeasured"),
+            TlsaZone::NoMxHost => write!(f, "no-mx-host"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ScoredAnalysis {
@@ -480,6 +526,9 @@ pub struct ScoredAnalysis {
     pub dmarc_disposition: DmarcDisposition,
     pub dane: TriState,
     pub dane_disposition: DaneDisposition,
+    /// Where the MX host lives relative to this domain's zone (DANE attribution
+    /// field — a measurement, sealed; see TlsaZone).
+    pub tlsa_zone: TlsaZone,
     pub mta_sts: TriState,
     pub mta_sts_disposition: MtaStsDisposition, // "warning" → Absent (T1-1 fix)
     pub caa: TriState,
@@ -563,6 +612,22 @@ mod tests {
                 "NoMail",
                 "TransientError",
                 "DnssecRequired"
+            ]
+        );
+        assert_eq!(
+            names(&[
+                TlsaZone::SameZone,
+                TlsaZone::DescendantZone,
+                TlsaZone::ForeignZone,
+                TlsaZone::ZoneUnmeasured,
+                TlsaZone::NoMxHost,
+            ]),
+            [
+                "SameZone",
+                "DescendantZone",
+                "ForeignZone",
+                "ZoneUnmeasured",
+                "NoMxHost"
             ]
         );
     }

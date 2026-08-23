@@ -337,7 +337,7 @@ mod tests {
     use super::*;
     use resolution_scope_engine::analysis::{
         CaaDisposition, CdsDisposition, DaneDisposition, DkimDisposition, DmarcDisposition,
-        DnssecDisposition, MtaStsDisposition, SpfDisposition,
+        DnssecDisposition, MtaStsDisposition, SpfDisposition, TlsaZone,
     };
     use resolution_scope_engine::flux::dispersion;
     use resolution_scope_engine::flux::FluxAssessment;
@@ -367,6 +367,7 @@ mod tests {
             dmarc_disposition: dmarc,
             dane: dane.chain(),
             dane_disposition: dane,
+            tlsa_zone: TlsaZone::NoMxHost,
             mta_sts: mta.chain(),
             mta_sts_disposition: mta,
             caa: caa.chain(),
