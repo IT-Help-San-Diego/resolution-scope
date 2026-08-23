@@ -22,7 +22,13 @@ Registration-data disclosure changed along two axes at once, and confusing them 
 - It defines a JSONPath-based extension that lets a server **identify** redacted fields and name the redaction **method** (removal, empty value, partial value, replacement value).
 - Before it, a redacted field and an absent field were byte-identical to a parser. RFC 7483 (2015) mentions redaction twice; RFC 9083 (2021) three times — all in passing, no representation.
 
-**The engineering meaning:** "redacted" entered DNS/registration lookups as a *first-class, parseable field* only in the last ~two years. The word's appearance is a protocol capability arriving, not a policy changing.
+**The engine's own doctrine, stated verbatim by the RFC as its purpose** (RFC 9537 §1, Introduction):
+
+> "Because an RDAP response may exclude a field due to either the lack of data or the lack of RDAP client privileges, this extension is used to explicitly specify which RDAP fields are not included in the RDAP response due to redaction. It thereby provides a capability for **disambiguation between redaction and other possible reasons for data or field absence**."
+
+That is `absent ≠ withheld ≠ undisclosed` — the exact distinction the engine enforces — written into the protocol's *reason for existing* three years ago. The engine was right before the standard could say the words; the standard now names the same three-way split.
+
+**RFC 9537's four methods are *how a server signals*, not the disclosure *state*.** `removal` / `emptyValue` / `partialValue` / `replacementValue` are four encodings of the same fact ("this field was withheld"), not four distinct states a downstream control reasons about. Do not map the four methods onto the state space — the state space is disclosed / redacted / absent-or-undisclosed / unmeasured, and the method is metadata attached to the *redacted* state.
 
 ### 2. The protocol itself was replaced — WHOIS sunset, RDAP took over
 
