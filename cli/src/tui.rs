@@ -292,6 +292,14 @@ fn render_controls(
             Span::styled("  measured   ", Style::default().fg(pal.accent)),
             Span::styled(rep.measured, Style::default().fg(pal.fg)),
         ]));
+        // DANE attribution in the DETAIL pane only — the findings list row is
+        // an unwrapped Span and would clip a sentence at terminal width.
+        if let Some(attr) = rep.dane_attribution() {
+            lines.push(Line::from(vec![
+                Span::styled("  attribution ", Style::default().fg(pal.accent)),
+                Span::styled(attr, Style::default().fg(pal.muted)),
+            ]));
+        }
         lines.push(Line::from(vec![
             Span::styled("  rfc        ", Style::default().fg(pal.accent)),
             Span::styled(rep.rfc_requirement, Style::default().fg(pal.muted)),

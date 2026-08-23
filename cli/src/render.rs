@@ -37,6 +37,11 @@ pub fn render_summary(analyses: &[ScoredAnalysis], audience: Audience) -> String
                 rep.measured,
             ));
             s.push_str(&format!("      \u{2192} {}\n", rep.consequence(audience)));
+            // DANE attribution — its OWN line, never appended to `measured`
+            // (a measured-suffix clips in fixed-width surfaces).
+            if let Some(attr) = rep.dane_attribution() {
+                s.push_str(&format!("      \u{21b3} {attr}\n"));
+            }
         }
         s.push_str(&format!(
             "\n  Score: {}/{} ({}%)  |  unmeasured: {}  |  n/a: {}\n\n",
@@ -163,6 +168,10 @@ pub fn render_html_page(analyses: &[ScoredAnalysis], audience: Audience) -> Stri
         ));
 
         for rep in &ordered {
+            let attr_dd = rep
+                .dane_attribution()
+                .map(|a| format!("<dt>attribution</dt><dd>{}</dd>\n", esc(a)))
+                .unwrap_or_default();
             body.push_str(&format!(
                 "<li class=\"finding {s}\">\n\
                  <span class=\"sev {s}\">{sev}</span> \
@@ -172,6 +181,7 @@ pub fn render_html_page(analyses: &[ScoredAnalysis], audience: Audience) -> Stri
                  <dt>measured</dt><dd>{meas}</dd>\n\
                  <dt>rfc</dt><dd>{rfc}</dd>\n\
                  <dt>consequence</dt><dd>{cons}</dd>\n\
+                 {attr}\
                  </dl>\n</li>\n",
                 s = sev_class(rep.severity),
                 sev = esc(rep.severity.label()),
@@ -180,6 +190,7 @@ pub fn render_html_page(analyses: &[ScoredAnalysis], audience: Audience) -> Stri
                 meas = esc(rep.measured),
                 rfc = esc(rep.rfc_requirement),
                 cons = esc(rep.consequence(audience)),
+                attr = attr_dd,
             ));
         }
         body.push_str("</ol>\n</section>\n");
@@ -397,6 +408,31 @@ mod tests {
     /// harness reads these names to join the two implementations; a renamed
     /// field is a silent broken join, not a test failure — so the names are
     /// the contract, asserted here in full, not a representative sample.
+    #[test]
+    fn dane_attribution_renders_as_its_own_line_on_both_surfaces() {
+        // The fixture is ForeignZone: the attribution must appear as its OWN
+        // continuation line in the summary and its own <dd> in the HTML chain —
+        // never inside the measured string (which clips on fixed-width surfaces).
+        let a = fixture("example.com");
+        let summary = render_summary(std::slice::from_ref(&a), Audience::BlueTeam);
+        assert!(summary.contains("\u{21b3} MX host lives outside this domain's own zone"));
+        assert!(
+            !summary.contains("DANE         ? MX host lives"),
+            "never a measured suffix"
+        );
+        let html = render_html_page(&[a], Audience::BlueTeam);
+        assert!(html.contains("<dt>attribution</dt><dd>MX host lives outside"));
+    }
+
+    #[test]
+    fn dane_attribution_absent_for_same_zone() {
+        // Negative control: SameZone carries no attribution on either surface.
+        let mut a = fixture("example.com");
+        a.tlsa_zone = TlsaZone::SameZone;
+        assert!(!render_summary(std::slice::from_ref(&a), Audience::BlueTeam).contains("\u{21b3}"));
+        assert!(!render_html_page(&[a], Audience::BlueTeam).contains("<dt>attribution</dt>"));
+    }
+
     #[test]
     fn json_carries_all_sixteen_verdict_keys() {
         let a = fixture("example.test");
