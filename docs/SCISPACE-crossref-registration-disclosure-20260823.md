@@ -27,4 +27,4 @@ For each: CONFIRMED (with URL) / REBUTTED (with URL showing the correction) / UN
 
 ---
 
-Read-against anchor: commit `__ANCHOR__` (the commit that added `docs/registration-data-disclosure-vector-20260823.md`). Verify that sha before answering.
+Read-against anchor: commit `c514486a762e1a84347239d0da09a47bf1e76f4e` (the commit that added `docs/registration-data-disclosure-vector-20260823.md`). Verify that sha before answering.
