@@ -59,16 +59,16 @@
   <div class="wrap">
     <h2>A real measurement, not a brochure</h2>
     <p>This is the engine's verbatim output for the domain you are reading right now — captured
-    2026-08-22 (UTC), seal included. The instrument does not flatter its operator: the failures below
+    2026-08-23 (UTC), seal included. The instrument does not flatter its operator: the failures below
     are real, and the domain publishes them anyway.</p>
     <div class="report-frame">
 <pre class="report">Resolution Scope — DNS Analysis Report
 Domain    : resolutionscope.com
 Engine    : 0.1.0
 Resolver  : cloudflare
-Timestamp : 1787377048 (unix epoch seconds, UTC)
-Session   : d8eff824b35b1e07
-Seal      : <span class="seal">b11db9448b85fa6215eb0fa8744056f29bd738769b8c9640523680e23d5edaf0ea33afdd589ac43088c73fd97260b691bd918ceb877efc0e5595126766208366</span>
+Timestamp : 1787458165 (unix epoch seconds, UTC)
+Session   : 1b0b7eceb885d41d
+Seal      : <span class="seal">1c4b45c5c310ac3441d1bf75ddfc8e7914e0ae20ea36fa6ddee004c13524bbce968abd39a91f905a709d943fd30dff4a407459080f7e3857d5e8c2f6b37f33b9</span>
 
 Control         Score    Measured
 ──────────────  ───────  ────────
@@ -84,7 +84,7 @@ CDS/CDNSKEY       <span class="fail">FAIL</span>     not published — zone exis
 Score: 4/6 (66%)  |  unmeasured: 1  |  not-applicable: 1
 
 <span class="rederive">── Re-derive the seal (SHA3-512 of these exact bytes) ──
-resolution-scope-sha3-512-v2
+resolution-scope-sha3-512-v3
 resolutionscope.com
 0.1.0
 cloudflare
@@ -93,6 +93,7 @@ spf=HardFail=Present
 dkim=Wildcard=Indet
 dmarc=Reject=Present
 dane=NoMail=NotApplicable
+tlsa_zone=NoMxHost
 mta_sts=RecordAbsent=Absent
 caa=WildcardFullyRestricted=Present
 cds=NotPublished=Absent
@@ -189,7 +190,8 @@ cds=NotPublished=Absent
   <div class="wrap">
     <h2>Sealed, so anyone can re-check it</h2>
     <p>Each report carries a SHA3-512 seal computed over the verdict and its observation conditions —
-    the domain, the engine version, the resolver identity, and every control's disposition and score —
+    the domain, the engine version, the resolver identity, every control's disposition and score, and
+    the DANE attribution zone (where the MX host lives relative to the domain) —
     under a versioned, open sealing scheme. Holding a seal as a trusted value, anyone can recompute it
     over a verdict, confirm that verdict is the one that was sealed, and flag any alteration after
     sealing.</p>
