@@ -47,6 +47,17 @@ stops being "provider-gated" for the largest single chunk of the pie.
    so the honest message is "you can have DANE today, it just costs operational ownership; or
    wait, and your provider will likely ship it." Choice, priced, disclosed.
 
+## Real-world confirmation (2026-08-23)
+
+Carey's healthcare client had Proofpoint stand up their mail; Proofpoint failed to update the
+MTA-STS and MX records — so the client's own measured gap was actually the mail operator's job,
+left undone. This is the `dhs.gov` shape occurring live in a paying client's environment: the
+instrument reads "no DANE / broken mail posture," but the party who can fix it is the *operator*,
+not the domain owner. That is exactly the wrong-party attribution the `tlsa_zone` field exists to
+make expressible — the domain owner gets the truth ("this lives outside your zone") and the
+attribution ("either the operator publishes TLSA, or you move MX"), never a penalty they didn't
+earn.
+
 ## Check-in with "our boss the future"
 
 The governing question when the present blocks a good thing is not "what's cheap now" but "what
