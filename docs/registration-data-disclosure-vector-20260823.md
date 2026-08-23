@@ -24,15 +24,16 @@ Registration-data disclosure changed along two axes at once, and confusing them 
 
 **The engineering meaning:** "redacted" entered DNS/registration lookups as a *first-class, parseable field* only in the last ~two years. The word's appearance is a protocol capability arriving, not a policy changing.
 
-### 2. The data moved from query-time to published bulk files
+### 2. The protocol itself was replaced — WHOIS sunset, RDAP took over
 
 - ICANN's **Registration Data Policy** (GNSO consensus policy, effective **21 Aug 2025**) makes GDPR-driven redaction permanent and contractual. [icann.org registration-data-policy](https://www.icann.org/en/contracted-parties/consensus-policies/registration-data-policy)
   - §9.2 "Redaction Requirements": redact is *defined* as "MUST NOT include the value AND MUST indicate that the value is redacted." Registrant Name/Street/Email/Phone, Tech contacts, and Registry IDs are all redactable; consent-to-publish lets a holder opt back in.
 - The prior state was the **Temporary Specification for gTLD Registration Data** (May 2018), rushed in to keep WHOIS alive under GDPR ("Calzone" model, Hamilton memoranda). The 2025 policy is that temporary fix made permanent.
-- **Measured signal — RDAP query volume collapsed 60% in eight months:** ~122 billion monthly queries in Jan 2025 → ~49 billion by Aug 2025. [IETF, "The current state of RDAP"](https://www.ietf.org/blog/current-state-of-rdap/)
-  - The registry side is moving disclosure from per-query responses to **versioned, checksummable bulk files** — the same pattern the `.gov` registry uses (its full-frame CSV in git, sha256-frozen, citable to a commit).
+- **Measured signal — the sunset, not a collapse:** the **WHOIS** contract obligation was removed **28 Jan 2025**, and WHOIS query volume fell ~60% in eight months (~122B/month Jan 2025 → ~49B Aug 2025). **RDAP moved the opposite way** — ~7B/month Jan 2025 → ~65B Aug 2025 (~9×), overtaking WHOIS in June 2025. [IETF, "The current state of RDAP"](https://www.ietf.org/blog/current-state-of-rdap/), Andy Newton (ICANN principal engineer)
+  - Source caveat on record: the ICANN monthly aggregate data "previously published contained errors made during analysis … and showed RDAP queries to be much lower than previously stated" — the corrected 65B figure supersedes earlier, lower RDAP numbers.
+  - *Retracted (2026-08-23, Claude Code cross-check):* an earlier draft of this doc attributed the −60% to RDAP and claimed disclosure was "moving from query-time to published bulk files." Both were wrong — the −60% is WHOIS volume caused by the sunset, RDAP *grew* ~9×, and the bulk-file causal story was an unsourced generalization of the `.gov` CSV observation. Pulled, not re-sourced.
 
-**The engineering meaning:** for a sovereignty instrument, the published-file model is strictly better — a frozen file is citable and re-derivable, where a live query is a point-in-time read that can be bot-blocked, rate-limited, or policy-masked (see `.gov` RDAP returning 403 "Error 1010" to automated clients).
+**The engineering meaning:** the distinction thesis is *strengthened* by the correction, not weakened. The world moved off a protocol with **no slot** for "withheld" (legacy WHOIS printed free text) onto one that **gained the slot** (RDAP + RFC 9537's structured redaction) — and query volume followed the protocol that could say the word. Separately, where a registry *does* publish a frozen bulk file (`.gov`'s full-frame CSV in git, sha256-citable), that file is strictly better for a sovereignty instrument than a live query — citable and re-derivable, where a live query is a point-in-time read that can be bot-blocked, rate-limited, or policy-masked (`.gov` RDAP returning 403 "Error 1010" to automated clients). That preference is about *how we sample*, not a claim that the industry is migrating to files.
 
 ---
 
@@ -42,8 +43,10 @@ Registration-data disclosure changed along two axes at once, and confusing them 
 |---|---|---|
 | May 2018 | Temporary Specification for gTLD Registration Data (GDPR emergency) | ICANN |
 | Mar 2024 | **RFC 9537** — redaction becomes structured | IETF / rfc-editor |
+| 28 Jan 2025 | WHOIS contract obligation removed for gTLDs (sunset) | ICANN |
+| Jun 2025 | RDAP query volume overtakes WHOIS | IETF blog (Newton) |
 | Aug 2025 | **Registration Data Policy** — temporary spec made permanent consensus policy | ICANN |
-| 2025 | RDAP query volume −60% (122B → 49B) | IETF blog |
+| Jan→Aug 2025 | WHOIS volume −60% (122B→49B); RDAP +9× (7B→65B) | IETF blog (Newton) |
 
 **The highest-authority bodies on this vector:** IETF REGEXT (the RDAP specification body — [datatracker.ietf.org/wg/regext/](https://datatracker.ietf.org/wg/regext/about/)) and ICANN / GNSO (the governance layer).
 

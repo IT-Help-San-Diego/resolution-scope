@@ -15,7 +15,9 @@ Do NOT re-derive local context. Read these three claims and confirm or rebut eac
 
 2. **ICANN's Registration Data Policy** is a GNSO consensus policy that became **effective 21 Aug 2025**, making GDPR-driven redaction permanent and contractual; §9.2 defines "redact" as "MUST NOT include the value AND MUST indicate that the value is redacted."
 
-3. **RDAP query volume collapsed ~60%** between January 2025 (~122B monthly queries) and August 2025 (~49B), per the IETF's own "current state of RDAP" publication.
+3. **WHOIS query volume fell ~60%** (122B/month Jan 2025 → 49B Aug 2025) following the WHOIS sunset of 28 Jan 2025, while **RDAP query volume rose ~9×** (7B → 65B) over the same period and overtook WHOIS in June 2025 — per the IETF's own "current state of RDAP" publication (Andy Newton, 19 Feb 2026).
+
+Note: claim 3 was *originally* stated as "RDAP collapsed −60%," which was WRONG — Claude Code's independent cross-check caught the inversion (the −60% is WHOIS; RDAP grew 9×), and the vector doc has been corrected. Your job on claim 3 is now to confirm the *corrected* figure independently, so the fix itself is corroborated by a third path rather than taken on one bot's word.
 
 For each: CONFIRMED (with URL) / REBUTTED (with URL showing the correction) / UNVERIFIABLE (say why). One line each. Do not expand, do not add interpretation — the local lane already wrote the analysis; we need your independent check, not a rewrite.
 
