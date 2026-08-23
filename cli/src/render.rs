@@ -44,6 +44,17 @@ pub const TIER_HOLDING: &str = "HOLDING";
 pub const TIER_UNMEASURED: &str = "COULD NOT MEASURE";
 pub const TIER_NOT_APPLICABLE: &str = "NOT APPLICABLE";
 
+/// One-line teaching subtitle under the two verdict tiers, so a first
+/// reading knows which way each heading points. The other two tier names
+/// already state their meaning.
+pub fn tier_subtitle(tier: &str) -> Option<&'static str> {
+    match tier {
+        TIER_FINDINGS => Some("controls that need attention"),
+        TIER_HOLDING => Some("controls measured in their correct state"),
+        _ => None,
+    }
+}
+
 /// Which tier a severity renders in. Pure layout: the severity itself is the
 /// engine's ruling (truth_chain.rs); this only decides the heading above it.
 pub fn tier_of(s: Severity) -> &'static str {
