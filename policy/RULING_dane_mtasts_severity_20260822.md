@@ -71,3 +71,24 @@ a user's own mail stack.
 
 The line is **Google vs Microsoft**, not "Europe vs America." Microsoft already crossed it;
 Google is the specific DANE-less holdout (and it's a *huge* chunk of the American mailbox pie).
+
+## 5. Site copy vs repository record (Carey, 2026-08-22)
+
+Two tiers, on purpose. **Everything is kept informationally** in the repo (this ruling, the
+doctrine docs, the RFC citations) — the long form is the durable record. **The public site gets a
+short, honest line, not an essay.** A DANE finding on the report says the one true thing:
+"not deployable through your provider (Google publishes no TLSA) — this one's not on you" — and
+links to the record for anyone who wants the depth. Doctrine: the site demonstrates; the repo
+preserves. Never put the long explanation on the page.
+
+## 6. Carded (future, not executed)
+
+- **"Escape trick" publish-later** — the self-hosted MX + DANE gateway on top of Workspace (the
+  inbound/outbound gateway path in §3) is a real, Google-supported technique. Carey floated
+  publishing it as a how-to ("everybody wants this, they're paying mail hardeners a fortune —
+  here's how to do it yourself"). Carded as a *possible* future article, NOT site content, NOT a
+  shipped feature. It is the one legit path to DANE on Google, and it is deliberately not the
+  default recommendation (it installs a permanent operational liability).
+- **Provider-gated disposition (engine)** — carried over from §3: the measured third state
+  between "absent" and "unmeasured" so a Google user's report reads "provider-gated" instead of
+  "absent."
