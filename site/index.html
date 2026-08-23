@@ -66,8 +66,8 @@
 Domain    : resolutionscope.com
 Engine    : 0.1.0
 Resolver  : cloudflare
-Timestamp : 1787458165 (unix epoch seconds, UTC)
-Session   : 1b0b7eceb885d41d
+Timestamp : 1787462410 (unix epoch seconds, UTC)
+Session   : 584acf7370fa2e59
 Seal      : <span class="seal">1c4b45c5c310ac3441d1bf75ddfc8e7914e0ae20ea36fa6ddee004c13524bbce968abd39a91f905a709d943fd30dff4a407459080f7e3857d5e8c2f6b37f33b9</span>
 
 Control         Score    Measured
@@ -81,7 +81,8 @@ MTA-STS           <span class="fail">FAIL</span>     record absent — zone exis
 CAA               <span class="pass">PASS</span>     wildcard-fully-restricted — issuewild ";"
 CDS/CDNSKEY       <span class="fail">FAIL</span>     not published — zone exists, no CDS/CDNSKEY
 
-Score: 4/6 (66%)  |  unmeasured: 1  |  not-applicable: 1
+Coverage Score : 4/6 (66%)  |  unmeasured: 1  |  not-applicable: 1
+Risk-Weighted  : 71%  (scoring v1)
 
 <span class="rederive">── Re-derive the seal (SHA3-512 of these exact bytes) ──
 resolution-scope-sha3-512-v3
@@ -104,7 +105,10 @@ cds=NotPublished=Absent
     <code>*._domainkey</code> record with a null key means no selector can be enumerated, so the
     instrument reports "could not measure" instead of guessing a key verdict. Unmeasured is reported
     as unmeasured, never guessed.
-    The block beneath the score is the seal's complete input: hash those exact bytes with SHA3-512
+    Two scores, always together: coverage counts what is deployed; risk-weighted is a versioned
+    derived view over the same verdicts (identity-weighted — DMARC matters more than CAA), shown
+    beside coverage and never instead of it, and never sealed.
+    The block beneath the scores is the seal's complete input: hash those exact bytes with SHA3-512
     and you re-derive the seal above — the tamper-evidence claim, performable by anyone.</p>
   </div>
 </section>
