@@ -51,10 +51,22 @@ a user's own mail stack.
 
 - **Severity re-ruling** (weights follow automatically — derived from Severity, never hardcoded):
   MTA-STS 3→2, DANE 1→2. Max denominator **unchanged at 18** (net zero: MTA-STS −1, DANE +1).
-- **NEW engine feature (carded, NOT this ruling's scope):** a **"provider-gated" disposition**
-  for DANE on non-DANE-publishing MX hosts (Google and the like), so a Google user's report reads
-  "not deployable through your provider" instead of "absent." Same family as the existing
-  `DnssecRequired` disposition — a measured third state between "absent" and "unmeasured."
+- **CORRECTED (Claude Science, 2026-08-22) — no `provider-gated` verdict.** The original ruling
+  carded a "provider-gated" *disposition*. That was wrong: it would assert a **business
+  relationship** (ownership / "a third party is blocking you") that DNS cannot observe. The only
+  observable is **whether the TLSA name shares the scanned domain's registrable domain** — a
+  name-string fact, not an ownership fact. Ship it as a **field** (`tlsa_zone:
+  same_registrable_domain | different_registrable_domain`), never a verdict; the narrative then
+  says "the TLSA name lies outside this domain's own zone — DANE requires either that operator
+  publishing TLSA or moving MX to a host you control." True without asserting who owns what.
+- **The real finding (Claude Science, measured): `dhs.gov` survives the gate.** MX host
+  `mxa-00376703.gslb.gpphosted.com`, host zone `gpphosted.com` **IS signed**, so `DnssecRequired`
+  never fires — and `dhs.gov` reports a measured DANE absence that **only Proofpoint can fix**.
+  Identical "true finding attributed to the wrong party" shape as `it-help.tech`, but invisible to
+  the DNSSEC precondition because the precondition is *satisfied*. The discriminating pair is
+  `dhs.gov` vs `cia.gov` (both signed, both no TLSA — one is the operator's own choice, one is
+  not), and **only the out-of-zone field separates them.** This is the item to card, not the
+  gateway.
 - **The mail-gateway path is recorded as real and legitimate, but NOT executed.** Rolling your own
   MX gateway (inbound + outbound) gains DANE on top of Workspace — the one path where DANE lives
   at *your* MX host, not Google's. Carey's choice: demonstrate the sane maximum rather than own a
@@ -89,6 +101,12 @@ preserves. Never put the long explanation on the page.
   here's how to do it yourself"). Carded as a *possible* future article, NOT site content, NOT a
   shipped feature. It is the one legit path to DANE on Google, and it is deliberately not the
   default recommendation (it installs a permanent operational liability).
-- **Provider-gated disposition (engine)** — carried over from §3: the measured third state
-  between "absent" and "unmeasured" so a Google user's report reads "provider-gated" instead of
-  "absent."
+- **`tlsa_zone` field (engine) — NOT a verdict.** The measured registrable-domain comparison:
+  `same_registrable_domain | different_registrable_domain`. Emits a fact the narrative can use
+  ("the TLSA name lies outside this domain's own zone"), never an ownership claim. This is the
+  corrected form of the earlier "provider-gated disposition" (retracted — see §3).
+- **dhs.gov out-of-zone attribution (engine)** — the real defect the measurement found. When the
+  MX-host zone is signed (so `DnssecRequired` never fires) but the TLSA name sits in a *different*
+  registrable domain, the measured DANE absence must be attributed to the mail operator, not the
+  scanned domain. Requires the `tlsa_zone` field to be expressible. Discriminating pair:
+  `dhs.gov` (Proofpoint — not its choice) vs `cia.gov` (self-hosted — its own choice).

@@ -10,8 +10,14 @@
 DANE is the one control where "the world won't let you go further yet" is *movable*. Unlike a
 personal ceiling (a solo operator can't be their own CA), DANE's ceiling is a **vendor choice**,
 and vendor choices migrate. The point of the case study is to **watch the migration and tell the
-truth about it as it moves** — so the instrument's `provider-gated` verdict is never a static
-excuse, but a live reading of an arc in progress.
+truth about it as it moves** — so the instrument's DANE verdict is never a static excuse, but a
+live reading of an arc in progress.
+
+> **Terminology correction (Claude Science, 2026-08-22):** the tracker is written in terms of a
+> "provider-gated verdict." There is no such verdict — the scan cannot observe ownership. The
+> measurable fact is `tlsa_zone` (same/different registrable domain), and the *arc* (who has
+> shipped DANE) is a **case-study narrative**, not a disposition. The tracker stays; the wording
+> below reads "verdict" where it should read "the `tlsa_zone` field + the case-study narrative."
 
 ## The measured arc (2026-08-22 baseline)
 
@@ -32,9 +38,11 @@ stops being "provider-gated" for the largest single chunk of the pie.
    disposition follows the measurement, never a hand-held list. This is the "absence in a local
    reference table must never be reported as absence in the world" rule — a provider table is a
    snapshot, not a truth.
-2. **The `provider-gated` verdict names the *arc*, not the *failure*.** It says "Google doesn't
-   publish TLSA *yet* — Microsoft now does" — so the user reads it as a moving frontier, not a
-   dead end. That's the education, and it's why the disposition exists.
+2. **The `tlsa_zone` field names the *frontier*, not the *failure*.** When the TLSA name sits in
+   a different registrable domain, the narrative says "DANE lives outside this zone — either that
+   operator publishes TLSA, or you move MX to a host you control" — so the user reads a moving
+   line, not a dead end. The *arc* (Google hasn't shipped it; Microsoft and Proton have) is a
+   case-study narrative, kept current by re-measurement, never a hand-held verdict.
 3. **The escape trick stays documented** (self-hosted MX gateway) as the always-available path —
    so the honest message is "you can have DANE today, it just costs operational ownership; or
    wait, and your provider will likely ship it." Choice, priced, disclosed.

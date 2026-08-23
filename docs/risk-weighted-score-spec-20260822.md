@@ -129,8 +129,8 @@ Coverage hides is exactly what RWS reveals.
 > **Medium** — same in-transit threat, same level, differing only in trust anchor (Web PKI vs
 > DNSSEC). The $55B BEC is spoofing, owned by the High controls. Because weight is *derived* from
 > severity, this re-ruling propagates automatically (MTA-STS 3→2, DANE 1→2, denominator still 18).
-> Severity = the threat; deployability = a separate axis (the "provider-gated" disposition, in
-> `policy/RULING_dane_mtasts_severity_20260822.md` §3).
+> Severity = the threat; deployability = a separate axis (the `tlsa_zone` *field*, not a
+> "provider-gated" *verdict* — see `policy/RULING_dane_mtasts_severity_20260822.md` §3).
 
 ---
 
