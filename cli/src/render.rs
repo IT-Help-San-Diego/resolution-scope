@@ -8,7 +8,8 @@
 use resolution_scope_engine::report::render_text;
 use resolution_scope_engine::seal::{seal_versioned, SEAL_SCHEME};
 use resolution_scope_engine::truth_chain::{
-    by_severity, truth_chain, Audience, ControlReport, Severity, Tally,
+    by_severity, risk_weighted_score, truth_chain, Audience, ControlReport, Severity, Tally,
+    SCORING_VERSION,
 };
 use resolution_scope_engine::{ScoredAnalysis, TriState};
 use resolution_scope_store::StoredScan;
@@ -44,12 +45,16 @@ pub fn render_summary(analyses: &[ScoredAnalysis], audience: Audience) -> String
             }
         }
         s.push_str(&format!(
-            "\n  Score: {}/{} ({}%)  |  unmeasured: {}  |  n/a: {}\n\n",
+            "\n  Coverage Score : {}/{} ({}%)  |  unmeasured: {}  |  n/a: {}\n",
             t.present,
             t.denominator(),
             t.percent(),
             t.unmeasured,
             t.not_applicable,
+        ));
+        s.push_str(&format!(
+            "  Risk-Weighted  : {}\n\n",
+            weighted_label(&model)
         ));
     }
     s
@@ -109,18 +114,20 @@ pub fn render_history(domain: &str, history: &[StoredScan]) -> String {
         SEAL_SCHEME,
     ));
     for h in history {
-        let t = Tally::of(&truth_chain(&h.verdict));
+        let model = truth_chain(&h.verdict);
+        let t = Tally::of(&model);
         let prefix = if h.seal.len() >= 16 {
             &h.seal[..16]
         } else {
             &h.seal[..]
         };
         s.push_str(&format!(
-            "  #{:<4} engine {:<8}  score {}/{}  seal {}…  {}\n",
+            "  #{:<4} engine {:<8}  coverage {}/{}  risk-weighted {}  seal {}…  {}\n",
             h.id,
             h.engine_version,
             t.present,
             t.denominator(),
+            weighted_label(&model),
             prefix,
             seal_check_label(h),
         ));
@@ -156,8 +163,9 @@ pub fn render_html_page(analyses: &[ScoredAnalysis], audience: Audience) -> Stri
 
         body.push_str(&format!(
             "<section class=\"domain\">\n<h2>{}</h2>\n\
-             <p class=\"score\">Score: <strong>{}/{}</strong> ({}%) \u{00b7} \
+             <p class=\"score\">Coverage Score: <strong>{}/{}</strong> ({}%) \u{00b7} \
              unmeasured: {} \u{00b7} n/a: {}</p>\n\
+             <p class=\"score\">Risk-Weighted: <strong>{}</strong></p>\n\
              <ol class=\"findings\">\n",
             esc(&a.domain),
             t.present,
@@ -165,6 +173,7 @@ pub fn render_html_page(analyses: &[ScoredAnalysis], audience: Audience) -> Stri
             t.percent(),
             t.unmeasured,
             t.not_applicable,
+            esc(&weighted_label(&model)),
         ));
 
         for rep in &ordered {
@@ -224,6 +233,18 @@ fn esc(s: &str) -> String {
         }
     }
     out
+}
+
+/// The Risk-Weighted label every cli surface prints — one producer, so the
+/// summary, HTML, TUI and history cannot drift from each other. A DERIVED
+/// view over the same sealed dispositions (never sealed itself), tagged with
+/// SCORING_VERSION; reads "unmeasured" when nothing is measurable. Always
+/// shown BESIDE Coverage, never instead of it.
+pub fn weighted_label(model: &[ControlReport; 8]) -> String {
+    match risk_weighted_score(model) {
+        Some(rws) => format!("{rws}%  (scoring v{SCORING_VERSION})"),
+        None => format!("unmeasured  (scoring v{SCORING_VERSION})"),
+    }
 }
 
 fn tri_icon(t: TriState) -> &'static str {
@@ -431,6 +452,21 @@ mod tests {
         a.tlsa_zone = TlsaZone::SameZone;
         assert!(!render_summary(std::slice::from_ref(&a), Audience::BlueTeam).contains("\u{21b3}"));
         assert!(!render_html_page(&[a], Audience::BlueTeam).contains("<dt>attribution</dt>"));
+    }
+
+    #[test]
+    fn both_scores_render_together_on_every_surface() {
+        // The NIST-CSF rule from the ruling: the risk-weighted number is shown
+        // BESIDE coverage, never instead of it, and carries its scoring
+        // version so a reader knows which weighting produced it.
+        let a = fixture("example.com");
+        let tag = format!("scoring v{SCORING_VERSION}");
+        let summary = render_summary(std::slice::from_ref(&a), Audience::BlueTeam);
+        assert!(summary.contains("Coverage Score :"));
+        assert!(summary.contains("Risk-Weighted  :") && summary.contains(&tag));
+        let html = render_html_page(&[a], Audience::BlueTeam);
+        assert!(html.contains("Coverage Score: <strong>"));
+        assert!(html.contains("Risk-Weighted: <strong>") && html.contains(&tag));
     }
 
     #[test]

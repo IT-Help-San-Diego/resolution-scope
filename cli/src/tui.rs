@@ -24,6 +24,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Tabs, Wrap};
 use ratatui::{Frame, Terminal};
 
+use crate::render::weighted_label;
 use resolution_scope_engine::analysis::analyse_domain_with_selectors;
 use resolution_scope_engine::truth_chain::{
     by_severity, truth_chain, Audience, ControlId, ControlReport, Severity, Tally,
@@ -238,7 +239,7 @@ fn render_summary(
     let t = Tally::of(model);
     lines.push(Line::from(Span::styled(
         format!(
-            "  Score: {}/{} ({}%)  │  unmeasured: {}  │  n/a: {}",
+            "  Coverage Score : {}/{} ({}%)  │  unmeasured: {}  │  n/a: {}",
             t.present,
             t.denominator(),
             t.percent(),
@@ -246,6 +247,12 @@ fn render_summary(
             t.not_applicable
         ),
         Style::default().fg(pal.accent).add_modifier(Modifier::BOLD),
+    )));
+    // Risk-Weighted beside Coverage — never instead of it (a lone weighted
+    // number is what hides which control is weak).
+    lines.push(Line::from(Span::styled(
+        format!("  Risk-Weighted  : {}", weighted_label(model)),
+        Style::default().fg(pal.accent),
     )));
     lines.push(Line::from(Span::styled(
         "  (unmeasured never enters the score — a ? is not a verdict)",
