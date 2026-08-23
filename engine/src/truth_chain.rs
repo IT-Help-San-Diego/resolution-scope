@@ -309,7 +309,7 @@ fn spf_report(d: SpfDisposition) -> ControlReport {
         SpfDisposition::SoftFail => (
             "softfail (~all) — deployed, not enforcing",
             Severity::Medium,
-            "SPF is published but ~all only asks receivers to mark, not reject. Move to -all once legitimate senders are confirmed.",
+            "SPF is published and ~all asks receivers to mark, not reject — the correct deployment posture while legitimate senders are being confirmed, and the standard path toward -all.",
             "Spoofed mail is marked, not blocked: softfail typically lands in spam rather than being refused — usable with a pretext that survives a spam folder, and DMARC disposition decides the rest.",
         ),
         SpfDisposition::OtherPolicy => (
@@ -1234,6 +1234,21 @@ mod tests {
             Severity::Low,
             "DANE's missing disposition is Low; identity_weight derives 1 from it"
         );
+    }
+
+    /// The softfail consequence celebrates correct staging (2026-08-23 voice
+    /// fix) while the §8 ruling stands: deployed-but-not-enforcing is a
+    /// severity fact, so Medium stays.
+    #[test]
+    fn softfail_voice_is_correct_staging_not_deficiency() {
+        let r = spf_report(SpfDisposition::SoftFail);
+        assert!(
+            r.consequence_blue.contains("correct deployment posture"),
+            "{}",
+            r.consequence_blue
+        );
+        assert!(!r.consequence_blue.contains("Move to -all"));
+        assert_eq!(r.severity, Severity::Medium);
     }
 
     /// A domain missing only CAA (weight 1) vs missing only DMARC (weight 3) —

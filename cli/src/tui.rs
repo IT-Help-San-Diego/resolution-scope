@@ -40,7 +40,8 @@ use tokio::task::JoinHandle;
 
 use crate::input::canonical_domain;
 use crate::render::{
-    tiers, weighted_label, Observation, COVERAGE_NOTE, EXCLUDED_NOTE, RISK_WEIGHTED_NOTE, SEAL_NOTE,
+    tier_subtitle, tiers, weighted_label, Observation, COVERAGE_NOTE, EXCLUDED_NOTE,
+    RISK_WEIGHTED_NOTE, SEAL_NOTE,
 };
 use resolution_scope_engine::analysis::analyse_domain_with_selectors;
 use resolution_scope_engine::seal::canonical_input;
@@ -277,6 +278,12 @@ fn render_summary(
             format!("\u{2550}\u{2550} {tier} \u{2550}\u{2550}"),
             Style::default().fg(pal.accent).add_modifier(Modifier::BOLD),
         )));
+        if let Some(sub) = tier_subtitle(tier) {
+            lines.push(Line::from(Span::styled(
+                format!("  {sub}"),
+                Style::default().fg(pal.muted),
+            )));
+        }
         if rows.is_empty() {
             lines.push(Line::from(Span::styled(
                 "  (none)".to_string(),
@@ -776,6 +783,14 @@ fn framing_word(a: Audience) -> &'static str {
     }
 }
 
+/// Header help line, wide and narrow. The wide form's own column count is
+/// the header's wide/narrow cutover (every glyph in it is single-column, so
+/// `chars().count()` IS its display width) — derived, so the string and the
+/// threshold cannot drift apart.
+const HELP_WIDE: &str =
+    "1-7 tabs · ↑/↓ or j/k select · enter open · esc back · m mode · r re-measure · tab next domain · d new domain · q quit";
+const HELP_NARROW: &str = "1-7 · j/k · enter · esc · m · r · tab · d · q";
+
 fn render_header(f: &mut Frame, area: Rect, app: &App) {
     let p = app.pal;
     let muted = Style::default().fg(p.muted);
@@ -803,7 +818,7 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
             Style::default().fg(p.fg).add_modifier(Modifier::BOLD),
         ),
     ]);
-    let wide = area.width >= 110;
+    let wide = usize::from(area.width) >= HELP_WIDE.chars().count();
     // Line 2: the measurement conditions — or the live measuring state.
     let line2 = match &app.scan {
         ScanState::Measuring {
@@ -862,11 +877,7 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
         )),
     };
     let line3 = Line::from(Span::styled(
-        if wide {
-            "1-7 tabs · ↑/↓ or j/k select · enter open · esc back · m mode · r re-measure · tab next domain · d add · q quit"
-        } else {
-            "1-7 · j/k · enter · esc · m · r · tab · d · q"
-        },
+        if wide { HELP_WIDE } else { HELP_NARROW },
         muted,
     ));
     let widget = Paragraph::new(vec![line1, line2, line3]).block(
@@ -1455,6 +1466,69 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn summary_subtitles_sit_under_the_two_verdict_tiers() {
+        use resolution_scope_engine::analysis::{
+            CaaDisposition, CdsDisposition, DaneDisposition, DkimDisposition, DmarcDisposition,
+            DnssecDisposition, MtaStsDisposition, SpfDisposition, TlsaZone,
+        };
+        let a = ScoredAnalysis {
+            domain: "example.test".into(),
+            session_id: 0,
+            timestamp_local: 0,
+            resolver_identity: "test".into(),
+            dnssec_chain: DnssecDisposition::Unsigned.chain(),
+            dnssec_disposition: DnssecDisposition::Unsigned,
+            spf: SpfDisposition::SoftFail.chain(),
+            spf_disposition: SpfDisposition::SoftFail,
+            dkim: DkimDisposition::NotProbed.chain(),
+            dkim_disposition: DkimDisposition::NotProbed,
+            dmarc: DmarcDisposition::Reject.chain(),
+            dmarc_disposition: DmarcDisposition::Reject,
+            dane: DaneDisposition::DnssecRequired.chain(),
+            dane_disposition: DaneDisposition::DnssecRequired,
+            tlsa_zone: TlsaZone::ForeignZone,
+            mta_sts: MtaStsDisposition::Enforced.chain(),
+            mta_sts_disposition: MtaStsDisposition::Enforced,
+            caa: CaaDisposition::Configured.chain(),
+            caa_disposition: CaaDisposition::Configured,
+            cds_cdnskey: CdsDisposition::NotPublished.chain(),
+            cds_disposition: CdsDisposition::NotPublished,
+        };
+        let model = truth_chain(&a);
+        let (lines, _) = render_summary(&model, Palette::BLUE, Audience::BlueTeam, 0, 80);
+        let text: Vec<String> = lines
+            .iter()
+            .map(|l| {
+                l.spans
+                    .iter()
+                    .map(|s| s.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect();
+        let under = |header: &str| -> String {
+            let i = text
+                .iter()
+                .position(|l| l.contains(header))
+                .unwrap_or_else(|| panic!("no {header} header"));
+            text[i + 1].clone()
+        };
+        assert_eq!(under("FINDINGS"), "  controls that need attention");
+        assert_eq!(
+            under("HOLDING"),
+            "  controls measured in their correct state"
+        );
+        // The other two tier names state their meaning — no subtitle.
+        assert!(!under("COULD NOT MEASURE").starts_with("  controls"));
+        assert!(!under("NOT APPLICABLE").starts_with("  controls"));
+    }
+
+    #[test]
+    fn help_line_names_the_new_domain_verb() {
+        assert!(HELP_WIDE.contains("d new domain"), "{HELP_WIDE:?}");
+        assert!(!HELP_WIDE.contains("d add"));
     }
 
     #[tokio::test]
