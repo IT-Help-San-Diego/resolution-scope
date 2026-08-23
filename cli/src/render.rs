@@ -116,8 +116,8 @@ pub fn iso_utc(epoch: u64) -> String {
     format!("{y:04}-{mo:02}-{d:02} {h:02}:{m:02}:{s:02} UTC")
 }
 
-/// Unix epoch seconds → RFC 3339 `YYYY-MM-DDTHH:MM:SSZ`, the machine form
-/// (parseable by stock JSON tooling).
+/// Unix epoch seconds → the internet date-time form `YYYY-MM-DDTHH:MM:SSZ`
+/// (the `Z`-suffixed profile stock JSON tooling parses) — the machine form.
 pub fn rfc3339_utc(epoch: u64) -> String {
     let (y, mo, d, h, m, s) = civil_utc(epoch);
     format!("{y:04}-{mo:02}-{d:02}T{h:02}:{m:02}:{s:02}Z")
@@ -278,9 +278,9 @@ pub fn render_text_report(analyses: &[ScoredAnalysis]) -> String {
 /// (every disposition enum + every tri-state — the Arm-1 join contract, all
 /// 16 verdict keys by their exact names) PLUS the measurement conditions a
 /// consumer needs to verify and to score without re-implementing either:
-/// seal, seal_scheme, engine_version, session_hex, timestamp_utc (RFC 3339,
-/// the same instant as the engine's epoch `timestamp_local`, which is UTC
-/// despite its name), coverage, risk_weighted, scoring_version. Additive only
+/// seal, seal_scheme, engine_version, session_hex, timestamp_utc (internet
+/// date-time `…Z`, the same instant as the engine's epoch `timestamp_local`,
+/// which is UTC despite its name), coverage, risk_weighted, scoring_version. Additive only
 /// — no verdict key is renamed, re-typed or nested; keys serialize sorted.
 /// One object per domain, newline separated, so
 /// `resolution-scope example.com --format json | jq` composes.
