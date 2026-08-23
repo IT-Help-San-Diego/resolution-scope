@@ -110,3 +110,31 @@ preserves. Never put the long explanation on the page.
   registrable domain, the measured DANE absence must be attributed to the mail operator, not the
   scanned domain. Requires the `tlsa_zone` field to be expressible. Discriminating pair:
   `dhs.gov` (Proofpoint — not its choice) vs `cia.gov` (self-hosted — its own choice).
+
+## 7. Seal decision — derived from the seal's foundation (2026-08-23)
+
+**Does `tlsa_zone` enter the seal? YES — SEAL_SCHEME v2 → v3.**
+
+Derived, not preferred. The seal's own contract (seal.rs) sorts every datum into two buckets:
+- **Sealed** = primary measurements + the verdicts drawn from them (domain, engine, resolver
+  identity, the 8 dispositions + tri-states).
+- **Excluded** = run metadata (`session_id`, `timestamp` — about *the run*, unrecoverable by a
+  future reader) and derived views (the risk-weighted score — recomputed *from* sealed data).
+
+`tlsa_zone` is neither excluded thing: it is a **primary DNS measurement** (compare
+`zone_apex_of(mx_host)` to `zone_apex_of(domain)`), a fact about the domain's mail architecture,
+not about the run, and not derived from other sealed fields. Therefore it is sealed, same category
+as a disposition.
+
+**Negative proof:** unsealed, `dhs.gov` and `cia.gov` seal byte-identically while their verdicts
+mean opposite things (operator's gap vs own gap). Flip the field, the seal doesn't flinch — the
+*attribution* becomes silently tamperable, a receipt that can be altered, which is the exact
+failure the seal exists to prevent. The seal's purpose (tamper-evidence over verdict *meaning*)
+requires the field to be bound.
+
+**Note (field naming, to pin with Claude Science at implementation):** the honest name keys on what
+is *measured*. The engine has no PSL dependency; the already-walked measurement is the SOA zone-cut
+comparison (`same_zone` / `different_zone`), which is the honest observable — "registrable domain"
+would import a PSL and its edge-case errors (cf-emailsecurity.net). Name the field for the zone-cut
+fact, never for the ownership it suggests. The disposition stays `NotConfigured` in both cases; the
+field is the *attribution qualifier*, not a new verdict.
