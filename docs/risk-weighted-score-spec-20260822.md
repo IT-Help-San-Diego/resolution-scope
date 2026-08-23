@@ -105,30 +105,32 @@ drift. This is the same single-producer rule that governs the seal and the citat
 ## 5. Concrete current weights (derived from current code severity)
 
 Grounding each control's weight in its **absent-state** severity (the "you don't have this"
-consequence the constructors emit today):
+consequence the constructors emit today). **Resolved 2026-08-22 by Carey** — see
+`policy/RULING_dane_mtasts_severity_20260822.md`: MTA-STS and DANE are the SAME threat
+(in-transit interception) and now carry the SAME severity (Medium).
 
-| Control | Absent-state severity (current code) | Weight | Threat surface (grounded) |
+| Control | Absent-state severity (ruled) | Weight | Threat surface (grounded) |
 |---|---|---|---|
 | DNSSEC | High (unsigned) / Critical (bogus) | 3–4 | zone forgery; undermines CAA *and* DANE |
 | SPF | High | 3 | email spoofing → BEC |
 | DKIM | High (mismatch/revoked) | 3 | email integrity → BEC |
 | DMARC | High (absent) | 3 | spoofing enforcement → the $55B control |
-| MTA-STS | High (no policy) | 3 | mail-in-transit TLS downgrade |
-| DANE | Low (no TLSA) | 1 | cert pinning for mail, DNSSEC-gated |
+| MTA-STS | Medium (no policy) | 2 | mail-in-transit TLS downgrade |
+| DANE | Medium (no TLSA) | 2 | mail-in-transit cert pinning, DNSSEC-gated |
 | CAA | Low (no CAA) | 1 | cert mis-issuance — rare, CT-backed |
 | CDS/CDNSKEY | Low (no CDS) | 1 | rollover hygiene — Informational RFC |
 
-**Maximum denominator = 18** (four High × 3 = 12, four Low × 1 = 4, MTA-STS 3, DANE 1 → 18;
-recounted: DNSSEC 3 + SPF 3 + DKIM 3 + DMARC 3 + MTA-STS 3 = 15 High; DANE 1 + CAA 1 + CDS 1 =
-3 Low; total 18). A domain missing only CAA: RWS = 17/18 = 94.4% (Coverage still 87.5%). A
-domain missing only DMARC: RWS = 15/18 = 83.3%. The gap that Coverage hides is exactly what
-RWS reveals.
+**Maximum denominator = 18** (four High × 3 = 12 [DNSSEC, SPF, DKIM, DMARC]; two Medium × 2 = 4
+[MTA-STS, DANE]; two Low × 1 = 2 [CAA, CDS]; total 18). A domain missing only CAA: RWS = 17/18
+= 94.4% (Coverage still 87.5%). A domain missing only DMARC: RWS = 15/18 = 83.3%. The gap that
+Coverage hides is exactly what RWS reveals.
 
-> **Sub-decision flagged for Carey (separate from this spec):** two controls sit at a tier
-> boundary that a *further* reality-check might move — DANE (currently Low; arguably Medium
-> because it pins mail TLS) and MTA-STS (currently High). This spec does **not** re-litigate
-> severity; it derives weight from whatever severity the code emits. If you later rule "DANE is
-> Medium," the weight follows automatically — that's the point of deriving, not hardcoding.
+> **Sub-decision RESOLVED (2026-08-22, Carey):** MTA-STS (was High) and DANE (was Low) both rule
+> **Medium** — same in-transit threat, same level, differing only in trust anchor (Web PKI vs
+> DNSSEC). The $55B BEC is spoofing, owned by the High controls. Because weight is *derived* from
+> severity, this re-ruling propagates automatically (MTA-STS 3→2, DANE 1→2, denominator still 18).
+> Severity = the threat; deployability = a separate axis (the "provider-gated" disposition, in
+> `policy/RULING_dane_mtasts_severity_20260822.md` §3).
 
 ---
 
