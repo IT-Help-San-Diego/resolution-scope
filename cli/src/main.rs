@@ -1,21 +1,30 @@
 //! Resolution Scope — one binary, three verbs.
 //!
 //! The single user-facing surface. `engine` and `store` stay libraries; the
-//! interactive dashboard (folded from the old `tui` crate) is `tui.rs`; every
-//! renderer is `render.rs`. One scan, any output — all of it delegating to
+//! interactive dashboard is `tui.rs`; every renderer is `render.rs`; the input
+//! boundary is `input.rs`. One scan, any output — all of it delegating to
 //! engine::truth_chain() (the single-producer contract, ARCHITECTURE.md §8).
 //!
-//!     resolution-scope example.com                # scan + text report (default)
-//!     resolution-scope example.com --format html  # static page
-//!     resolution-scope example.com --format json  # machine output (Arm 1)
-//!     resolution-scope tui                        # interactive dashboard
-//!     resolution-scope history example.com        # sealed-history verb
+//!     resolution-scope example.com                 # measure + report (default verb)
+//!     resolution-scope example.com --format html   # static page, seal included
+//!     resolution-scope example.com --format json   # machine output (Arm 1) + seal
+//!     resolution-scope example.com --format text   # the engine's own minimal render
+//!     resolution-scope tui example.com             # interactive dashboard
+//!     resolution-scope history example.com         # sealed-history verb (store)
+//!
+//! Flags are validated at parse time (clap value enums), and every domain
+//! passes `input::canonical_domain` BEFORE any network: a pasted URL or an
+//! empty `$VAR` is refused with the fix named, never scanned into eight
+//! "transient — re-run" rows.
 
+mod input;
 mod render;
 mod tui;
 
-use anyhow::Result;
-use clap::{Parser, Subcommand};
+use std::time::Instant;
+
+use anyhow::{Context, Result};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 
 use hickory_resolver::config::{ResolverConfig, ResolverOpts};
 use hickory_resolver::net::runtime::TokioRuntimeProvider;
@@ -23,173 +32,368 @@ use hickory_resolver::TokioResolver;
 use resolution_scope_engine::analysis::analyse_domain_with_selectors;
 use resolution_scope_engine::truth_chain::Audience;
 
+/// The resolver vantage every verb measures from. Sealed into each verdict
+/// (`resolver_identity`), so it is a measurement condition, not a setting.
+const RESOLVER_IDENTITY: &str = "cloudflare";
+
+const ABOUT: &str = "Resolution Scope — a sovereign instrument for measuring DNS resolution: \
+what a domain actually publishes, verified against the protocol and sealed so anyone can re-check it.";
+
+const LONG_ABOUT: &str = "\
+Resolution Scope measures eight controls on a domain — DNSSEC, SPF, DKIM, DMARC, \
+DANE, MTA-STS, CAA, CDS/CDNSKEY — through one validating resolver, and renders \
+the same truth-chain (RFC requirement → measured state → consequence) on every surface.
+
+Every verdict carries a SEAL: a SHA3-512 digest over the exact verdict bytes, printed \
+beside the verdict so anyone holding the report can re-derive it. The seal is \
+tamper-evidence — it proves the verdict you hold is the one that was sealed, nothing more.
+
+Two scores, always together: Coverage (deployed controls over measured controls) and \
+Risk-Weighted (the same verdicts weighted by each control's identity, versioned, never \
+sealed). Controls that could not be measured, or do not apply, are excluded from both \
+and are always shown as such — never guessed.";
+
+const AFTER_HELP: &str = "\
+Examples:
+  resolution-scope example.com                    measure + human report (default)
+  resolution-scope example.com --audience red     consequence text framed for an assessor
+  resolution-scope a.com b.com --format html -o r.html
+  resolution-scope example.com --format json | jq .seal
+  resolution-scope tui example.com                interactive dashboard
+  resolution-scope history example.com --store-url postgres://…";
+
 #[derive(Parser)]
 #[command(
     name = "resolution-scope",
-    about = "Resolution Scope — sovereign DNS resolution, measured and sealed",
-    version
+    about = ABOUT,
+    long_about = LONG_ABOUT,
+    after_help = AFTER_HELP,
+    version,
+    args_conflicts_with_subcommands = true
 )]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
 
-    /// Domain(s) to scan (repeatable) — the default verb.
-    #[arg(short, long, global = true)]
+    /// The default verb: measure + report.
+    #[command(flatten)]
+    scan: ScanArgs,
+}
+
+#[derive(Args, Debug, Clone)]
+struct ScanArgs {
+    /// Domain(s) to measure, e.g. `example.com` (repeatable).
+    #[arg(value_name = "DOMAIN")]
     domains: Vec<String>,
 
-    /// Output format: text, summary, html, json (default text)
-    #[arg(short, long, global = true, default_value = "text")]
-    format: String,
+    /// Compatibility alias for the positional DOMAIN list.
+    #[arg(short = 'd', long = "domains", value_name = "DOMAIN", hide = true)]
+    domains_flag: Vec<String>,
 
-    /// Consequence framing: blue (defend) or red (assess)
-    #[arg(long, global = true, default_value = "blue")]
-    audience: String,
+    /// Output format.
+    #[arg(short, long, value_enum, default_value_t = Format::Report)]
+    format: Format,
 
-    /// DKIM selector(s) to probe in addition to the 81 defaults (repeatable).
-    #[arg(long, global = true)]
+    /// Consequence framing: blue (defend — what it costs you, what to do) or
+    /// red (assess — what it exposes during an authorised assessment).
+    #[arg(long, value_enum, default_value_t = AudienceArg::Blue)]
+    audience: AudienceArg,
+
+    /// DKIM selector(s) to probe ahead of the 81 defaults (repeatable). The
+    /// `s=` tag of any outbound DKIM-Signature header is the selector.
+    #[arg(long, value_name = "SELECTOR")]
     dkim_selector: Vec<String>,
 
-    /// Output file path (for html/text; text defaults to stdout)
-    #[arg(short, long, global = true)]
+    /// Write the report here instead of stdout (html defaults to report.html).
+    #[arg(short, long, value_name = "PATH")]
     out: Option<String>,
 
-    /// PostgreSQL URL for the sealed-history store (env: RS_STORE_URL).
-    #[arg(long, global = true, env = "RS_STORE_URL")]
+    /// PostgreSQL URL of the sealed-history store; when set, every verdict is
+    /// recorded with a store-computed seal.
+    #[arg(long, env = "RS_STORE_URL", value_name = "URL")]
     store_url: Option<String>,
+}
 
-    /// Start the interactive dashboard in covert (red-team) mode.
-    #[arg(long, global = true)]
+#[derive(Args, Debug, Clone)]
+struct TuiArgs {
+    /// Domain(s) to measure (repeatable); Tab cycles between them.
+    #[arg(value_name = "DOMAIN")]
+    domains: Vec<String>,
+
+    /// Compatibility alias for the positional DOMAIN list.
+    #[arg(short = 'd', long = "domains", value_name = "DOMAIN", hide = true)]
+    domains_flag: Vec<String>,
+
+    /// Consequence framing to start in: blue (defend) or red (assess). `m`
+    /// flips it live — palette and framing together.
+    #[arg(long, value_enum, default_value_t = AudienceArg::Blue)]
+    audience: AudienceArg,
+
+    /// Same as `--audience red` (the scotopic red-on-charcoal palette).
+    #[arg(long)]
     covert: bool,
+
+    /// DKIM selector(s) to probe ahead of the 81 defaults (repeatable).
+    #[arg(long, value_name = "SELECTOR")]
+    dkim_selector: Vec<String>,
+}
+
+#[derive(Args, Debug, Clone)]
+struct HistoryArgs {
+    /// Domain(s) whose sealed history to list (repeatable).
+    #[arg(value_name = "DOMAIN")]
+    domains: Vec<String>,
+
+    /// Compatibility alias for the positional DOMAIN list.
+    #[arg(short = 'd', long = "domains", value_name = "DOMAIN", hide = true)]
+    domains_flag: Vec<String>,
+
+    /// PostgreSQL URL of the sealed-history store.
+    #[arg(long, env = "RS_STORE_URL", value_name = "URL")]
+    store_url: Option<String>,
 }
 
 #[derive(Subcommand)]
 enum Command {
-    /// Launch the interactive dashboard (two-mode, terminal).
-    Tui,
-    /// Show the sealed scan history — reads the store, does NOT scan.
-    History,
+    /// Interactive dashboard — measures, then keeps the truth-chain live.
+    Tui(TuiArgs),
+    /// Sealed scan history — reads the store and re-checks every seal. Does NOT scan.
+    History(HistoryArgs),
+}
+
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+enum Format {
+    /// Human report: findings in tiers, both scores, seal + re-derive block.
+    Report,
+    /// Compact at-a-glance listing (no RFC layer, no re-derive block).
+    Summary,
+    /// Static HTML page, seal included.
+    Html,
+    /// Machine output: the engine's verdict object plus seal and scores.
+    Json,
+    /// The engine's own minimal render (the compartment's proof surface).
+    Text,
+}
+
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+enum AudienceArg {
+    Blue,
+    Red,
+}
+
+impl From<AudienceArg> for Audience {
+    fn from(a: AudienceArg) -> Audience {
+        match a {
+            AudienceArg::Blue => Audience::BlueTeam,
+            AudienceArg::Red => Audience::RedTeam,
+        }
+    }
+}
+
+fn build_resolver() -> Result<TokioResolver> {
+    // Same resolver for every verb: validating, DNSSEC-capable.
+    let mut opts = ResolverOpts::default();
+    opts.validate = true;
+    Ok(TokioResolver::builder_with_config(
+        ResolverConfig::udp_and_tcp(&hickory_resolver::config::CLOUDFLARE),
+        TokioRuntimeProvider::default(),
+    )
+    .with_options(opts)
+    .build()?)
+}
+
+/// Merge the positional list with the hidden `-d` alias, then canonicalise
+/// through the input boundary. Empty → a usage error naming the form.
+fn domains_from(positional: &[String], flag: &[String]) -> Result<Vec<String>> {
+    let mut raw: Vec<String> = positional.to_vec();
+    raw.extend_from_slice(flag);
+    if raw.is_empty() {
+        anyhow::bail!("at least one domain is required (e.g. `resolution-scope example.com`)");
+    }
+    Ok(input::canonical_domains(&raw)?)
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    let audience = match cli.audience.as_str() {
-        "blue" => Audience::BlueTeam,
-        "red" => Audience::RedTeam,
-        other => anyhow::bail!("--audience must be 'blue' or 'red', got {other:?}"),
-    };
-
-    // Same resolver for every verb: validating, DNSSEC-capable.
-    let mut opts = ResolverOpts::default();
-    opts.validate = true;
-    let resolver = TokioResolver::builder_with_config(
-        ResolverConfig::udp_and_tcp(&hickory_resolver::config::CLOUDFLARE),
-        TokioRuntimeProvider::default(),
-    )
-    .with_options(opts)
-    .build()?;
-
     match cli.command {
-        Some(Command::Tui) => {
-            let domains = require_domains(&cli.domains)?;
-            tui::run(resolver, domains, cli.dkim_selector, cli.covert).await
+        Some(Command::Tui(args)) => {
+            let domains = domains_from(&args.domains, &args.domains_flag)?;
+            let audience = if args.covert {
+                Audience::RedTeam
+            } else {
+                args.audience.into()
+            };
+            let resolver = build_resolver()?;
+            tui::run(resolver, domains, args.dkim_selector, audience).await
         }
-        Some(Command::History) => {
-            let url = cli
+        Some(Command::History(args)) => {
+            let url = args
                 .store_url
                 .as_ref()
                 .ok_or_else(|| anyhow::anyhow!("history requires --store-url (or RS_STORE_URL)"))?;
-            let domains = require_domains(&cli.domains)?;
-            let mut store = resolution_scope_store::Store::connect(url).await?;
-            store.migrate().await?;
+            let domains = domains_from(&args.domains, &args.domains_flag)?;
+            // A read verb does not migrate: it must work under a read-only
+            // database role, and "does NOT scan" should also mean "does not
+            // write". An uninitialised store reads back as an error that
+            // names the fix.
+            let store = resolution_scope_store::Store::connect(url).await?;
             for domain in &domains {
-                let history = store.scan_history(domain).await?;
+                let history = store.scan_history(domain).await.with_context(|| {
+                    format!(
+                        "reading history for {domain} — if the store is new, run one scan \
+                         with --store-url first to initialise it"
+                    )
+                })?;
                 print!("{}", render::render_history(domain, &history));
             }
             Ok(())
         }
-        // Default verb: scan + render.
-        None => {
-            let domains = require_domains(&cli.domains)?;
-            let mut analyses = Vec::with_capacity(domains.len());
-            for domain in &domains {
-                eprintln!("scanning {domain} …");
-                analyses.push(
-                    analyse_domain_with_selectors(
-                        &resolver,
-                        domain,
-                        &cli.dkim_selector,
-                        "cloudflare",
-                    )
-                    .await?,
-                );
-            }
-
-            match cli.format.as_str() {
-                "text" => {
-                    let text = render::render_text_report(&analyses);
-                    match &cli.out {
-                        Some(path) => {
-                            std::fs::write(path, &text)?;
-                            eprintln!("wrote {path}");
-                        }
-                        None => println!("{text}"),
-                    }
-                }
-                "summary" => {
-                    let summary = render::render_summary(&analyses, audience);
-                    match &cli.out {
-                        Some(path) => {
-                            std::fs::write(path, &summary)?;
-                            eprintln!("wrote {path}");
-                        }
-                        None => println!("{summary}"),
-                    }
-                }
-                "html" => {
-                    let html = render::render_html_page(&analyses, audience);
-                    let path = cli.out.unwrap_or_else(|| "report.html".to_string());
-                    std::fs::write(&path, html)?;
-                    eprintln!("wrote {path}");
-                }
-                "json" => {
-                    let json = render::render_json(&analyses);
-                    match &cli.out {
-                        Some(path) => {
-                            std::fs::write(path, &json)?;
-                            eprintln!("wrote {path}");
-                        }
-                        None => print!("{json}"),
-                    }
-                }
-                other => {
-                    anyhow::bail!(
-                        "--format must be 'text', 'summary', 'html', or 'json', got {other:?}"
-                    )
-                }
-            }
-
-            // Sealed history: when a store is configured, persist every verdict
-            // with a store-computed seal and echo the citable row id + prefix.
-            if let Some(url) = &cli.store_url {
-                let mut store = resolution_scope_store::Store::connect(url).await?;
-                store.migrate().await?;
-                for a in &analyses {
-                    let id = store.record_scan(a).await?;
-                    let seal = resolution_scope_engine::seal::seal(a);
-                    eprintln!("stored {} as scan #{id} (seal {}…)", a.domain, &seal[..16]);
-                }
-            }
-
-            Ok(())
-        }
+        // Default verb: measure + render.
+        None => scan(cli.scan).await,
     }
 }
 
-fn require_domains(domains: &[String]) -> Result<Vec<String>> {
-    if domains.is_empty() {
-        anyhow::bail!("at least one domain is required (e.g. `resolution-scope example.com`)");
+async fn scan(args: ScanArgs) -> Result<()> {
+    let domains = domains_from(&args.domains, &args.domains_flag)?;
+    let audience: Audience = args.audience.into();
+    let resolver = build_resolver()?;
+
+    let mut analyses = Vec::with_capacity(domains.len());
+    for domain in &domains {
+        // Real progress only: what is being measured, from where, and how
+        // long it took. Per-control progress needs an engine hook (the
+        // scorers run inside one call); until then the instrument says what
+        // it is doing and reports the measured elapsed time — never a fake
+        // percentage.
+        eprintln!(
+            "measuring {domain} — {} controls via {RESOLVER_IDENTITY} (validating) …",
+            resolution_scope_engine::truth_chain::ControlId::ALL.len()
+        );
+        let started = Instant::now();
+        let a = analyse_domain_with_selectors(
+            &resolver,
+            domain,
+            &args.dkim_selector,
+            RESOLVER_IDENTITY,
+        )
+        .await?;
+        eprintln!(
+            "measured {domain} in {:.1}s — seal {}…",
+            started.elapsed().as_secs_f64(),
+            &resolution_scope_engine::seal::seal(&a)[..16]
+        );
+        analyses.push(a);
     }
-    Ok(domains.to_vec())
+
+    let (body, default_path): (String, Option<&str>) = match args.format {
+        Format::Report => (render::render_report(&analyses, audience), None),
+        Format::Summary => (render::render_summary(&analyses, audience), None),
+        Format::Text => (render::render_text_report(&analyses), None),
+        Format::Json => (render::render_json(&analyses), None),
+        Format::Html => (
+            render::render_html_page(&analyses, audience),
+            Some("report.html"),
+        ),
+    };
+
+    match args.out.as_deref().or(default_path) {
+        Some(path) => {
+            std::fs::write(path, &body).with_context(|| format!("writing {path}"))?;
+            eprintln!("wrote {path}");
+        }
+        None => print!("{body}"),
+    }
+
+    // Sealed history: when a store is configured, persist every verdict
+    // with a store-computed seal and echo the citable row id + prefix.
+    if let Some(url) = &args.store_url {
+        let mut store = resolution_scope_store::Store::connect(url).await?;
+        store.migrate().await?;
+        for a in &analyses {
+            let id = store.record_scan(a).await?;
+            let seal = resolution_scope_engine::seal::seal(a);
+            eprintln!("stored {} as scan #{id} (seal {}…)", a.domain, &seal[..16]);
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    /// clap's own consistency check: conflicting or mis-declared arguments
+    /// panic here instead of at the first user's keyboard.
+    #[test]
+    fn cli_definition_is_consistent() {
+        Cli::command().debug_assert();
+    }
+
+    /// The documented invocation must parse — `resolution-scope example.com`
+    /// was rejected as an "unrecognized subcommand" on 2026-08-23 while every
+    /// doc (and the tool's own error message) recommended exactly that form.
+    #[test]
+    fn positional_domain_is_the_default_verb() {
+        let cli = Cli::try_parse_from(["resolution-scope", "example.com"]).unwrap();
+        assert!(cli.command.is_none());
+        assert_eq!(cli.scan.domains, vec!["example.com"]);
+        assert_eq!(cli.scan.format, Format::Report);
+    }
+
+    #[test]
+    fn hidden_dash_d_alias_still_works() {
+        let cli = Cli::try_parse_from(["resolution-scope", "-d", "a.com", "-d", "b.com"]).unwrap();
+        assert_eq!(
+            domains_from(&cli.scan.domains, &cli.scan.domains_flag).unwrap(),
+            ["a.com", "b.com"]
+        );
+    }
+
+    #[test]
+    fn format_and_audience_are_validated_at_parse_time() {
+        // Before: `-f yaml` scanned the domain and THEN errored.
+        assert!(Cli::try_parse_from(["resolution-scope", "x.com", "-f", "yaml"]).is_err());
+        assert!(
+            Cli::try_parse_from(["resolution-scope", "x.com", "--audience", "purple"]).is_err()
+        );
+        let ok = Cli::try_parse_from([
+            "resolution-scope",
+            "x.com",
+            "-f",
+            "json",
+            "--audience",
+            "red",
+        ])
+        .unwrap();
+        assert_eq!(ok.scan.format, Format::Json);
+        assert_eq!(ok.scan.audience, AudienceArg::Red);
+    }
+
+    #[test]
+    fn verbs_own_their_flags() {
+        // tui has no --format; the scan verb has no --covert.
+        assert!(
+            Cli::try_parse_from(["resolution-scope", "tui", "x.com", "--format", "html"]).is_err()
+        );
+        assert!(Cli::try_parse_from(["resolution-scope", "x.com", "--covert"]).is_err());
+        let tui = Cli::try_parse_from(["resolution-scope", "tui", "x.com", "--covert"]).unwrap();
+        assert!(matches!(
+            tui.command,
+            Some(Command::Tui(TuiArgs { covert: true, .. }))
+        ));
+    }
+
+    #[test]
+    fn domains_pass_the_input_boundary() {
+        let got = domains_from(&["EXAMPLE.COM.".to_string()], &[]).unwrap();
+        assert_eq!(got, ["example.com"]);
+        let err = domains_from(&["https://example.com/".to_string()], &[]).unwrap_err();
+        assert!(err.to_string().contains("bare domain name"));
+        let err = domains_from(&[], &[]).unwrap_err();
+        assert!(err.to_string().contains("resolution-scope example.com"));
+    }
 }

@@ -13,6 +13,20 @@ verified seL4 microkernel via the [LionsOS](https://lionsos.org) ecosystem, so
 that the family's central promise — *local scans never leave the box* — becomes
 a capability-enforced property of the kernel's proof instead of a policy.
 
+## Run it
+
+```
+cd cli && cargo build --release
+./target/release/resolution-scope example.com               # measure + report
+./target/release/resolution-scope example.com --format html  # static page, seal included
+./target/release/resolution-scope tui example.com            # interactive dashboard
+./target/release/resolution-scope --help                     # every verb and flag
+```
+
+Every report carries the verdict's seal and the exact bytes that re-derive it;
+`--format text` prints the engine's own minimal render (the compartment's proof
+surface), `--format json` the verdict object plus seal and scores.
+
 ## License
 
 - **AGPL-3.0** for the analyzer core: anyone may download, run, study, and

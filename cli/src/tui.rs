@@ -1,15 +1,28 @@
-//! Resolution Scope TUI — two-mode terminal DNS analysis dashboard.
+//! Resolution Scope TUI — the interactive dashboard.
 //!
-//! Two modes, toggled with `m`:
-//! - **Covert** (RED-TEAM): scotopic red-on-charcoal, hacker recon look
-//! - **Blue** (BLUE-TEAM): regular science/engineering report
+//! Two framings, toggled with `m` — palette AND consequence framing together,
+//! and the header says which is live:
+//! - **blue** (defend): regular science/engineering report, blue-on-charcoal
+//! - **red** (assess): scotopic red-on-charcoal, consequences framed for an
+//!   authorised assessor
 //!
-//! Keyboard: `1`-`6` jump between report groups. `q` quits. `m` toggles mode.
-//! Navigation: `j`/`k` or `↑`/`↓` scroll. `r` re-scans the current domain.
-//! `tab`/`shift-tab` cycle domains.
+//! The dashboard paints BEFORE the first measurement returns and shows a real
+//! measuring state — what is being measured, from where, elapsed time — then
+//! the truth-chain the moment the engine delivers it. No fake progress: the
+//! engine measures the eight controls inside one call, so until it exposes
+//! per-control events the honest state is "measuring … {elapsed}s".
+//!
+//! Keyboard: `1`-`7` jump between tabs (7 = the seal). `q` / Ctrl-C quit.
+//! `m` flips framing. `j`/`k` or `↑`/`↓` select (summary) or scroll (detail).
+//! `Enter` opens the selected control; `Esc`/`Backspace` return to the summary.
+//! `r` re-measures. `Tab`/`Shift-Tab` cycle domains. `d` adds a domain.
+//!
+//! The TUI owns STYLING ONLY. Verdict meaning — labels, severities,
+//! consequences, tally, seal — comes from the engine (ARCHITECTURE.md §8).
+//! A match on a disposition enum in this file is a contract violation.
 
 use std::io;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
@@ -21,11 +34,16 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Tabs, Wrap};
+use ratatui::widgets::{Block, Borders, Paragraph, Tabs};
 use ratatui::{Frame, Terminal};
+use tokio::task::JoinHandle;
 
-use crate::render::weighted_label;
+use crate::input::canonical_domain;
+use crate::render::{
+    tiers, weighted_label, Observation, COVERAGE_NOTE, EXCLUDED_NOTE, RISK_WEIGHTED_NOTE, SEAL_NOTE,
+};
 use resolution_scope_engine::analysis::analyse_domain_with_selectors;
+use resolution_scope_engine::seal::canonical_input;
 use resolution_scope_engine::truth_chain::{
     by_severity, truth_chain, Audience, ControlId, ControlReport, Severity, Tally,
 };
@@ -34,17 +52,10 @@ use resolution_scope_engine::TriState;
 
 use hickory_resolver::TokioResolver;
 
-// ── CLI ────────────────────────────────────────────────────────────
-// (The CLI surface lives in main.rs; this module is the interactive
-// dashboard body, invoked by the `tui` subcommand.)
+/// The resolver vantage, sealed into every verdict (same constant as main.rs).
+const RESOLVER_IDENTITY: &str = "cloudflare";
 
 // ── palette ────────────────────────────────────────────────────────
-
-#[derive(Clone, Copy, PartialEq)]
-enum Mode {
-    Blue,
-    Covert,
-}
 
 #[derive(Clone, Copy)]
 struct Palette {
@@ -62,7 +73,7 @@ struct Palette {
 
 impl Palette {
     // Both palettes use Color::Indexed (256-color ANSI indices) rather than
-    // Color::Rgb (24-bit truecolor). Rationale: the covert/red-team mode is
+    // Color::Rgb (24-bit truecolor). Rationale: the red/assess mode is
     // DESIGNED to run on stripped headless terminals (fbterm, raw tty), and
     // fbterm is 256-color only — truecolor RGB sequences get misparsed into
     // magenta/cyan garbage there. Indexed colors render identically on every
@@ -81,7 +92,7 @@ impl Palette {
         highlight: Color::Indexed(235), // #262626
         header_bg: Color::Indexed(234), // #1c1c1c
     };
-    const COVERT: Self = Self {
+    const RED: Self = Self {
         bg: Color::Indexed(232),        // #080808 essentially black
         fg: Color::Indexed(180),        // #d7af87 warm tan (scotopic-friendly)
         accent: Color::Indexed(160),    // #d70000 deep red (title/chrome)
@@ -93,6 +104,13 @@ impl Palette {
         highlight: Color::Indexed(235), // #262626
         header_bg: Color::Indexed(233), // #121212
     };
+
+    fn for_audience(a: Audience) -> Palette {
+        match a {
+            Audience::BlueTeam => Palette::BLUE,
+            Audience::RedTeam => Palette::RED,
+        }
+    }
 }
 
 // ── navigation tabs ────────────────────────────────────────────────
@@ -101,47 +119,13 @@ const TAB_LABELS: &[&str] = &[
     "1:Summary",
     "2:DNSSEC",
     "3:DANE",
-    "4:SPF/DMARC",
+    "4:SPF·DKIM·DMARC",
     "5:MTA-STS",
     "6:CAA/CDS",
+    "7:Seal",
 ];
-
-fn section_for_tab(
-    tab: usize,
-    result: &ScoredAnalysis,
-    pal: Palette,
-    audience: Audience,
-    selected: usize,
-) -> Vec<Line<'static>> {
-    let model = truth_chain(result);
-    match tab {
-        0 => render_summary(&model, pal, audience, selected),
-        1 => render_controls("══ DNSSEC ══", &model, &[ControlId::Dnssec], pal, audience),
-        2 => render_controls(
-            "══ DANE (SMTP TLSA) ══",
-            &model,
-            &[ControlId::Dane],
-            pal,
-            audience,
-        ),
-        3 => render_controls(
-            "══ Email Authentication ══",
-            &model,
-            &[ControlId::Spf, ControlId::Dkim, ControlId::Dmarc],
-            pal,
-            audience,
-        ),
-        4 => render_controls("══ MTA-STS ══", &model, &[ControlId::MtaSts], pal, audience),
-        5 => render_controls(
-            "══ CAA / CDS ══",
-            &model,
-            &[ControlId::Caa, ControlId::Cds],
-            pal,
-            audience,
-        ),
-        _ => vec![Line::from("—")],
-    }
-}
+const TAB_SUMMARY: usize = 0;
+const TAB_SEAL: usize = 6;
 
 /// Which detail tab shows a given control (Enter on the summary jumps there).
 fn tab_for_control(c: ControlId) -> usize {
@@ -154,18 +138,98 @@ fn tab_for_control(c: ControlId) -> usize {
     }
 }
 
-// ── section renderers ──────────────────────────────────────────────
-//
-// The TUI owns STYLING ONLY. Verdict meaning — labels, severities,
-// consequences, tally — comes from engine::truth_chain (ARCHITECTURE.md §8).
-// A match on a disposition enum in this file is a contract violation.
+fn controls_for_tab(tab: usize) -> (&'static str, &'static [ControlId]) {
+    match tab {
+        1 => (
+            "\u{2550}\u{2550} DNSSEC \u{2550}\u{2550}",
+            &[ControlId::Dnssec],
+        ),
+        2 => (
+            "\u{2550}\u{2550} DANE (SMTP TLSA) \u{2550}\u{2550}",
+            &[ControlId::Dane],
+        ),
+        3 => (
+            "\u{2550}\u{2550} SPF \u{00b7} DKIM \u{00b7} DMARC \u{2550}\u{2550}",
+            &[ControlId::Spf, ControlId::Dkim, ControlId::Dmarc],
+        ),
+        4 => (
+            "\u{2550}\u{2550} MTA-STS \u{2550}\u{2550}",
+            &[ControlId::MtaSts],
+        ),
+        5 => (
+            "\u{2550}\u{2550} CAA / CDS \u{2550}\u{2550}",
+            &[ControlId::Caa, ControlId::Cds],
+        ),
+        _ => ("\u{2014}", &[]),
+    }
+}
+
+// ── text layout helpers ────────────────────────────────────────────
+
+/// Word-wrap `text` to `width` columns with a hanging indent: the first line
+/// starts with `prefix`, continuation lines are indented to the prefix's
+/// width. Pure layout — the fix for consequence sentences wrapping back to
+/// column 0 under an indented list.
+fn wrap_indent(
+    prefix: &str,
+    text: &str,
+    width: usize,
+    prefix_style: Style,
+    text_style: Style,
+) -> Vec<Line<'static>> {
+    let indent = prefix.chars().count();
+    let avail = width.saturating_sub(indent).max(8);
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    let mut current = String::new();
+    let mut first = true;
+    let flush = |current: &mut String, first: &mut bool, lines: &mut Vec<Line<'static>>| {
+        let lead = if *first {
+            Span::styled(prefix.to_string(), prefix_style)
+        } else {
+            Span::styled(" ".repeat(indent), prefix_style)
+        };
+        lines.push(Line::from(vec![
+            lead,
+            Span::styled(std::mem::take(current), text_style),
+        ]));
+        *first = false;
+    };
+    for word in text.split_whitespace() {
+        // A token wider than the available width (a 128-hex seal) is split
+        // into width-sized pieces rather than clipped by the terminal.
+        let pieces: Vec<String> = if word.chars().count() > avail {
+            word.chars()
+                .collect::<Vec<_>>()
+                .chunks(avail)
+                .map(|c| c.iter().collect())
+                .collect()
+        } else {
+            vec![word.to_string()]
+        };
+        for piece in pieces {
+            let wlen = piece.chars().count();
+            let clen = current.chars().count();
+            if clen > 0 && clen + 1 + wlen > avail {
+                flush(&mut current, &mut first, &mut lines);
+            }
+            if !current.is_empty() {
+                current.push(' ');
+            }
+            current.push_str(&piece);
+        }
+    }
+    if !current.is_empty() || lines.is_empty() {
+        flush(&mut current, &mut first, &mut lines);
+    }
+    lines
+}
 
 fn state_icon(s: TriState, pal: Palette) -> (&'static str, Color) {
     match s {
         TriState::Present => ("PASS", pal.pass),
         TriState::Absent => ("FAIL", pal.fail),
-        TriState::Indet => (" ? ", pal.warn),
-        TriState::NotApplicable => ("N/A", pal.muted),
+        TriState::Indet => (" ?  ", pal.warn),
+        TriState::NotApplicable => ("N/A ", pal.muted),
     }
 }
 
@@ -187,88 +251,135 @@ fn report_for(model: &[ControlReport; 8], c: ControlId) -> &ControlReport {
         .expect("truth_chain always carries all eight controls")
 }
 
-/// Summary: every control, worst first, with the selection cursor. Severity
-/// order comes from the model; the score comes from the shared Tally.
+// ── section renderers ──────────────────────────────────────────────
+
+/// Summary: every control in its tier, worst first, with the selection
+/// cursor. Tier and order come from the model; the scores from the shared
+/// Tally; the selected row expands to attribution + consequence.
 fn render_summary(
     model: &[ControlReport; 8],
     pal: Palette,
     audience: Audience,
     selected: usize,
+    width: usize,
 ) -> Vec<Line<'static>> {
-    let mut lines = vec![
-        Line::from(Span::styled(
-            "══ Findings (worst first) ══",
-            Style::default().fg(pal.accent).add_modifier(Modifier::BOLD),
-        )),
-        Line::from(""),
-    ];
+    let mut lines: Vec<Line<'static>> = Vec::new();
     let ordered = by_severity(model);
-    for (i, rep) in ordered.iter().enumerate() {
-        let is_sel = i == selected;
-        let cursor = if is_sel { "▸ " } else { "  " };
-        let row_bg = if is_sel {
-            Style::default().bg(pal.highlight)
-        } else {
-            Style::default()
-        };
-        let (icon, icon_color) = state_icon(rep.tri, pal);
-        lines.push(Line::from(vec![
-            Span::styled(cursor.to_string(), row_bg.fg(pal.accent)),
-            Span::styled(
-                format!("{:<10}", rep.severity.label()),
-                severity_style(rep.severity, pal).patch(row_bg),
-            ),
-            Span::styled(
-                format!(" {:<12}", rep.control.name()),
-                row_bg.fg(pal.fg).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!(" {} ", icon),
-                row_bg.fg(icon_color).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(format!(" {}", rep.measured), row_bg.fg(pal.muted)),
-        ]));
-        if is_sel {
+    let mut idx = 0usize;
+    for (tier, rows) in tiers(model) {
+        lines.push(Line::from(Span::styled(
+            format!("\u{2550}\u{2550} {tier} \u{2550}\u{2550}"),
+            Style::default().fg(pal.accent).add_modifier(Modifier::BOLD),
+        )));
+        if rows.is_empty() {
             lines.push(Line::from(Span::styled(
-                format!("      → {}", rep.consequence(audience)),
-                Style::default().fg(pal.fg),
+                "  (none)".to_string(),
+                Style::default().fg(pal.muted),
             )));
         }
+        for rep in &rows {
+            // `idx` walks the by_severity order, which is exactly the tier
+            // concatenation — so the cursor index matches `ordered`.
+            debug_assert_eq!(ordered[idx].control, rep.control);
+            let is_sel = idx == selected;
+            let cursor = if is_sel { "\u{25b8} " } else { "  " };
+            let row_bg = if is_sel {
+                Style::default().bg(pal.highlight)
+            } else {
+                Style::default()
+            };
+            let (icon, icon_color) = state_icon(rep.tri, pal);
+            lines.push(Line::from(vec![
+                Span::styled(cursor.to_string(), row_bg.fg(pal.accent)),
+                Span::styled(
+                    format!("{:<10}", rep.severity.label()),
+                    severity_style(rep.severity, pal).patch(row_bg),
+                ),
+                Span::styled(
+                    format!(" {:<12}", rep.control.name()),
+                    row_bg.fg(pal.fg).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!(" {icon} "),
+                    row_bg.fg(icon_color).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(format!(" {}", rep.measured), row_bg.fg(pal.muted)),
+            ]));
+            if is_sel {
+                // Attribution BEFORE the consequence: whose zone, then what
+                // to do. Both are engine strings; this is only their order.
+                if let Some(attr) = rep.dane_attribution() {
+                    lines.extend(wrap_indent(
+                        "      \u{21b3} ",
+                        attr,
+                        width,
+                        Style::default().fg(pal.muted),
+                        Style::default().fg(pal.muted),
+                    ));
+                }
+                lines.extend(wrap_indent(
+                    "      \u{2192} ",
+                    rep.consequence(audience),
+                    width,
+                    Style::default().fg(pal.fg),
+                    Style::default().fg(pal.fg),
+                ));
+            }
+            idx += 1;
+        }
+        lines.push(Line::from(""));
     }
-    lines.push(Line::from(""));
     let t = Tally::of(model);
-    lines.push(Line::from(Span::styled(
-        format!(
-            "  Coverage Score : {}/{} ({}%)  │  unmeasured: {}  │  n/a: {}",
+    let score_style = Style::default().fg(pal.accent).add_modifier(Modifier::BOLD);
+    let note_style = Style::default().fg(pal.muted);
+    lines.extend(wrap_indent(
+        &format!(
+            "  Coverage Score : {}/{} ({}%)  ",
             t.present,
             t.denominator(),
-            t.percent(),
-            t.unmeasured,
-            t.not_applicable
+            t.percent()
         ),
-        Style::default().fg(pal.accent).add_modifier(Modifier::BOLD),
-    )));
+        &format!("\u{2014} {COVERAGE_NOTE}"),
+        width,
+        score_style,
+        note_style,
+    ));
     // Risk-Weighted beside Coverage — never instead of it (a lone weighted
     // number is what hides which control is weak).
-    lines.push(Line::from(Span::styled(
-        format!("  Risk-Weighted  : {}", weighted_label(model)),
+    lines.extend(wrap_indent(
+        &format!("  Risk-Weighted  : {}  ", weighted_label(model)),
+        &format!("\u{2014} {RISK_WEIGHTED_NOTE}"),
+        width,
         Style::default().fg(pal.accent),
-    )));
+        note_style,
+    ));
+    lines.extend(wrap_indent(
+        &format!(
+            "  unmeasured: {} \u{00b7} not applicable: {}  ",
+            t.unmeasured, t.not_applicable
+        ),
+        &format!("\u{2014} {EXCLUDED_NOTE}"),
+        width,
+        note_style,
+        note_style,
+    ));
+    lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "  (unmeasured never enters the score — a ? is not a verdict)",
-        Style::default().fg(pal.muted),
+        "  enter: open the selected control   7: the seal and how to re-derive it".to_string(),
+        note_style,
     )));
     lines
 }
 
-/// Detail view: the full truth chain for one or more controls — RFC
-/// requirement, measured state, consequence — straight from the model.
+/// Detail view: the full truth chain for one or more controls — measured
+/// state, attribution, RFC requirement, consequence — straight from the model.
 fn render_controls(
     title: &'static str,
     model: &[ControlReport; 8],
     controls: &[ControlId],
     pal: Palette,
     audience: Audience,
+    width: usize,
 ) -> Vec<Line<'static>> {
     let mut lines = vec![
         Line::from(Span::styled(
@@ -277,6 +388,7 @@ fn render_controls(
         )),
         Line::from(""),
     ];
+    let label = Style::default().fg(pal.accent);
     for c in controls {
         let rep = report_for(model, *c);
         let (icon, icon_color) = state_icon(rep.tri, pal);
@@ -295,53 +407,172 @@ fn render_controls(
             ),
         ]));
         lines.push(Line::from(""));
-        lines.push(Line::from(vec![
-            Span::styled("  measured   ", Style::default().fg(pal.accent)),
-            Span::styled(rep.measured, Style::default().fg(pal.fg)),
-        ]));
-        // DANE attribution in the DETAIL pane only — the findings list row is
-        // an unwrapped Span and would clip a sentence at terminal width.
+        lines.extend(wrap_indent(
+            "  measured     ",
+            rep.measured,
+            width,
+            label,
+            Style::default().fg(pal.fg),
+        ));
         if let Some(attr) = rep.dane_attribution() {
-            lines.push(Line::from(vec![
-                Span::styled("  attribution ", Style::default().fg(pal.accent)),
-                Span::styled(attr, Style::default().fg(pal.muted)),
-            ]));
+            lines.extend(wrap_indent(
+                "  attribution  ",
+                attr,
+                width,
+                label,
+                Style::default().fg(pal.muted),
+            ));
         }
-        lines.push(Line::from(vec![
-            Span::styled("  rfc        ", Style::default().fg(pal.accent)),
-            Span::styled(rep.rfc_requirement, Style::default().fg(pal.muted)),
-        ]));
-        lines.push(Line::from(vec![
-            Span::styled("  consequence ", Style::default().fg(pal.accent)),
-            Span::styled(rep.consequence(audience), Style::default().fg(pal.fg)),
-        ]));
+        lines.extend(wrap_indent(
+            "  rfc          ",
+            rep.rfc_requirement,
+            width,
+            label,
+            Style::default().fg(pal.muted),
+        ));
+        lines.extend(wrap_indent(
+            "  consequence  ",
+            rep.consequence(audience),
+            width,
+            label,
+            Style::default().fg(pal.fg),
+        ));
         lines.push(Line::from(""));
     }
+    lines.push(Line::from(Span::styled(
+        "  esc: back to summary".to_string(),
+        Style::default().fg(pal.muted),
+    )));
     lines
+}
+
+/// The seal tab: the measurement conditions the seal binds, the seal itself,
+/// the exact preimage, and the one honest claim about what it proves.
+fn render_seal(a: &ScoredAnalysis, pal: Palette, width: usize) -> Vec<Line<'static>> {
+    let obs = Observation::of(a);
+    let label = Style::default().fg(pal.accent);
+    let value = Style::default().fg(pal.fg);
+    let muted = Style::default().fg(pal.muted);
+    let mut lines = vec![
+        Line::from(Span::styled(
+            "\u{2550}\u{2550} Seal \u{2550}\u{2550}",
+            Style::default().fg(pal.accent).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+    ];
+    for (k, v) in [
+        ("  domain    ", a.domain.clone()),
+        ("  engine    ", obs.engine.clone()),
+        ("  resolver  ", obs.resolver.clone()),
+        (
+            "  measured  ",
+            format!("{} (epoch {})", obs.when_utc, obs.epoch),
+        ),
+        ("  session   ", obs.session_hex.clone()),
+        ("  scheme    ", obs.scheme.to_string()),
+    ] {
+        lines.push(Line::from(vec![
+            Span::styled(k, label),
+            Span::styled(v, value),
+        ]));
+    }
+    lines.extend(wrap_indent("  seal      ", &obs.seal, width, label, value));
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        format!(
+            "\u{2500}\u{2500} Re-derive the seal \u{2014} scheme {} \u{2500}\u{2500}",
+            obs.scheme
+        ),
+        label,
+    )));
+    for l in canonical_input(a, &obs.engine).lines() {
+        lines.push(Line::from(Span::styled(format!("  {l}"), value)));
+    }
+    lines.push(Line::from(Span::styled(
+        "\u{2500}".repeat(width.min(58)),
+        label,
+    )));
+    lines.extend(wrap_indent("  ", SEAL_NOTE, width, muted, muted));
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  --format report prints this block for copy/paste   esc: back to summary".to_string(),
+        muted,
+    )));
+    lines
+}
+
+fn section_for_tab(
+    tab: usize,
+    result: &ScoredAnalysis,
+    pal: Palette,
+    audience: Audience,
+    selected: usize,
+    width: usize,
+) -> Vec<Line<'static>> {
+    let model = truth_chain(result);
+    match tab {
+        TAB_SUMMARY => render_summary(&model, pal, audience, selected, width),
+        TAB_SEAL => render_seal(result, pal, width),
+        n => {
+            let (title, controls) = controls_for_tab(n);
+            render_controls(title, &model, controls, pal, audience, width)
+        }
+    }
 }
 
 // ── app state ──────────────────────────────────────────────────────
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum InputMode {
     Normal,
     Domain,
 }
 
+/// The measurement state for the current domain. `Measuring` is a REAL
+/// state: the engine call is in flight on the runtime and the elapsed time
+/// is measured, not animated.
+enum ScanState {
+    Idle,
+    Measuring {
+        domain: String,
+        started: Instant,
+        handle: JoinHandle<Result<ScoredAnalysis>>,
+    },
+    Done {
+        result: ScoredAnalysis,
+        took: Duration,
+        at: Instant,
+    },
+    Failed {
+        domain: String,
+        error: String,
+    },
+}
+
 struct App {
-    mode: Mode,
+    audience: Audience,
     pal: Palette,
     resolver: TokioResolver,
     domains: Vec<String>,
     dkim_selector: Vec<String>,
     current_domain: usize,
-    results: Vec<ScoredAnalysis>,
+    scan: ScanState,
     scroll: u16,
     selected_tab: usize,
     selected_control: usize,
-    last_scan: Option<Instant>,
     input_mode: InputMode,
     input_buf: String,
+    input_error: Option<String>,
+}
+
+/// What a key press asks the loop to do, separated from the App mutation so
+/// the key table is unit-testable without a terminal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Action {
+    Quit,
+    Rescan,
+    SwitchDomain,
+    Nothing,
 }
 
 impl App {
@@ -349,75 +580,116 @@ impl App {
         resolver: TokioResolver,
         domains: Vec<String>,
         dkim_selector: Vec<String>,
-        covert: bool,
+        audience: Audience,
     ) -> Self {
-        let mode = if covert { Mode::Covert } else { Mode::Blue };
-        let pal = if covert {
-            Palette::COVERT
-        } else {
-            Palette::BLUE
-        };
         Self {
-            mode,
-            pal,
+            audience,
+            pal: Palette::for_audience(audience),
             resolver,
             domains,
             dkim_selector,
             current_domain: 0,
-            results: Vec::new(),
+            scan: ScanState::Idle,
             scroll: 0,
-            selected_tab: 0,
+            selected_tab: TAB_SUMMARY,
             selected_control: 0,
-            last_scan: None,
             input_mode: InputMode::Normal,
             input_buf: String::new(),
+            input_error: None,
         }
     }
-    fn toggle_mode(&mut self) {
-        self.mode = match self.mode {
-            Mode::Blue => Mode::Covert,
-            Mode::Covert => Mode::Blue,
+
+    /// The mode flip changes framing (which consequence string renders) and
+    /// palette, never facts — both strings come from the shared model.
+    fn toggle_audience(&mut self) {
+        self.audience = match self.audience {
+            Audience::BlueTeam => Audience::RedTeam,
+            Audience::RedTeam => Audience::BlueTeam,
         };
-        self.pal = match self.mode {
-            Mode::Blue => Palette::BLUE,
-            Mode::Covert => Palette::COVERT,
-        };
+        self.pal = Palette::for_audience(self.audience);
     }
-    /// The mode flip changes framing (which consequence string renders), never
-    /// facts — both strings come from the shared model.
-    fn audience(&self) -> Audience {
-        match self.mode {
-            Mode::Blue => Audience::BlueTeam,
-            Mode::Covert => Audience::RedTeam,
+
+    fn current_domain_name(&self) -> &str {
+        self.domains
+            .get(self.current_domain)
+            .map(String::as_str)
+            .unwrap_or("\u{2014}")
+    }
+
+    /// Launch the measurement on the runtime and return immediately: the
+    /// dashboard keeps painting while the engine works. A previous in-flight
+    /// measurement is aborted so its verdict can never land under a different
+    /// domain's name.
+    fn start_scan(&mut self) {
+        if let ScanState::Measuring { handle, .. } = &self.scan {
+            handle.abort();
+        }
+        let domain = self.current_domain_name().to_string();
+        let resolver = self.resolver.clone();
+        let selectors = self.dkim_selector.clone();
+        let d = domain.clone();
+        let handle = tokio::spawn(async move {
+            analyse_domain_with_selectors(&resolver, &d, &selectors, RESOLVER_IDENTITY).await
+        });
+        self.scan = ScanState::Measuring {
+            domain,
+            started: Instant::now(),
+            handle,
+        };
+        self.scroll = 0;
+        self.selected_control = 0;
+    }
+
+    /// Collect a finished measurement, if any. Called every loop tick.
+    async fn poll_scan(&mut self) {
+        let finished =
+            matches!(&self.scan, ScanState::Measuring { handle, .. } if handle.is_finished());
+        if !finished {
+            return;
+        }
+        let state = std::mem::replace(&mut self.scan, ScanState::Idle);
+        if let ScanState::Measuring {
+            domain,
+            started,
+            handle,
+        } = state
+        {
+            let took = started.elapsed();
+            self.scan = match handle.await {
+                Ok(Ok(result)) => ScanState::Done {
+                    result,
+                    took,
+                    at: Instant::now(),
+                },
+                Ok(Err(e)) => ScanState::Failed {
+                    domain,
+                    error: e.to_string(),
+                },
+                Err(e) => ScanState::Failed {
+                    domain,
+                    error: format!("measurement task failed: {e}"),
+                },
+            };
         }
     }
+
+    fn current_result(&self) -> Option<&ScoredAnalysis> {
+        match &self.scan {
+            ScanState::Done { result, .. } => Some(result),
+            _ => None,
+        }
+    }
+
     /// The control the summary cursor points at, in severity order.
     fn selected_report(&self) -> Option<ControlReport> {
         self.current_result()
             .map(|r| by_severity(&truth_chain(r))[self.selected_control.min(7)])
     }
-    async fn scan(&mut self) -> Result<()> {
-        let domain = &self.domains[self.current_domain];
-        self.results = vec![
-            analyse_domain_with_selectors(
-                &self.resolver,
-                domain,
-                &self.dkim_selector,
-                "cloudflare",
-            )
-            .await?,
-        ];
-        self.last_scan = Some(Instant::now());
-        self.scroll = 0;
-        self.selected_control = 0;
-        Ok(())
-    }
-    fn current_result(&self) -> Option<&ScoredAnalysis> {
-        self.results.first()
-    }
+
     fn next_domain(&mut self) {
         self.current_domain = (self.current_domain + 1) % self.domains.len().max(1);
     }
+
     fn prev_domain(&mut self) {
         self.current_domain =
             (self.current_domain + self.domains.len() - 1) % self.domains.len().max(1);
@@ -433,7 +705,7 @@ fn render_ui(f: &mut Frame, app: &App) {
     let main = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),
+            Constraint::Length(4),
             Constraint::Length(2),
             Constraint::Min(0),
             Constraint::Length(1),
@@ -446,40 +718,78 @@ fn render_ui(f: &mut Frame, app: &App) {
     render_footer(f, main[3], app);
 }
 
+fn framing_word(a: Audience) -> &'static str {
+    match a {
+        Audience::BlueTeam => "BLUE \u{00b7} defend",
+        Audience::RedTeam => "RED \u{00b7} assess",
+    }
+}
+
 fn render_header(f: &mut Frame, area: Rect, app: &App) {
     let p = app.pal;
-    let mode_label = match app.mode {
-        Mode::Blue => "BLUE",
-        Mode::Covert => "COVERT",
-    };
-    let domain = app
-        .domains
-        .get(app.current_domain)
-        .map(|d| d.as_str())
-        .unwrap_or("—");
-    let text = vec![
-        Line::from(vec![
-            Span::styled(
-                "⚡ RESOLUTION SCOPE ",
-                Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
+    let muted = Style::default().fg(p.muted);
+    let line1 = Line::from(vec![
+        Span::styled(
+            "\u{26a1} RESOLUTION SCOPE ",
+            Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled("\u{2502} framing: ", muted),
+        Span::styled(framing_word(app.audience), Style::default().fg(p.warn)),
+        Span::styled(
+            format!(
+                " \u{2502} [{}/{}] ",
+                app.current_domain + 1,
+                app.domains.len()
             ),
-            Span::styled(mode_label, Style::default().fg(p.warn)),
+            muted,
+        ),
+        Span::styled(
+            app.current_domain_name().to_string(),
+            Style::default().fg(p.fg).add_modifier(Modifier::BOLD),
+        ),
+    ]);
+    // Line 2: the measurement conditions — or the live measuring state.
+    let line2 = match &app.scan {
+        ScanState::Measuring {
+            domain, started, ..
+        } => Line::from(vec![
             Span::styled(
-                format!(" [{}/{}] ", app.current_domain + 1, app.domains.len()),
-                Style::default().fg(p.muted),
+                format!("measuring {domain} \u{2014} 8 controls via {RESOLVER_IDENTITY} (validating) \u{2026} "),
+                Style::default().fg(p.warn),
             ),
-            Span::styled("│  ", Style::default().fg(p.muted)),
             Span::styled(
-                domain,
-                Style::default().fg(p.fg).add_modifier(Modifier::BOLD),
+                format!("{:.1}s", started.elapsed().as_secs_f64()),
+                Style::default().fg(p.fg),
             ),
         ]),
-        Line::from(vec![Span::styled(
-            "1-6:nav  m:mode  j/k:select/scroll  enter:detail  r:rescan  tab:next  q:quit",
-            Style::default().fg(p.muted),
-        )]),
-    ];
-    let widget = Paragraph::new(text).block(
+        ScanState::Done { result, took, .. } => {
+            let obs = Observation::of(result);
+            Line::from(vec![
+                Span::styled(
+                    format!(
+                        "engine {} \u{00b7} resolver {} \u{00b7} {} \u{00b7} measured in {:.1}s \u{00b7} seal ",
+                        obs.engine,
+                        obs.resolver,
+                        obs.when_utc,
+                        took.as_secs_f64()
+                    ),
+                    muted,
+                ),
+                Span::styled(format!("{}\u{2026}", obs.seal_prefix()), Style::default().fg(p.fg)),
+                Span::styled(" (7)", muted),
+            ])
+        }
+        ScanState::Failed { domain, error } => Line::from(Span::styled(
+            format!("could not measure {domain}: {error}  \u{2014}  r: retry"),
+            Style::default().fg(p.fail),
+        )),
+        ScanState::Idle => Line::from(Span::styled("no measurement yet \u{2014} r: measure", muted)),
+    };
+    let line3 = Line::from(Span::styled(
+        "1-7:tabs  j/k:select  enter:open  esc:back  m:framing  r:re-measure  tab:domain  d:add  q:quit",
+        muted,
+    ));
+    let widget = Paragraph::new(vec![line1, line2, line3]).block(
         Block::default()
             .style(Style::default().bg(p.header_bg))
             .borders(Borders::BOTTOM)
@@ -506,41 +816,100 @@ fn render_tabs(f: &mut Frame, area: Rect, app: &App) {
         .select(app.selected_tab)
         .style(Style::default().fg(p.muted))
         .highlight_style(Style::default().fg(p.accent))
-        .divider(Span::styled("│", Style::default().fg(p.muted)));
+        .divider(Span::styled("\u{2502}", Style::default().fg(p.muted)));
     f.render_widget(tabs, area);
 }
 
 fn render_content(f: &mut Frame, area: Rect, app: &App) {
     let p = app.pal;
-    if let Some(result) = app.current_result() {
-        let section_lines = section_for_tab(
+    let width = area.width as usize;
+    let lines: Vec<Line<'static>> = match &app.scan {
+        ScanState::Done { result, .. } => section_for_tab(
             app.selected_tab,
             result,
             p,
-            app.audience(),
+            app.audience,
             app.selected_control,
-        );
-        let block = Block::default()
-            .style(Style::default().bg(p.bg))
-            .borders(Borders::NONE);
-        let widget = Paragraph::new(section_lines)
-            .block(block)
-            .wrap(Wrap { trim: false })
-            .scroll((app.scroll, 0));
-        f.render_widget(widget, area);
-    } else {
-        let hint = vec![Line::from(Span::styled(
-            "Press 'r' to scan, or enter a domain.",
+            width,
+        ),
+        ScanState::Measuring {
+            domain, started, ..
+        } => {
+            // The honest waiting screen: what, from where, how long so far.
+            // The eight rows are listed because they ARE what is being
+            // measured; none is marked done because the engine reports them
+            // together (per-control events are an engine-side addition).
+            let mut v = vec![
+                Line::from(Span::styled(
+                    format!("\u{2550}\u{2550} measuring {domain} \u{2550}\u{2550}"),
+                    Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    format!(
+                        "  {:.1}s elapsed \u{2014} one validating resolver ({RESOLVER_IDENTITY}); the DKIM selector sweep is the long part",
+                        started.elapsed().as_secs_f64()
+                    ),
+                    Style::default().fg(p.fg),
+                )),
+                Line::from(""),
+            ];
+            for c in ControlId::ALL {
+                v.push(Line::from(vec![
+                    Span::styled("  still measuring  ", Style::default().fg(p.warn)),
+                    Span::styled(c.name().to_string(), Style::default().fg(p.muted)),
+                ]));
+            }
+            v.push(Line::from(""));
+            v.push(Line::from(Span::styled(
+                "  the truth-chain appears the moment the engine delivers all eight; nothing is shown before it is measured",
+                Style::default().fg(p.muted),
+            )));
+            v
+        }
+        ScanState::Failed { domain, error } => vec![
+            Line::from(Span::styled(
+                format!("could not measure {domain}"),
+                Style::default().fg(p.fail).add_modifier(Modifier::BOLD),
+            )),
+            Line::from(Span::styled(
+                format!("  {error}"),
+                Style::default().fg(p.fg),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  r: retry   d: another domain   q: quit",
+                Style::default().fg(p.muted),
+            )),
+        ],
+        ScanState::Idle => vec![Line::from(Span::styled(
+            "Press 'r' to measure, or 'd' to add a domain.",
             Style::default().fg(p.muted),
-        ))];
-        f.render_widget(Paragraph::new(hint).style(Style::default().bg(p.bg)), area);
-    }
+        ))],
+    };
+    let widget = Paragraph::new(lines)
+        .block(
+            Block::default()
+                .style(Style::default().bg(p.bg))
+                .borders(Borders::NONE),
+        )
+        .scroll((app.scroll, 0));
+    f.render_widget(widget, area);
 }
 
 fn render_footer(f: &mut Frame, area: Rect, app: &App) {
     let p = app.pal;
     if app.input_mode == InputMode::Domain {
-        let prompt = format!(" Domain: {}█", app.input_buf);
+        let prompt = match &app.input_error {
+            Some(e) => format!(
+                " Domain: {}\u{2588}   \u{2717} {e}   (enter: measure  esc: cancel)",
+                app.input_buf
+            ),
+            None => format!(
+                " Domain: {}\u{2588}   (enter: measure  esc: cancel)",
+                app.input_buf
+            ),
+        };
         f.render_widget(
             Paragraph::new(Line::from(Span::styled(
                 prompt,
@@ -551,15 +920,23 @@ fn render_footer(f: &mut Frame, area: Rect, app: &App) {
         );
         return;
     }
-    let status = match app.last_scan {
-        Some(t) => format!(
-            "last scan: {:.0}s ago  │  domain {}/{}  │  tab: {}  │  d:add domain",
-            t.elapsed().as_secs(),
+    let status = match &app.scan {
+        ScanState::Done { took, at, .. } => format!(
+            "measured in {:.1}s, {}s ago  \u{2502}  domain {}/{}  \u{2502}  {}",
+            took.as_secs_f64(),
+            at.elapsed().as_secs(),
             app.current_domain + 1,
             app.domains.len(),
             TAB_LABELS[app.selected_tab]
         ),
-        None => "no scan yet — press 'r'  |  d:add domain".into(),
+        ScanState::Measuring { started, .. } => format!(
+            "measuring \u{2026} {:.1}s  \u{2502}  domain {}/{}",
+            started.elapsed().as_secs_f64(),
+            app.current_domain + 1,
+            app.domains.len()
+        ),
+        ScanState::Failed { .. } => "measurement failed \u{2014} r: retry".to_string(),
+        ScanState::Idle => "no measurement yet \u{2014} r: measure".to_string(),
     };
     f.render_widget(
         Paragraph::new(Line::from(Span::styled(
@@ -573,80 +950,144 @@ fn render_footer(f: &mut Frame, area: Rect, app: &App) {
 
 // ── input ──────────────────────────────────────────────────────────
 
-fn handle_input(app: &mut App, code: KeyCode, modifiers: KeyModifiers) -> Result<bool> {
-    match code {
-        KeyCode::Char('q') => return Ok(false),
-        KeyCode::Char('m') => app.toggle_mode(),
-        KeyCode::Char('r') => { /* handled in main loop */ }
+fn handle_input(app: &mut App, code: KeyCode, modifiers: KeyModifiers) -> Action {
+    match (code, modifiers) {
+        (KeyCode::Char('q'), _) => Action::Quit,
+        // Raw mode swallows the terminal's own Ctrl-C; the universal exit
+        // must still work.
+        (KeyCode::Char('c'), m) if m.contains(KeyModifiers::CONTROL) => Action::Quit,
+        (KeyCode::Char('m'), _) => {
+            app.toggle_audience();
+            Action::Nothing
+        }
+        (KeyCode::Char('r'), _) => Action::Rescan,
         // Summary tab: j/k moves the finding cursor. Detail tabs: j/k scrolls.
-        KeyCode::Char('j') | KeyCode::Down => {
-            if app.selected_tab == 0 {
+        (KeyCode::Char('j'), _) | (KeyCode::Down, _) => {
+            if app.selected_tab == TAB_SUMMARY {
                 app.selected_control = (app.selected_control + 1).min(7);
             } else {
                 app.scroll = app.scroll.saturating_add(1);
             }
+            Action::Nothing
         }
-        KeyCode::Char('k') | KeyCode::Up => {
-            if app.selected_tab == 0 {
+        (KeyCode::Char('k'), _) | (KeyCode::Up, _) => {
+            if app.selected_tab == TAB_SUMMARY {
                 app.selected_control = app.selected_control.saturating_sub(1);
             } else {
                 app.scroll = app.scroll.saturating_sub(1);
             }
+            Action::Nothing
         }
-        // Enter on the summary jumps to the selected control's detail tab.
-        KeyCode::Enter => {
-            if app.selected_tab == 0 {
+        // Enter on the summary opens the selected control's detail tab.
+        (KeyCode::Enter, _) => {
+            if app.selected_tab == TAB_SUMMARY {
                 if let Some(rep) = app.selected_report() {
                     app.selected_tab = tab_for_control(rep.control);
                     app.scroll = 0;
                 }
             }
+            Action::Nothing
         }
-        KeyCode::Tab => {
-            if modifiers.contains(KeyModifiers::SHIFT) {
-                app.prev_domain();
-            } else {
-                app.next_domain();
-            }
+        // Back to the summary from any detail tab.
+        (KeyCode::Esc, _) | (KeyCode::Backspace, _) => {
+            app.selected_tab = TAB_SUMMARY;
+            app.scroll = 0;
+            Action::Nothing
         }
-        KeyCode::Char('d') => {
+        // crossterm reports Shift-Tab as BackTab, never Tab+SHIFT.
+        (KeyCode::BackTab, _) => {
+            app.prev_domain();
+            Action::SwitchDomain
+        }
+        (KeyCode::Tab, _) => {
+            app.next_domain();
+            Action::SwitchDomain
+        }
+        (KeyCode::Char('d'), _) => {
             app.input_mode = InputMode::Domain;
             app.input_buf.clear();
+            app.input_error = None;
+            Action::Nothing
         }
-        KeyCode::Char(c) if c.is_ascii_digit() => {
+        (KeyCode::Char(c), _) if c.is_ascii_digit() => {
             if let Some(n) = c.to_digit(10) {
-                if (1..=6).contains(&n) {
+                if (1..=TAB_LABELS.len() as u32).contains(&n) {
                     app.selected_tab = n as usize - 1;
+                    app.scroll = 0;
+                }
+            }
+            Action::Nothing
+        }
+        _ => Action::Nothing,
+    }
+}
+
+/// Domain-entry mode. Enter submits through the input boundary (a bad name
+/// stays in the prompt with its reason); Esc cancels WITHOUT re-measuring.
+fn handle_input_mode(app: &mut App, code: KeyCode, modifiers: KeyModifiers) -> Action {
+    match (code, modifiers) {
+        (KeyCode::Char('c'), m) if m.contains(KeyModifiers::CONTROL) => Action::Quit,
+        (KeyCode::Enter, _) => {
+            let raw = app.input_buf.trim().to_string();
+            if raw.is_empty() {
+                app.input_mode = InputMode::Normal;
+                app.input_error = None;
+                return Action::Nothing;
+            }
+            match canonical_domain(&raw) {
+                Ok(domain) => {
+                    app.domains.push(domain);
+                    app.current_domain = app.domains.len() - 1;
+                    app.input_mode = InputMode::Normal;
+                    app.input_buf.clear();
+                    app.input_error = None;
+                    Action::SwitchDomain
+                }
+                Err(e) => {
+                    app.input_error = Some(e.to_string());
+                    Action::Nothing
                 }
             }
         }
-        _ => {}
+        (KeyCode::Esc, _) => {
+            app.input_mode = InputMode::Normal;
+            app.input_buf.clear();
+            app.input_error = None;
+            Action::Nothing
+        }
+        (KeyCode::Backspace, _) => {
+            app.input_buf.pop();
+            app.input_error = None;
+            Action::Nothing
+        }
+        (KeyCode::Char(c), _) => {
+            app.input_buf.push(c);
+            app.input_error = None;
+            Action::Nothing
+        }
+        _ => Action::Nothing,
     }
-    Ok(true)
 }
 
-fn handle_input_mode(app: &mut App, code: KeyCode) {
-    match code {
-        KeyCode::Enter => {
-            let new_domain = app.input_buf.trim().to_string();
-            if !new_domain.is_empty() {
-                app.domains.push(new_domain);
-                app.current_domain = app.domains.len() - 1;
-            }
-            app.input_mode = InputMode::Normal;
-            app.input_buf.clear();
-        }
-        KeyCode::Esc => {
-            app.input_mode = InputMode::Normal;
-            app.input_buf.clear();
-        }
-        KeyCode::Backspace => {
-            app.input_buf.pop();
-        }
-        KeyCode::Char(c) => {
-            app.input_buf.push(c);
-        }
-        _ => {}
+// ── terminal session ───────────────────────────────────────────────
+
+/// Restores the user's terminal on every exit path — normal, `?` error, or
+/// panic. Without this, an error inside the loop left the shell in raw mode
+/// on the alternate screen.
+struct TerminalSession;
+
+impl TerminalSession {
+    fn enter() -> Result<Self> {
+        enable_raw_mode()?;
+        io::stdout().execute(EnterAlternateScreen)?;
+        Ok(TerminalSession)
+    }
+}
+
+impl Drop for TerminalSession {
+    fn drop(&mut self) {
+        let _ = disable_raw_mode();
+        let _ = io::stdout().execute(LeaveAlternateScreen);
     }
 }
 
@@ -659,41 +1100,280 @@ pub async fn run(
     resolver: TokioResolver,
     domains: Vec<String>,
     dkim_selector: Vec<String>,
-    covert: bool,
+    audience: Audience,
 ) -> Result<()> {
-    let mut app = App::new(resolver, domains, dkim_selector, covert);
-    app.scan().await?;
+    let mut app = App::new(resolver, domains, dkim_selector, audience);
+    app.start_scan();
 
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    stdout.execute(EnterAlternateScreen)?;
-    let mut terminal = Terminal::new(CrosstermBackend::new(stdout))?;
+    // A panic anywhere (engine included) must not strand the terminal.
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let _ = disable_raw_mode();
+        let _ = io::stdout().execute(LeaveAlternateScreen);
+        default_hook(info);
+    }));
 
-    let res = loop {
+    let _session = TerminalSession::enter()?;
+    let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
+
+    loop {
+        app.poll_scan().await;
         terminal.draw(|f| render_ui(f, &app))?;
-        if let Event::Key(key) = event::read()? {
-            if key.kind == KeyEventKind::Press {
-                if app.input_mode != InputMode::Normal {
-                    handle_input_mode(&mut app, key.code);
-                    if app.input_mode == InputMode::Normal {
-                        app.scan().await?;
-                    }
-                    continue;
-                }
-                if !handle_input(&mut app, key.code, key.modifiers)? {
-                    break Ok(());
-                }
-                // Rescan on 'r' AND on domain switch — Tab without a rescan
-                // rendered the previous domain's verdicts under the new
-                // domain's name (adversarial panel, 2026-08-19).
-                if key.code == KeyCode::Char('r') || key.code == KeyCode::Tab {
-                    app.scan().await?;
-                }
-            }
-        }
-    };
 
-    disable_raw_mode()?;
-    terminal.backend_mut().execute(LeaveAlternateScreen)?;
-    res
+        // Poll, don't block: the elapsed counter and the finished
+        // measurement both need the loop to turn without a keypress.
+        if !event::poll(Duration::from_millis(100))? {
+            continue;
+        }
+        let Event::Key(key) = event::read()? else {
+            continue;
+        };
+        if key.kind != KeyEventKind::Press {
+            continue;
+        }
+        let action = if app.input_mode == InputMode::Domain {
+            handle_input_mode(&mut app, key.code, key.modifiers)
+        } else {
+            handle_input(&mut app, key.code, key.modifiers)
+        };
+        match action {
+            Action::Quit => break,
+            // Re-measure on 'r' AND on every domain switch — Tab without a
+            // rescan rendered the previous domain's verdicts under the new
+            // domain's name (adversarial panel, 2026-08-19).
+            Action::Rescan | Action::SwitchDomain => app.start_scan(),
+            Action::Nothing => {}
+        }
+    }
+    if let ScanState::Measuring { handle, .. } = &app.scan {
+        handle.abort();
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use hickory_resolver::config::{ResolverConfig, ResolverOpts};
+    use hickory_resolver::net::runtime::TokioRuntimeProvider;
+
+    fn test_resolver() -> TokioResolver {
+        TokioResolver::builder_with_config(
+            ResolverConfig::udp_and_tcp(&hickory_resolver::config::CLOUDFLARE),
+            TokioRuntimeProvider::default(),
+        )
+        .with_options(ResolverOpts::default())
+        .build()
+        .expect("resolver builds without network")
+    }
+
+    fn app(domains: &[&str]) -> App {
+        App::new(
+            test_resolver(),
+            domains.iter().map(|s| s.to_string()).collect(),
+            vec![],
+            Audience::BlueTeam,
+        )
+    }
+
+    #[tokio::test]
+    async fn quit_keys() {
+        let mut a = app(&["example.com"]);
+        assert_eq!(
+            handle_input(&mut a, KeyCode::Char('q'), KeyModifiers::NONE),
+            Action::Quit
+        );
+        assert_eq!(
+            handle_input(&mut a, KeyCode::Char('c'), KeyModifiers::CONTROL),
+            Action::Quit,
+            "Ctrl-C must quit even in raw mode"
+        );
+        a.input_mode = InputMode::Domain;
+        assert_eq!(
+            handle_input_mode(&mut a, KeyCode::Char('c'), KeyModifiers::CONTROL),
+            Action::Quit,
+            "…and from the domain prompt"
+        );
+    }
+
+    #[tokio::test]
+    async fn shift_tab_is_backtab_and_cycles_backwards() {
+        let mut a = app(&["a.com", "b.com", "c.com"]);
+        assert_eq!(
+            handle_input(&mut a, KeyCode::BackTab, KeyModifiers::SHIFT),
+            Action::SwitchDomain
+        );
+        assert_eq!(a.current_domain, 2, "wrapped to the last domain");
+        assert_eq!(
+            handle_input(&mut a, KeyCode::Tab, KeyModifiers::NONE),
+            Action::SwitchDomain
+        );
+        assert_eq!(a.current_domain, 0);
+    }
+
+    #[tokio::test]
+    async fn esc_and_backspace_return_to_summary() {
+        let mut a = app(&["example.com"]);
+        handle_input(&mut a, KeyCode::Char('3'), KeyModifiers::NONE);
+        assert_eq!(a.selected_tab, 2);
+        handle_input(&mut a, KeyCode::Esc, KeyModifiers::NONE);
+        assert_eq!(a.selected_tab, TAB_SUMMARY);
+        handle_input(&mut a, KeyCode::Char('7'), KeyModifiers::NONE);
+        assert_eq!(a.selected_tab, TAB_SEAL);
+        handle_input(&mut a, KeyCode::Backspace, KeyModifiers::NONE);
+        assert_eq!(a.selected_tab, TAB_SUMMARY);
+        // Digits outside the tab range do nothing.
+        handle_input(&mut a, KeyCode::Char('9'), KeyModifiers::NONE);
+        assert_eq!(a.selected_tab, TAB_SUMMARY);
+    }
+
+    #[tokio::test]
+    async fn m_flips_framing_and_palette_together() {
+        let mut a = app(&["example.com"]);
+        assert_eq!(a.audience, Audience::BlueTeam);
+        handle_input(&mut a, KeyCode::Char('m'), KeyModifiers::NONE);
+        assert_eq!(a.audience, Audience::RedTeam);
+        assert_eq!(framing_word(a.audience), "RED \u{00b7} assess");
+        handle_input(&mut a, KeyCode::Char('m'), KeyModifiers::NONE);
+        assert_eq!(a.audience, Audience::BlueTeam);
+    }
+
+    #[tokio::test]
+    async fn domain_prompt_goes_through_the_input_boundary() {
+        let mut a = app(&["example.com"]);
+        handle_input(&mut a, KeyCode::Char('d'), KeyModifiers::NONE);
+        assert_eq!(a.input_mode, InputMode::Domain);
+        for ch in "https://bad/".chars() {
+            handle_input_mode(&mut a, KeyCode::Char(ch), KeyModifiers::NONE);
+        }
+        assert_eq!(
+            handle_input_mode(&mut a, KeyCode::Enter, KeyModifiers::NONE),
+            Action::Nothing
+        );
+        assert!(a
+            .input_error
+            .as_deref()
+            .unwrap()
+            .contains("bare domain name"));
+        assert_eq!(
+            a.input_mode,
+            InputMode::Domain,
+            "stays in the prompt with the reason"
+        );
+        assert_eq!(a.domains.len(), 1, "nothing bad was added");
+
+        // Esc cancels without a rescan.
+        assert_eq!(
+            handle_input_mode(&mut a, KeyCode::Esc, KeyModifiers::NONE),
+            Action::Nothing
+        );
+        assert_eq!(a.input_mode, InputMode::Normal);
+
+        // A good name is canonicalised and triggers a measurement.
+        handle_input(&mut a, KeyCode::Char('d'), KeyModifiers::NONE);
+        for ch in "IT-Help.Tech.".chars() {
+            handle_input_mode(&mut a, KeyCode::Char(ch), KeyModifiers::NONE);
+        }
+        assert_eq!(
+            handle_input_mode(&mut a, KeyCode::Enter, KeyModifiers::NONE),
+            Action::SwitchDomain
+        );
+        assert_eq!(a.domains, ["example.com", "it-help.tech"]);
+        assert_eq!(a.current_domain, 1);
+
+        // Empty Enter is a cancel, not a rescan.
+        handle_input(&mut a, KeyCode::Char('d'), KeyModifiers::NONE);
+        assert_eq!(
+            handle_input_mode(&mut a, KeyCode::Enter, KeyModifiers::NONE),
+            Action::Nothing
+        );
+        assert_eq!(a.input_mode, InputMode::Normal);
+    }
+
+    #[tokio::test]
+    async fn r_and_tab_request_a_measurement() {
+        let mut a = app(&["example.com"]);
+        assert_eq!(
+            handle_input(&mut a, KeyCode::Char('r'), KeyModifiers::NONE),
+            Action::Rescan
+        );
+        assert_eq!(
+            handle_input(&mut a, KeyCode::Tab, KeyModifiers::NONE),
+            Action::SwitchDomain
+        );
+    }
+
+    #[test]
+    fn every_control_has_a_detail_tab_whose_label_names_it() {
+        for c in ControlId::ALL {
+            let tab = tab_for_control(c);
+            let (_, controls) = controls_for_tab(tab);
+            assert!(controls.contains(&c), "{c:?} not on its own tab");
+            // The tab label must carry the control's name (DKIM was missing
+            // from "4:SPF/DMARC").
+            let label = TAB_LABELS[tab];
+            let name = c.name().split('/').next().unwrap();
+            assert!(label.contains(name), "tab {label:?} does not name {name}");
+        }
+    }
+
+    #[test]
+    fn wrap_indent_hangs_continuations_under_the_text() {
+        let lines = wrap_indent(
+            "      \u{2192} ",
+            "one two three four five six seven eight nine ten",
+            30,
+            Style::default(),
+            Style::default(),
+        );
+        assert!(lines.len() >= 2, "must wrap at width 30");
+        let first: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
+        let second: String = lines[1].spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(first.starts_with("      \u{2192} one"));
+        assert!(
+            second.starts_with("        "),
+            "continuation indented to the prefix width"
+        );
+        assert!(
+            !second.starts_with("        \u{2192}"),
+            "prefix glyph only on the first line"
+        );
+        for l in &lines {
+            let w: usize = l.spans.iter().map(|s| s.content.chars().count()).sum();
+            assert!(w <= 30, "line {w} wider than 30: {l:?}");
+        }
+    }
+
+    #[test]
+    fn wrap_indent_splits_tokens_wider_than_the_width() {
+        // The 128-hex seal has no spaces; it must be split, never clipped.
+        let seal = "ab".repeat(64);
+        let lines = wrap_indent("  seal  ", &seal, 40, Style::default(), Style::default());
+        assert!(lines.len() >= 4);
+        let joined: String = lines
+            .iter()
+            .map(|l| l.spans[1].content.to_string())
+            .collect::<Vec<_>>()
+            .join("");
+        assert_eq!(
+            joined.replace(' ', ""),
+            seal,
+            "every hex character survives"
+        );
+        for l in &lines {
+            let w: usize = l.spans.iter().map(|s| s.content.chars().count()).sum();
+            assert!(w <= 40, "line {w} wider than 40");
+        }
+    }
+
+    #[test]
+    fn wrap_indent_never_drops_words() {
+        let text = "a sentence with several words that must all survive the wrap";
+        let lines = wrap_indent("  x ", text, 20, Style::default(), Style::default());
+        let joined: Vec<String> = lines
+            .iter()
+            .map(|l| l.spans[1].content.to_string())
+            .collect();
+        assert_eq!(joined.join(" "), text);
+    }
 }
