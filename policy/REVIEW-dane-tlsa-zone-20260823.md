@@ -75,3 +75,36 @@ There IS one. The ethical/logical answer was immediate and is recorded (name the
 seal it). What's *not* immediate is the **empirical** claim the field makes — and that's resolved
 by the labeled corpus (science), not by more debate. The honest division of labor: frameworks
 settle the ethics; the experiment settles the proxy. We've done the first; we need the second.
+
+## 5. RESOLUTION (2026-08-23 — all three lanes responded)
+
+**Converged. The field is final; the experiment is still the open item.**
+
+- **SciSpace (second opinion):** confirms the design. (a) RFC 7672 §2.2.3 *reinforces* the
+  zone-cut — the TLSA lookup key `_25._tcp.<mx_hostname>` lives in the MX host's zone by
+  delegation, so zone-cut directly answers "who must publish for DANE to work?" The CNAME aliasing
+  escape hatch (§2.2.3) is the *mechanism* by which `different_zone` domains get DANE, not a
+  counterargument. (b) Zone-cut > registrable-domain, decisively: registrable-domain imports the
+  Mozilla PSL (multi-level ccTLDs, vanity gTLDs, military subdomains), so the simpler dependency
+  chain wins. Three-state model confirmed correct; an honest instrument must not force-classify
+  when the SOA walk fails.
+- **Claude Science:** **retracted its own `google.com` fixture as fabricated** (never queried the
+  MX; carried `aspmx.l.google.com` over from `gsa.gov`). The ruling stands; its justification now
+  rests on **measured** instances — `outlook.com`, `amazon.com`, `apple.com` (all `descendant_zone`)
+  and `microsoft.com` (`foreign_zone`, same operator / different registrable domain — the
+  affirmative case for the zone-cut axis). **Proposed a FOUR-value field**: `same_zone` /
+  `descendant_zone` / `foreign_zone` / `zone_unmeasured` — adopted (the `descendant_zone` split is
+  load-bearing: `amazon.com`'s MX host IS its own zone apex inside `amazon.com`). Failure shape
+  recorded as pattern #10 ("the hand-built pairing presented as a measurement").
+- **Claude Code (layout):** the narrative sentence is collision-free on all three surfaces **only
+  as its own field** on the DANE `ControlReport`. Bolted onto the existing `measured` string it
+  collides twice — `report.rs:78` (single-line uncapped row → horizontal scroll) and `tui.rs:228`
+  (unwrapped Span → silently clipped at terminal width). Build it as a field; no surface changes
+  layout.
+
+**Net:** the field is `tlsa_zone ∈ {same_zone, descendant_zone, foreign_zone, zone_unmeasured}`,
+zone-cut-derived, sealed (v2→v3), rendered as its own field. The disposition stays `NotConfigured`
+in both self-hosted and foreign cases — the field is the *attribution qualifier*, never a verdict.
+The **only remaining open item** is the empirical one from §2/§3: the labeled-corpus experiment
+that measures whether the zone-cut proxy tracks operator control at a defensible rate. That is the
+lab assistants' experiment, not a decision.

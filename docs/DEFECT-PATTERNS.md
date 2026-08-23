@@ -166,3 +166,25 @@ succeeds, `xattr -l` shows `com.apple.macl` on the healthy twin and not on
 Counter-discipline: recreate precious files under your own inode; clear and
 rebuild disposable ones; never chase the EPERM through the tool's own
 options — the tool is fine, the file's identity stamp is the defect.
+
+## 10. The hand-built pairing presented as a measurement
+
+A cell pairs a domain with a host it did NOT query — the classification is
+computed over literals the author typed, so the arithmetic is correct while
+the input is invented. The correct-computation-over-fabricated-input shape
+reads *exactly* like a measurement.
+
+- Claude Science's first `tlsa_zone` relay asserted `google.com` MX =
+  `aspmx.l.google.com` (→ `different_zone`) without ever querying it. Measured:
+  `google.com` MX = `smtp.google.com` (apex `google.com`, `same_zone`) — the
+  opposite. `aspmx.l.google.com` was `gsa.gov`'s MX host carried across domains.
+  Its `outlook.com` row was right by accident (real MX `outlook-com.olc.
+  protection.outlook.com`, not the `mail.protection.outlook.com` it wrote).
+  Retracted by the author; the ruling stands, justification replaced with three
+  *measured* instances (`outlook.com`, `amazon.com`, `apple.com` — all
+  `descendant_zone`).
+
+Counter-discipline: when a cell classifies a (domain, host) relationship, the
+host must come from an MX query *in that cell*, never from a literal. A correct
+computation over a fabricated input is indistinguishable from a measurement
+without this control.

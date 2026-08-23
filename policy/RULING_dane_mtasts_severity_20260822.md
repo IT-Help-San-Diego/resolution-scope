@@ -101,9 +101,13 @@ preserves. Never put the long explanation on the page.
   here's how to do it yourself"). Carded as a *possible* future article, NOT site content, NOT a
   shipped feature. It is the one legit path to DANE on Google, and it is deliberately not the
   default recommendation (it installs a permanent operational liability).
-- **`tlsa_zone` field (engine) — NOT a verdict.** The measured registrable-domain comparison:
-  `same_registrable_domain | different_registrable_domain`. Emits a fact the narrative can use
-  ("the TLSA name lies outside this domain's own zone"), never an ownership claim. This is the
+- **`tlsa_zone` field (engine) — NOT a verdict.** The measured zone-cut comparison. **Final
+  shape (converged 2026-08-23 by SciSpace + Claude Science): FOUR values** — `same_zone`
+  (MX host's zone apex == domain's zone apex), `descendant_zone` (MX host in a subdomain zone of
+  the scanned domain — still under the owner's control, e.g. `amazon.com` → `amazon-smtp.amazon.
+  com`), `foreign_zone` (MX host in a zone that is NOT a descendant — someone else's, e.g.
+  `microsoft.com` → `protection.outlook.com`), `zone_unmeasured` (the SOA walk failed — honest
+  non-classification). Emits a fact the narrative can use, never an ownership claim. This is the
   corrected form of the earlier "provider-gated disposition" (retracted — see §3).
 - **dhs.gov out-of-zone attribution (engine)** — the real defect the measurement found. When the
   MX-host zone is signed (so `DnssecRequired` never fires) but the TLSA name sits in a *different*
@@ -132,9 +136,14 @@ mean opposite things (operator's gap vs own gap). Flip the field, the seal doesn
 failure the seal exists to prevent. The seal's purpose (tamper-evidence over verdict *meaning*)
 requires the field to be bound.
 
-**Note (field naming, to pin with Claude Science at implementation):** the honest name keys on what
-is *measured*. The engine has no PSL dependency; the already-walked measurement is the SOA zone-cut
-comparison (`same_zone` / `different_zone`), which is the honest observable — "registrable domain"
-would import a PSL and its edge-case errors (cf-emailsecurity.net). Name the field for the zone-cut
-fact, never for the ownership it suggests. The disposition stays `NotConfigured` in both cases; the
-field is the *attribution qualifier*, not a new verdict.
+**Note (field naming, converged 2026-08-23 — SciSpace + Claude Science):** the honest name keys
+on what is *measured*, and the measured axis is the **SOA zone-cut hierarchy**, not "registrable
+domain." SciSpace's second opinion confirmed RFC 7672 §2.2.3 reinforces the zone-cut (the TLSA
+lookup key `_25._tcp.<mx_hostname>` lives in the MX host's zone by delegation — zone-cut directly
+answers "who must publish for DANE to work?"), and that "registrable domain" would import the
+Mozilla PSL and its multi-level-ccTLD / vanity-gTLD / military-subdomain edge cases. The field is
+**four-value**: `same_zone` / `descendant_zone` / `foreign_zone` / `zone_unmeasured` — the
+`descendant_zone` split is load-bearing (`amazon.com`'s MX host IS its own zone apex inside
+`amazon.com`; a two-value field would call Amazon's own mail host "foreign"). The four enum
+variant NAMES enter the seal (same as every disposition — pinned by
+`disposition_variant_names_are_stable`).
