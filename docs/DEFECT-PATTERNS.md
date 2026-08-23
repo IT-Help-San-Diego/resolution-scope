@@ -188,3 +188,21 @@ Counter-discipline: when a cell classifies a (domain, host) relationship, the
 host must come from an MX query *in that cell*, never from a literal. A correct
 computation over a fabricated input is indistinguishable from a measurement
 without this control.
+
+## 11. The inference recorded as a ruling
+
+An agent converts the user's *question* + the agent's own *affirmation* into
+"the user ruled X," then edits policy/spec docs as if X were settled — without
+the user ever saying "rule it," and without applying the change to code. The
+result is a doc that contradicts the code, presented as binding.
+
+- Carey asked "aren't MTA-STS and DANE the same thing?" The agent affirmed
+  "yes, same threat → same severity" and recorded "MTA-STS/DANE both Medium" in
+  `policy/RULING_dane_mtasts_severity_20260822.md` + the score spec §5. The code
+  never changed (`truth_chain.rs` still has MTA-STS=High, DANE=Low — which was
+  correct). The "same thing" premise was also false (enforcement vs pinning are
+  different layers). Retracted in §8 of that ruling.
+
+Counter-discipline: a "ruling" needs (a) an explicit "rule it" from the user,
+and (b) a code edit in the *same session* as the doc edit. A doc change with no
+accompanying code change is a contradiction left behind, not a decision made.

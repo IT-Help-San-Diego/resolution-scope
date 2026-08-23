@@ -5,12 +5,21 @@
 
 ---
 
-## 1. The decision (three parts)
+## 1. The decision (CORRECTED 2026-08-23 — see §8)
 
-1. **MTA-STS and DANE are the same protection.** Both guard the mail-in-transit hop against
-   interception/downgrade. They differ only in trust anchor — MTA-STS trusts the CA/Web-PKI
-   system, DANE trusts DNSSEC and pins the exact certificate (TLSA). Same threat, same level,
-   so they must carry the **same severity**: both **Medium**.
+1. **MTA-STS and DANE are NOT the same control layer — this was the error.** They guard the same
+   *hop* (mail server → mail server) against **two different attacks at two different layers**:
+   - **MTA-STS** = the *enforcement* control against **plaintext downgrade** (STARTTLS stripping).
+     Unilaterally deployable (CA/Web-PKI, RFC 8461 explicitly does NOT require DNSSEC). Missing it
+     leaves a direct, common interception surface → **High**.
+   - **DANE** = the *pinning* control against **certificate substitution / rogue-CA** (DigiNotar-
+     class). Layered on top of TLS (which STARTTLS/MTA-STS already provides), and gated on DNSSEC.
+     Missing it means "TLS but unpinned" — a rarer, higher-bar attack → **Low**.
+
+   The prior draft claimed "same threat, same level, both Medium." That collapsed *enforcement*
+   and *hardening* — the exact distinction the severity ladder already encodes (High = "absent
+   enforcement with a direct interception surface"; Low = "hardening absent (TLSA) or a
+   precondition gap"). **The code's original split (MTA-STS=High, DANE=Low) was correct.**
 
 2. **The dollar-dominant threat is spoofing, not interception.** FBI IC3: BEC = $55.5B exposed
    (2013–2023), the "The $55 Billion Scam" — and that's *impersonation → wire fraud*, owned by
@@ -19,15 +28,15 @@
 
    | Severity | Weight | Controls | Threat class |
    |---|---|---|---|
-   | High | 3 | DNSSEC, SPF, DKIM, DMARC | spoofing / forgery (the $55B surface) |
-   | Medium | 2 | MTA-STS, DANE | in-transit interception |
-   | Low | 1 | CAA, CDS/CDNSKEY | hardening / hygiene |
+   | High | 3 | DNSSEC, SPF, DKIM, DMARC, **MTA-STS** | spoofing/forgery + in-transit downgrade enforcement |
+   | Low | 1 | **DANE**, CAA, CDS/CDNSKEY | pinning / hardening / hygiene |
+   | Medium | 2 | *(deployed-but-not-enforcing states, e.g. p=none, mode:testing)* | |
 
-3. **Deployability is a different axis than severity.** DANE is structurally unavailable on
-   Google Workspace — the TLSA record lives in Google's MX-host zone (`_25._tcp.smtp.google.com`),
-   which the domain owner cannot write. That is a **disposition** fact (can-you-deploy-it), not a
-   **severity** fact (how-bad-is-the-threat). The prior High/Low split was *availability wearing a
-   severity costume* — exactly the conflation identity-weighting exists to kill.
+3. **Deployability is a separate axis (unchanged, and it now *agrees* with the severity).** DANE
+   is structurally unavailable on Google Workspace — the TLSA record lives in Google's MX-host
+   zone. That is a **disposition** fact (can-you-deploy-it), carried by the `tlsa_zone` field, not
+   a severity fact. Keeping DANE **Low** in severity means the unfixable gap does not over-penalize
+   — which is the same direction as the deployability reality, not against it.
 
 ## 2. The "sane maximum" doctrine (Carey's framing, verbatim logic)
 
@@ -49,8 +58,10 @@ a user's own mail stack.
 
 ## 3. Consequences (what this ruling changes)
 
-- **Severity re-ruling** (weights follow automatically — derived from Severity, never hardcoded):
-  MTA-STS 3→2, DANE 1→2. Max denominator **unchanged at 18** (net zero: MTA-STS −1, DANE +1).
+- **Severity re-ruling CORRECTED (2026-08-23):** the original "MTA-STS 3→2, DANE 1→2" was
+  **wrong and never applied to code**. The code carries (and correctly keeps) **MTA-STS=High (3),
+  DANE=Low (1)**. See §8 for the correction. Weights follow automatically from Severity — the code
+  was already correct; nothing needed changing.
 - **CORRECTED (Claude Science, 2026-08-22) — no `provider-gated` verdict.** The original ruling
   carded a "provider-gated" *disposition*. That was wrong: it would assert a **business
   relationship** (ownership / "a third party is blocking you") that DNS cannot observe. The only
@@ -147,3 +158,31 @@ Mozilla PSL and its multi-level-ccTLD / vanity-gTLD / military-subdomain edge ca
 `amazon.com`; a two-value field would call Amazon's own mail host "foreign"). The four enum
 variant NAMES enter the seal (same as every disposition — pinned by
 `disposition_variant_names_are_stable`).
+
+## 8. CORRECTION — the severity re-ruling was wrong, and never applied (2026-08-23)
+
+**Retracted: "MTA-STS/DANE both Medium." The code was right all along.**
+
+- **What happened:** Carey asked "aren't MTA-STS and DANE the same thing?" I affirmed "yes, same
+  threat → same severity," and recorded "both Medium" as a ruling in this file and in the score
+  spec §5 — **without ever applying it to code, and without checking the "same thing" premise.**
+- **Why the premise was false:** they guard the same *hop* against *different attacks at different
+  layers*. MTA-STS = enforcement vs **plaintext downgrade** (common, deployable, RFC 8461 needs no
+  DNSSEC). DANE = pinning vs **cert-substitution/rogue-CA** (rare, DNSSEC-gated, layered on top of
+  TLS). The severity ladder already distinguishes exactly this: High = "absent enforcement, direct
+  interception surface"; Low = "hardening absent (TLSA) / precondition gap."
+- **Two independent arguments converge on High/Low:**
+  1. *Layer distinction* (above): enforcement ≠ pinning-hardening.
+  2. *Attainability* (Claude Science): moving MTA-STS DOWN weakens the one mail-TLS control that is
+     unilaterally deployable; moving DANE UP strengthens one most domains structurally cannot
+     deploy. Severity must not over-penalize an unfixable gap.
+- **Measured on `ef0abd5`:** `MtaStsDisposition::RecordAbsent → Severity::High` (truth_chain.rs:527),
+  `DaneDisposition::NotConfigured → Severity::Low` (:471), `DaneDisposition::DnssecRequired →
+  Severity::Low` (:495). The code never changed.
+- **Failure shape (recorded as #11):** *agent inference recorded as user ruling.* I converted
+  Carey's question + my affirmation into "Carey ruled both Medium," then presented it as settled in
+  summaries. The control: a ruling requires an explicit "rule it" from Carey, and must be applied to
+  code in the same session — a doc edit without a code edit is a contradiction left behind.
+
+**Net:** MTA-STS=High, DANE=Low. Both stay exactly as the code has them. No code change; this file
+and the spec §5 are reverted to match. The score is unblocked on the *severity* axis.
