@@ -10,7 +10,7 @@
 use crate::analysis::ScoredAnalysis;
 use crate::seal::{canonical_input, engine_version, seal};
 use crate::tristate::TriState;
-use crate::truth_chain::{truth_chain, Tally};
+use crate::truth_chain::{risk_weighted_score, truth_chain, Tally, SCORING_VERSION};
 
 /// Render a human-readable text report.
 pub fn render_text(a: &ScoredAnalysis) -> String {
@@ -56,13 +56,25 @@ pub fn render_text(a: &ScoredAnalysis) -> String {
 
     let t = Tally::of(&model);
     out.push_str(&format!(
-        "\nScore: {}/{} ({}%)  |  unmeasured: {}  |  not-applicable: {}\n",
+        "\nCoverage Score : {}/{} ({}%)  |  unmeasured: {}  |  not-applicable: {}\n",
         t.present,
         t.denominator(),
         t.percent(),
         t.unmeasured,
         t.not_applicable
     ));
+    // Risk-Weighted Score — a DERIVED view over the same sealed dispositions,
+    // tagged SCORING_VERSION, never itself sealed. Shown beside Coverage (the
+    // NIST-CSF rule: a lone hidden-weighted number is what hides which control
+    // is weak). "unmeasured" reads back when nothing is measurable.
+    match risk_weighted_score(&model) {
+        Some(rws) => out.push_str(&format!(
+            "Risk-Weighted  : {rws}%  (scoring v{SCORING_VERSION})\n"
+        )),
+        None => out.push_str(&format!(
+            "Risk-Weighted  : unmeasured  (scoring v{SCORING_VERSION})\n"
+        )),
+    }
 
     // The re-derivation block: the EXACT bytes the seal hashes, printed from
     // the same single producer (seal::canonical_input) the seal itself uses.

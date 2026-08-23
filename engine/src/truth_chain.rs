@@ -756,6 +756,90 @@ impl Tally {
 }
 
 // =============================================================================
+// Risk-Weighted Score (RWS) — a derived view, NOT sealed (spec §6)
+// =============================================================================
+//
+// The Coverage Score (Tally) is the primary measurement and stays sealed. The
+// Risk-Weighted Score is a DERIVED view over the same eight dispositions: it is
+// computed on read, tagged SCORING_VERSION, and never enters the seal. The two
+// are always shown together (NIST CSF's warning against a single hidden
+// weighted number).
+//
+// Identity-weighting (spec §12): each control has ONE fixed weight, keyed on
+// its IDENTITY (the absent-state severity — "how bad is it to not have this"),
+// never its CURRENT state. A Present control earns its full weight whether
+// enforcing (Ok) or deployed-but-not-enforcing (Medium); the enforcement gap is
+// a severity label fact, never a weight fact.
+
+/// Version of the risk-weighting formula. Changing the weight mapping or the
+/// formula bumps this — NEVER SEAL_SCHEME (the seal binds dispositions only;
+/// RWS is a derived view over those same sealed dispositions).
+pub const SCORING_VERSION: u32 = 1;
+
+/// The consequence weight of a control, keyed on its IDENTITY (its absent-state
+/// severity), NOT its current state. Derived from the `*_report` constructor for
+/// that control's "missing" disposition — single producer, so a future severity
+/// re-ruling propagates automatically. Only High (3) and Low (1) are produced:
+/// no control's missing disposition is Medium or Critical.
+pub fn identity_weight(control: ControlId) -> u32 {
+    match absent_severity(control) {
+        Severity::High => 3,
+        Severity::Low => 1,
+        // Unreachable by construction (absent-state severities are High or Low).
+        _ => 0,
+    }
+}
+
+/// The severity of a control's "you don't have this" disposition — read from the
+/// report constructor, never a hand-kept table. This is the single-producer link:
+/// a future severity re-ruling changes the weight automatically.
+fn absent_severity(control: ControlId) -> Severity {
+    match control {
+        ControlId::Dnssec => dnssec_report(DnssecDisposition::Unsigned).severity,
+        ControlId::Spf => spf_report(SpfDisposition::NotConfigured).severity,
+        // DKIM's "missing" state is Revoked (empty p=, unsigned in practice →
+        // High), NOT NotFoundDefaults (Unmeasured — the honest "absence not
+        // proven" state). See the DKIM report constructor for the distinction.
+        ControlId::Dkim => dkim_report(DkimDisposition::Revoked).severity,
+        ControlId::Dmarc => dmarc_report(DmarcDisposition::NotConfigured).severity,
+        ControlId::MtaSts => mta_sts_report(MtaStsDisposition::RecordAbsent).severity,
+        ControlId::Dane => dane_report(DaneDisposition::NotConfigured, TlsaZone::SameZone).severity,
+        ControlId::Caa => caa_report(CaaDisposition::NotConfigured).severity,
+        ControlId::Cds => cds_report(CdsDisposition::NotPublished).severity,
+    }
+}
+
+/// The risk-weighted score, 0–100. Derived FROM the sealed dispositions via
+/// truth_chain() — it is a view, not a measurement, so it is NOT sealed.
+/// `None` when nothing is measurable (denominator 0) — the same honest
+/// "unmeasured" handling as the Coverage Score (never a fake 100).
+///
+/// Formula (bounded 0–100 by construction):
+///   Σ identity_weight(control)  where tri == Present
+///   ÷ Σ identity_weight(control)  where tri ∈ {Present, Absent}
+/// `Indet` and `NotApplicable` are excluded from both sums, exactly as the
+/// Coverage Score excludes them.
+pub fn risk_weighted_score(reports: &[ControlReport; 8]) -> Option<u32> {
+    let mut covered: u32 = 0; // Σ identity_weight where tri == Present
+    let mut surface: u32 = 0; // Σ identity_weight where tri ∈ {Present, Absent}
+    for r in reports {
+        let w = identity_weight(r.control);
+        match r.tri {
+            TriState::Present => {
+                covered += w;
+                surface += w;
+            }
+            TriState::Absent => surface += w,
+            TriState::Indet | TriState::NotApplicable => {}
+        }
+    }
+    if surface == 0 {
+        return None; // nothing measured — never a fake 100
+    }
+    Some(covered.saturating_mul(100) / surface)
+}
+
+// =============================================================================
 // Tests — the contract pinned
 // =============================================================================
 
@@ -1118,5 +1202,215 @@ mod tests {
             0,
             "nothing measured must never read as a score"
         );
+    }
+
+    // ── Risk-Weighted Score (spec §10 acceptance tests) ─────────────────────
+    // Identity-weighting: each control's weight is its absent-state severity
+    // (High 3 / Low 1), never its current state.
+
+    /// Test 7 — weight is DERIVED, not hardcoded: reading the report constructor
+    /// for the control's "missing" disposition yields the weight. A future
+    /// severity re-ruling changes the weight automatically (one assertion per
+    /// source, per the mutation method).
+    #[test]
+    fn identity_weight_is_derived_not_hardcoded() {
+        // The five High controls → 3, the three Low → 1 (spec §5).
+        assert_eq!(identity_weight(ControlId::Dnssec), 3);
+        assert_eq!(identity_weight(ControlId::Spf), 3);
+        assert_eq!(identity_weight(ControlId::Dkim), 3);
+        assert_eq!(identity_weight(ControlId::Dmarc), 3);
+        assert_eq!(identity_weight(ControlId::MtaSts), 3);
+        assert_eq!(identity_weight(ControlId::Dane), 1);
+        assert_eq!(identity_weight(ControlId::Caa), 1);
+        assert_eq!(identity_weight(ControlId::Cds), 1);
+        // The derivation link, pinned per source (test 7's core):
+        assert_eq!(
+            dmarc_report(DmarcDisposition::NotConfigured).severity,
+            Severity::High,
+            "DMARC's missing disposition is High; identity_weight derives 3 from it"
+        );
+        assert_eq!(
+            dane_report(DaneDisposition::NotConfigured, TlsaZone::SameZone).severity,
+            Severity::Low,
+            "DANE's missing disposition is Low; identity_weight derives 1 from it"
+        );
+    }
+
+    /// A domain missing only CAA (weight 1) vs missing only DMARC (weight 3) —
+    /// identical Coverage, but RWS separates them (spec §1 test 2).
+    #[test]
+    fn risk_weighted_score_reveals_what_coverage_hides() {
+        // All present except CAA absent.
+        let missing_caa = [
+            dnssec_report(DnssecDisposition::SignedAndDelegated),
+            spf_report(SpfDisposition::HardFail),
+            dkim_report(DkimDisposition::Verified),
+            dmarc_report(DmarcDisposition::Reject),
+            dane_report(DaneDisposition::TlsaPublished, TlsaZone::SameZone),
+            mta_sts_report(MtaStsDisposition::Enforced),
+            caa_report(CaaDisposition::NotConfigured), // absent (weight 1)
+            cds_report(CdsDisposition::Published),
+        ];
+        // All present except DMARC absent.
+        let missing_dmarc = [
+            dnssec_report(DnssecDisposition::SignedAndDelegated),
+            spf_report(SpfDisposition::HardFail),
+            dkim_report(DkimDisposition::Verified),
+            dmarc_report(DmarcDisposition::NotConfigured), // absent (weight 3)
+            dane_report(DaneDisposition::TlsaPublished, TlsaZone::SameZone),
+            mta_sts_report(MtaStsDisposition::Enforced),
+            caa_report(CaaDisposition::Configured),
+            cds_report(CdsDisposition::Published),
+        ];
+
+        // Identical Coverage Score (both 7/8).
+        assert_eq!(
+            Tally::of(&missing_caa).percent(),
+            Tally::of(&missing_dmarc).percent()
+        );
+        // RWS separates them: missing DMARC (weight 3) drags harder than missing CAA (weight 1).
+        let rws_caa = risk_weighted_score(&missing_caa).unwrap();
+        let rws_dmarc = risk_weighted_score(&missing_dmarc).unwrap();
+        assert!(
+            rws_dmarc < rws_caa,
+            "missing DMARC (weight 3) must lower RWS more than missing CAA (weight 1): \
+             {rws_dmarc} vs {rws_caa}"
+        );
+        // Exact arithmetic (max denominator 18): missing CAA = 17/18, missing DMARC = 15/18.
+        assert_eq!(rws_caa, 94); // 17/18
+        assert_eq!(rws_dmarc, 83); // 15/18
+    }
+
+    /// Tests 3 + 4 — Indet (Unmeasured) and NotApplicable are excluded from both
+    /// sums; adding them must not move RWS.
+    #[test]
+    fn risk_weighted_score_excludes_unmeasured_and_not_applicable() {
+        let base = [
+            dnssec_report(DnssecDisposition::SignedAndDelegated), // Present (3)
+            spf_report(SpfDisposition::NotConfigured),            // Absent (3)
+            dkim_report(DkimDisposition::NotProbed),              // Indet — excluded
+            dmarc_report(DmarcDisposition::Reject),               // Present (3)
+            dane_report(DaneDisposition::NoMail, TlsaZone::NoMxHost), // N/A — excluded
+            mta_sts_report(MtaStsDisposition::Enforced),          // Present (3)
+            caa_report(CaaDisposition::NotConfigured),            // Absent (1)
+            cds_report(CdsDisposition::NotPublished),             // Absent (1)
+        ];
+        // Present: DNSSEC(3) + DMARC(3) + MTA-STS(3) = 9; Absent: SPF(3) + CAA(1) + CDS(1) = 5.
+        // RWS = 9 / 14 = 64.
+        let rws = risk_weighted_score(&base).unwrap();
+        assert_eq!(rws, 64); // 9/14
+        assert_eq!(Tally::of(&base).percent(), 50); // 3/6 coverage — RWS ≠ coverage here
+    }
+
+    /// Test 6 — all-Absent → 0, all-Present → 100; test 5 — bounds hold.
+    #[test]
+    fn risk_weighted_score_bounds_zero_and_full() {
+        let all_absent = [
+            dnssec_report(DnssecDisposition::Unsigned),    // High → 3
+            spf_report(SpfDisposition::NotConfigured),     // 3
+            dkim_report(DkimDisposition::Revoked),         // 3
+            dmarc_report(DmarcDisposition::NotConfigured), // 3
+            dane_report(DaneDisposition::NotConfigured, TlsaZone::SameZone), // 1
+            mta_sts_report(MtaStsDisposition::RecordAbsent), // 3
+            caa_report(CaaDisposition::NotConfigured),     // 1
+            cds_report(CdsDisposition::NotPublished),      // 1
+        ];
+        assert_eq!(risk_weighted_score(&all_absent), Some(0));
+
+        let all_present = [
+            dnssec_report(DnssecDisposition::SignedAndDelegated),
+            spf_report(SpfDisposition::HardFail),
+            dkim_report(DkimDisposition::Verified),
+            dmarc_report(DmarcDisposition::Reject),
+            dane_report(DaneDisposition::TlsaPublished, TlsaZone::SameZone),
+            mta_sts_report(MtaStsDisposition::Enforced),
+            caa_report(CaaDisposition::Configured),
+            cds_report(CdsDisposition::Published),
+        ];
+        assert_eq!(risk_weighted_score(&all_present), Some(100));
+    }
+
+    /// Test 8 — identity weight, not state weight: a p=none DMARC (Monitor,
+    /// Medium) weighs the SAME as a p=reject DMARC (Reject, Ok). Both are
+    /// Present → full identity weight (3). The enforcement gap is a label fact.
+    #[test]
+    fn risk_weighted_score_identity_not_state() {
+        let p_reject = dmarc_report(DmarcDisposition::Reject); // Ok
+        let p_none = dmarc_report(DmarcDisposition::Monitor); // Medium
+        assert_eq!(p_reject.severity, Severity::Ok);
+        assert_eq!(p_none.severity, Severity::Medium);
+        // Both Present → both contribute identity_weight(DMARC) = 3.
+        assert_eq!(identity_weight(ControlId::Dmarc), 3);
+        // And the score does not vary on the severity of a Present control:
+        // build two models identical except the DMARC enforcement level.
+        let mut reject_model = [
+            dnssec_report(DnssecDisposition::SignedAndDelegated),
+            spf_report(SpfDisposition::HardFail),
+            dkim_report(DkimDisposition::Verified),
+            p_reject,
+            dane_report(DaneDisposition::TlsaPublished, TlsaZone::SameZone),
+            mta_sts_report(MtaStsDisposition::Enforced),
+            caa_report(CaaDisposition::Configured),
+            cds_report(CdsDisposition::Published),
+        ];
+        let none_model = {
+            reject_model[3] = p_none;
+            reject_model
+        };
+        assert_eq!(
+            risk_weighted_score(&reject_model),
+            risk_weighted_score(&none_model),
+            "a Present DMARC weighs the same whether p=reject (Ok) or p=none (Medium)"
+        );
+    }
+
+    /// Nothing measured → None (never a fake 100), matching the Coverage Score's
+    /// "nothing measured" doctrine.
+    #[test]
+    fn risk_weighted_score_none_when_nothing_measured() {
+        let nothing = [
+            dnssec_report(DnssecDisposition::Unreachable),
+            spf_report(SpfDisposition::TransientError),
+            dkim_report(DkimDisposition::NotProbed),
+            dmarc_report(DmarcDisposition::TransientError),
+            dane_report(DaneDisposition::TransientError, TlsaZone::SameZone),
+            mta_sts_report(MtaStsDisposition::TransientError),
+            caa_report(CaaDisposition::TransientError),
+            cds_report(CdsDisposition::TransientError),
+        ];
+        assert_eq!(risk_weighted_score(&nothing), None);
+    }
+
+    /// Test 1 — degenerate: when the only measured controls share one weight,
+    /// RWS == Coverage. Construct with only the three Low controls measured.
+    #[test]
+    fn risk_weighted_score_degenerate_equals_coverage() {
+        let model = [
+            dnssec_report(DnssecDisposition::Unreachable), // Indet — excluded
+            spf_report(SpfDisposition::TransientError),    // Indet
+            dkim_report(DkimDisposition::NotProbed),       // Indet
+            dmarc_report(DmarcDisposition::TransientError), // Indet
+            dane_report(DaneDisposition::TlsaPublished, TlsaZone::SameZone), // Present (1)
+            mta_sts_report(MtaStsDisposition::TransientError), // Indet
+            caa_report(CaaDisposition::NotConfigured),     // Absent (1)
+            cds_report(CdsDisposition::NotPublished),      // Absent (1)
+        ];
+        // Measured controls: DANE (Present 1), CAA (Absent 1), CDS (Absent 1).
+        // Coverage = 1/3 = 33; RWS = 1/3 = 33 (equal because all weight 1).
+        assert_eq!(Tally::of(&model).percent(), 33);
+        assert_eq!(risk_weighted_score(&model), Some(33));
+    }
+
+    /// Test 10 — SCORING_VERSION and SEAL_SCHEME are distinct, independently
+    /// bumpable constants: a formula change bumps the former, never the latter.
+    #[test]
+    fn scoring_version_is_distinct_from_seal_scheme() {
+        use crate::seal::SEAL_SCHEME;
+        // SCORING_VERSION starts at 1 and is a u32; SEAL_SCHEME is a &str —
+        // structurally distinct provenance axes (a formula bump cannot collide
+        // with a seal-scheme bump). The one load-bearing fact: the seal scheme
+        // string identifies the SEAL scheme, not the scoring formula.
+        assert_eq!(SCORING_VERSION, 1);
+        assert_eq!(SEAL_SCHEME, "resolution-scope-sha3-512-v3");
     }
 }

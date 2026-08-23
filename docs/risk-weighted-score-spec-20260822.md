@@ -1,8 +1,8 @@
-# Option B — Risk-Weighted Score (SPEC, awaiting review)
+# Option B — Risk-Weighted Score (SPEC, settled — implementation unblocked)
 
-**Status:** SPEC — written for review, **zero code written**. This is the "shape on paper
-before code" deliverable. Nothing here is implemented; the acceptance tests are the contract
-the implementation must satisfy.
+**Status:** SPEC — settled. Identity-weighting (§12) decided by Carey; the three superseded
+state-weighting residues (§4 mapping, §4 subtlety, §11 sketch, test 8) corrected 2026-08-23.
+Acceptance tests (§10) are the frozen contract the implementation must satisfy.
 **Date:** 2026-08-22 · **Lane:** Hermes (instrument) · **Decision:** Carey approved Option B
 (2026-08-22) — "yes to the transparency… best practice is the B… keep the data, change the
 thing, disclose like science."
@@ -65,40 +65,45 @@ range, with the qualitative meaning carried by the severity tier, not by an open
 
 ---
 
-## 4. Weight derivation — single-producer (no new table)
+## 4. Weight derivation — identity-weighting, single-producer (no new table)
 
-The weight is **not** a hand-maintained list. It is a pure function of the `Severity` the code
-**already computes** in `truth_chain.rs`:
+The weight is **not** a hand-maintained list. It is a pure function of each control's
+**absent-state severity** — the "you don't have this" consequence — read from the `*_report`
+constructor the code **already computes** in `truth_chain.rs`:
 
 ```
-weight(s) = match s {
-    Severity::Critical       => 4,
-    Severity::High           => 3,
-    Severity::Medium         => 2,
-    Severity::Low            => 1,
-    Severity::Ok             => 0,
-    Severity::Unmeasured     => EXCLUDED,   // Indet — not in denominator
-    Severity::NotApplicable  => EXCLUDED,   // N/A — not in denominator
-}
+identity_weight(control) = severity_number( absent_severity(control) )
 ```
 
-The severity semantics are already load-bearing and documented at `truth_chain.rs:92–102`:
+where `absent_severity(control)` is the `severity` field of that control's "missing" disposition
+(`dmarc_report(DmarcDisposition::NotConfigured).severity`, `dane_report(DaneDisposition::NotConfigured, ..).severity`, …), and `severity_number` maps:
 
+```
+Critical => 4,   High => 3,   Medium => 2,   Low => 1
+```
+
+**SUPERSEDED (revision 1):** the earlier draft derived the weight from the control's *current-state*
+severity (`severity_weight(state)`), where a `p=none` DMARC "weighs 2" and a `p=reject` "weighs 0".
+That was the state-weighting model §12 rejects: the weight must be the control's **identity**, not
+its **state**, so a Present control earns its full weight whether enforcing or not.
+
+The severity semantics (documented at `truth_chain.rs:92–102`):
 - **Critical** — deployed but WRONG (broken chain, key/TLSA mismatch).
 - **High** — absent enforcement with a direct spoofing/interception surface.
-- **Medium** — deployed but not enforcing (§8 ruling: Present + enforcement gap).
+- **Medium** — deployed but not enforcing.
 - **Low** — hardening absent (CAA, CDS, TLSA) or a precondition gap.
 
-Because `weight` is derived from `Severity` (which the `*_report` constructors already assign),
-**any future severity re-ruling automatically propagates to the weight.** No second table to
-drift. This is the same single-producer rule that governs the seal and the citation boundary.
+Because `identity_weight` reads the **absent-state** severity (via the `*_report` constructor for
+that control's "missing" disposition), **any future severity re-ruling automatically propagates to
+the weight.** No second table to drift. This is the same single-producer rule that governs the seal
+and the citation boundary.
 
-> **Critical subtlety (read carefully):** the weight uses the severity of the control's
-> **current state**, not a fixed per-control constant. A DMARC at `p=none` is `Medium` (weight 2),
-> a DMARC at `p=reject` is `Ok` (weight 0 but Present), a DMARC *missing* is `High` (weight 3).
-> This is correct and intentional: a deployed-but-not-enforcing control covers **less** of its
-> threat surface than an enforced one — which is the "p=none means your work's not done"
-> doctrine, now *in the score* instead of only in the label.
+> **Identity, not state (the settled ruling — §12):** the weight is the control's fixed identity
+> weight, keyed on its absent-state severity, NEVER its current state. A DMARC at `p=none` is
+> Present and earns DMARC's FULL identity weight (3), exactly like a `p=reject` DMARC — the
+> enforcement gap (`p=none` vs `p=reject`) is carried by the **severity label** (`Medium` vs `Ok`)
+> and the **finding narrative**, never a fractional weight. Only High (3) and Low (1) are ever
+> produced as identity weights, because no control's "missing" disposition is Medium or Critical.
 
 ---
 
@@ -172,7 +177,8 @@ v0.2.0 — introduces Risk-Weighted Score (RWS) alongside Coverage Score.
          Coverage Score (unweighted) is preserved as the primary measurement and remains
          sealed under the existing scheme. RWS is a derived view of the same sealed
          dispositions, computed on read, tagged SCORING_VERSION=1. Formula: Σweight(Present)
-         ÷ Σweight(Present+Absent), weight = f(Severity) [Critical 4, High 3, Medium 2, Low 1].
+         ÷ Σweight(Present+Absent), weight = identity_weight(control) — the control's
+         absent-state severity (High 3 / Low 1), never its current state.
 ```
 
 ---
@@ -234,8 +240,10 @@ against a frozen contract, not "whatever it does."
    `dmarc_report(DmarcDisposition::NotConfigured).severity == Severity::High` — so a future
    severity re-ruling changes the weight automatically. (One assertion per source, per the
    mutation method.)
-8. **p=none partial credit.** `dmarc_report(Monitor)` (Present, Medium) contributes weight 2 to
-   the numerator — a deployed-but-not-enforcing control covers *part* of its surface, not all.
+8. **Identity weight, not state weight.** A `p=none` DMARC (`dmarc_report(Monitor)`, Present,
+   Medium) contributes DMARC's FULL identity weight (3) to the numerator — identical to a
+   `p=reject` DMARC (`Ok`). The enforcement gap is a severity fact, never a weight fact: two
+   Present DMARCs weigh the same, and their difference lives in the label, not the score.
 9. **Seal invariance.** `seal(dispositions)` is byte-identical before and after the RWS code
    lands, and across any `SCORING_VERSION` — proving the formula change did not touch the seal.
 10. **Version tagging.** The derived RWS carries `SCORING_VERSION`; a formula change bumps that
@@ -244,7 +252,7 @@ against a frozen contract, not "whatever it does."
 
 ---
 
-## 11. Rust implementation sketch (not committed)
+## 11. Rust implementation sketch (identity-weighting, supersedes the severity_weight draft)
 
 ```rust
 // truth_chain.rs — ADD (not edit): the derived score, alongside the existing Tally.
@@ -254,18 +262,34 @@ against a frozen contract, not "whatever it does."
 /// this is a derived view over those same sealed dispositions).
 pub const SCORING_VERSION: u32 = 1;
 
-/// The consequence weight of a control's CURRENT state. Derived from Severity
-/// (single producer) — never a hand-maintained per-control table.
-/// Unmeasured/NotApplicable are excluded (they contribute to no sum).
-pub fn severity_weight(s: Severity) -> Option<u32> {
-    match s {
-        Severity::Critical => Some(4),
-        Severity::High     => Some(3),
-        Severity::Medium   => Some(2),
-        Severity::Low      => Some(1),
-        Severity::Ok       => Some(0),   // present & enforced: covers, weights 0 as a "risk"
-        Severity::Unmeasured    => None,
-        Severity::NotApplicable => None,
+/// The consequence weight of a control, keyed on its IDENTITY (its absent-state
+/// severity), NOT its current state. Derived from the `*_report` constructor for
+/// that control's "missing" disposition — single producer, so a future severity
+/// re-ruling propagates automatically. Only High (3) and Low (1) are produced:
+/// no control's missing disposition is Medium or Critical.
+pub fn identity_weight(control: ControlId) -> u32 {
+    match absent_severity(control) {
+        Severity::High => 3,
+        Severity::Low => 1,
+        // Unreachable by construction (absent-state severities are High or Low).
+        _ => 0,
+    }
+}
+
+/// The severity of a control's "you don't have this" disposition — read from the
+/// report constructor, never a hand-kept table.
+fn absent_severity(control: ControlId) -> Severity {
+    match control {
+        ControlId::Dnssec => dnssec_report(DnssecDisposition::Unsigned).severity,
+        ControlId::Spf => spf_report(SpfDisposition::NotConfigured).severity,
+        // DKIM's "missing" state is Revoked (empty p=, unsigned in practice → High),
+        // NOT NotFoundDefaults (Unmeasured — the honest "absence not proven" state).
+        ControlId::Dkim => dkim_report(DkimDisposition::Revoked).severity,
+        ControlId::Dmarc => dmarc_report(DmarcDisposition::NotConfigured).severity,
+        ControlId::MtaSts => mta_sts_report(MtaStsDisposition::RecordAbsent).severity,
+        ControlId::Dane => dane_report(DaneDisposition::NotConfigured, TlsaZone::SameZone).severity,
+        ControlId::Caa => caa_report(CaaDisposition::NotConfigured).severity,
+        ControlId::Cds => cds_report(CdsDisposition::NotPublished).severity,
     }
 }
 
@@ -274,10 +298,10 @@ pub fn severity_weight(s: Severity) -> Option<u32> {
 /// `None` when nothing is measurable (denominator 0) — same honest "unmeasured"
 /// handling as Coverage Score.
 pub fn risk_weighted_score(reports: &[ControlReport; 8]) -> Option<u32> {
-    let mut covered: u32 = 0;   // Σ weight where tri == Present
-    let mut surface: u32 = 0;   // Σ weight where tri ∈ {Present, Absent}
+    let mut covered: u32 = 0;   // Σ identity_weight where tri == Present
+    let mut surface: u32 = 0;   // Σ identity_weight where tri ∈ {Present, Absent}
     for r in reports {
-        let Some(w) = severity_weight(r.severity) else { continue };
+        let w = identity_weight(r.control);
         match r.tri {
             TriState::Present => { covered += w; surface += w; }
             TriState::Absent  => { surface += w; }
@@ -293,16 +317,13 @@ pub fn risk_weighted_score(reports: &[ControlReport; 8]) -> Option<u32> {
 // SCORING_VERSION as metadata on the latter.
 ```
 
-> Note on `Severity::Ok => Some(0)`: an enforced control contributes weight **0** as a
-> *risk*, meaning it neither adds to the "covered" sum nor to the "surface" sum beyond its
-> presence. This is the degenerate-safe choice: if every present control were `Ok`, the RWS
-> would still need to read 100 for an all-Present domain. **The sketch above must be reconciled
-> with test #6 (all-Present → 100) before it is considered correct** — flagged here as the one
-> open arithmetic edge the implementer must resolve, not silently decide. The correct
-> resolution is almost certainly: an `Ok`/Present control *does* cover its surface, so it
-> contributes its *identity* weight, not 0 — which reintroduces the need for a per-control
-> identity weight distinct from the state severity. **This is the single design point the spec
-> leaves for the review to settle** (see §12).
+> **Resolved (identity-weighting):** the revision-1 sketch used `severity_weight(state)` — a
+> Present control's *state* severity determined its weight, so an `Ok`/enforced control weighed 0.
+> That is superseded by §12: the weight is keyed on the control's **identity** (`identity_weight`),
+> so a Present control contributes its full weight whether enforcing (`Ok`) or deployed-but-not
+> enforcing (`Medium`). The `Ok => 0` edge is gone — an all-Present domain now correctly reads
+> 100 by construction (test 6), because every Present control contributes its identity weight to
+> both sums.
 
 ---
 
@@ -336,4 +357,5 @@ derived from the absent-state severity of that control (so a future severity re-
 propagates to the weight automatically, via the `*_report` constructor it reads).
 
 **This closes the last open design point. The spec is settled; implementation is unblocked
-pending Carey's review of §3 (formula), §10 (acceptance tests), and §11 (sketch).**
+(Carey 2026-08-23 "let's move forward"; Claude Science go unconditional once the three
+state-weighting residues landed — they have).**
