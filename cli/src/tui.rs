@@ -771,24 +771,28 @@ fn render_ui(f: &mut Frame, app: &App) {
 
 fn framing_word(a: Audience) -> &'static str {
     match a {
-        Audience::BlueTeam => "BLUE \u{00b7} defend",
-        Audience::RedTeam => "RED \u{00b7} assess",
+        Audience::BlueTeam => "BLUE TEAM \u{00b7} defend",
+        Audience::RedTeam => "RED TEAM \u{00b7} assess",
     }
 }
 
 fn render_header(f: &mut Frame, area: Rect, app: &App) {
     let p = app.pal;
     let muted = Style::default().fg(p.muted);
+    // The brand mark is the owl of the family standard — the same glyph in
+    // both modes; the palette carries the epistemic state (blue defend /
+    // red assess).
+    let mark = "\u{1f989}";
     let line1 = Line::from(vec![
         Span::styled(
-            "\u{26a1} RESOLUTION SCOPE ",
+            format!("{mark} RESOLUTION SCOPE "),
             Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
         ),
-        Span::styled("\u{2502} framing: ", muted),
+        Span::styled("\u{2502} ", muted),
         Span::styled(framing_word(app.audience), Style::default().fg(p.warn)),
         Span::styled(
             format!(
-                " \u{2502} [{}/{}] ",
+                " \u{2502} domain {}/{} ",
                 app.current_domain + 1,
                 app.domains.len()
             ),
@@ -859,9 +863,9 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
     };
     let line3 = Line::from(Span::styled(
         if wide {
-            "1-7:tabs  j/k:select  enter:open  esc:back  m:framing  r:re-measure  tab:domain  d:add  q:quit"
+            "1-7 tabs · ↑/↓ or j/k select · enter open · esc back · m mode · r re-measure · tab next domain · d add · q quit"
         } else {
-            "1-7 tabs \u{00b7} j/k \u{00b7} enter \u{00b7} esc \u{00b7} m framing \u{00b7} r \u{00b7} tab \u{00b7} d add \u{00b7} q quit"
+            "1-7 · j/k · enter · esc · m · r · tab · d · q"
         },
         muted,
     ));
@@ -920,14 +924,16 @@ fn render_content(f: &mut Frame, area: Rect, app: &App) {
             domain, started, ..
         } => {
             // The honest waiting screen: what is being measured, from where,
-            // how long so far. The controls are listed because they ARE the
-            // measurement; no per-control state is shown because the engine
-            // reports all eight together (per-control events are engine work).
+            // how long so far. Pressing r again is absorbed (the in-flight
+            // measurement is not restarted) — the footer says so. The
+            // controls are listed because they ARE the measurement; no
+            // per-control state is shown because the engine reports all
+            // eight together (per-control events are engine work).
             let muted = Style::default().fg(p.muted);
             let mut v = vec![
                 Line::from(Span::styled(
-                    format!("\u{2550}\u{2550} measuring {domain} \u{2550}\u{2550}"),
-                    Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
+                    format!("\u{2550}\u{2550} MEASURING {domain} \u{2550}\u{2550}"),
+                    Style::default().fg(p.warn).add_modifier(Modifier::BOLD),
                 )),
                 Line::from(""),
             ];
@@ -1032,7 +1038,7 @@ fn render_footer(f: &mut Frame, area: Rect, app: &App) {
             TAB_LABELS[app.selected_tab]
         ),
         ScanState::Measuring { started, .. } => format!(
-            "measuring \u{2026} {:.1}s  \u{2502}  domain {}/{}",
+            "measuring \u{2026} {:.1}s  \u{2502}  domain {}/{}  \u{2502}  r again = ignored",
             started.elapsed().as_secs_f64(),
             app.current_domain + 1,
             app.domains.len()
@@ -1062,7 +1068,16 @@ fn handle_input(app: &mut App, code: KeyCode, modifiers: KeyModifiers) -> Action
             app.toggle_audience();
             Action::Nothing
         }
-        (KeyCode::Char('r'), _) => Action::Rescan,
+        (KeyCode::Char('r'), _) => {
+            // Absorb repeat presses while a measurement is in flight — an
+            // impatient r-mash must not abort and restart the scan that is
+            // already running.
+            if matches!(app.scan, ScanState::Measuring { .. }) {
+                Action::Nothing
+            } else {
+                Action::Rescan
+            }
+        }
         // Summary tab: j/k moves the finding cursor, and past either end
         // scrolls the page (so the score lines under the last row are
         // reachable on a 24-row terminal). Detail tabs: j/k scrolls.
@@ -1117,14 +1132,25 @@ fn handle_input(app: &mut App, code: KeyCode, modifiers: KeyModifiers) -> Action
             app.scroll = 0;
             Action::Nothing
         }
-        // crossterm reports Shift-Tab as BackTab, never Tab+SHIFT.
+        // Tab/Shift-Tab switch domains — but only when there is more than
+        // one. On a single-domain session a switch is a no-op: re-measuring
+        // the same domain is `r`'s job, and silently restarting the scan
+        // reads as the app freezing (found live, 2026-08-23).
         (KeyCode::BackTab, _) => {
-            app.prev_domain();
-            Action::SwitchDomain
+            if app.domains.len() > 1 {
+                app.prev_domain();
+                Action::SwitchDomain
+            } else {
+                Action::Nothing
+            }
         }
         (KeyCode::Tab, _) => {
-            app.next_domain();
-            Action::SwitchDomain
+            if app.domains.len() > 1 {
+                app.next_domain();
+                Action::SwitchDomain
+            } else {
+                Action::Nothing
+            }
         }
         (KeyCode::Char('d'), _) => {
             app.input_mode = InputMode::Domain;
@@ -1488,7 +1514,7 @@ mod tests {
         assert_eq!(a.audience, Audience::BlueTeam);
         handle_input(&mut a, KeyCode::Char('m'), KeyModifiers::NONE);
         assert_eq!(a.audience, Audience::RedTeam);
-        assert_eq!(framing_word(a.audience), "RED \u{00b7} assess");
+        assert_eq!(framing_word(a.audience), "RED TEAM \u{00b7} assess");
         handle_input(&mut a, KeyCode::Char('m'), KeyModifiers::NONE);
         assert_eq!(a.audience, Audience::BlueTeam);
     }
@@ -1547,7 +1573,7 @@ mod tests {
 
     #[tokio::test]
     async fn r_and_tab_request_a_measurement() {
-        let mut a = app(&["example.com"]);
+        let mut a = app(&["example.com", "example.org"]);
         assert_eq!(
             handle_input(&mut a, KeyCode::Char('r'), KeyModifiers::NONE),
             Action::Rescan
@@ -1555,6 +1581,38 @@ mod tests {
         assert_eq!(
             handle_input(&mut a, KeyCode::Tab, KeyModifiers::NONE),
             Action::SwitchDomain
+        );
+    }
+
+    #[tokio::test]
+    async fn tab_is_a_noop_with_a_single_domain() {
+        // A single-domain session must not re-measure on Tab — that read as
+        // the app freezing (found live, 2026-08-23).
+        let mut a = app(&["example.com"]);
+        assert_eq!(
+            handle_input(&mut a, KeyCode::Tab, KeyModifiers::NONE),
+            Action::Nothing
+        );
+        assert_eq!(
+            handle_input(&mut a, KeyCode::BackTab, KeyModifiers::SHIFT),
+            Action::Nothing
+        );
+        assert_eq!(a.current_domain, 0, "still on the only domain");
+    }
+
+    #[tokio::test]
+    async fn r_is_absorbed_while_measuring() {
+        // An impatient r-mash must not restart the in-flight measurement.
+        let mut a = app(&["example.com"]);
+        a.start_scan();
+        assert!(
+            matches!(a.scan, ScanState::Measuring { .. }),
+            "scan started"
+        );
+        assert_eq!(
+            handle_input(&mut a, KeyCode::Char('r'), KeyModifiers::NONE),
+            Action::Nothing,
+            "r while measuring is absorbed, not restarted"
         );
     }
 
