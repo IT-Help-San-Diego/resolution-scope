@@ -67,6 +67,22 @@ This vector has no cartoon villain; it is a collision of two legitimate goods, a
 3. **Privacy/proxy services** (GoDaddy, Namecheap proxying). A *second* redaction layer on top of the registry's own — replaces the holder's data with a forwarding proxy contact.
 4. **Bulk collectors** (passive DNS, CT logs, zone-file accumulation). Their appetite is indifferent to redaction — they get the data through another door, so redaction punishes the *legitimate* analyst while leaving the bulk collector untouched.
 
+### The two privacies are opposites (the reality check)
+
+The opposition landscape above flattens two things that must stay separate. **Privacy-for-sale and legitimate redaction are not the same "privacy" — one hides the signal, the other labels the carrier.**
+
+- **Privacy-for-sale** (proxy services, resellers) = *undeclared withholding.* The field shows a fake proxy contact that masquerades as the real one; the real PII still exists (ICANN §6 mandates collection) and is resold. The product IS the deception.
+- **Legitimate redaction** (RFC 9537, the RDP, `.gov`'s `_disclose_fields`) = *declared withholding.* The response carries an explicit `"redacted"` member — "a value exists, I am not publishing it, here is how and which field." The withholding is itself the signal.
+
+**The separating test** (ask both, of any withholding):
+
+1. *Does the withholding declare itself?* Proxy: no. RFC 9537 redaction: yes.
+2. *Does the security-relevant signal survive?* Proxy: no (obscures who controls the domain). Redaction: yes (lifecycle/status/delegation stay public under §9.1).
+
+**Incentive structure** (read the revenue model, not the words): the privacy-proxy business requires the data to keep existing and the hiding to stay paid, so it is structurally incentivized to keep collecting and to resell. Legitimate redaction is a uniform policy applied to a class — no extractive incentive. **Named, not convicted:** GoDaddy, the largest seller of privacy-as-a-service, is also a co-author of RFC 9537, the standard for *declaring* redaction. The standard is neutral-good (declaring beats not); the product is where the misalignment lives.
+
+**The signal/carrier mapping** (this vector's load-bearing conclusion): the **signal is the lifecycle** — creation, expiry, status, delegation — and §9.1 *requires* it published because it is the security-relevant truth. The **carrier is the human** — name, phone, email — and §9.2 *allows* it redacted because it is the doxxing/harassment surface. **Keep the signal public, withhold the carrier, declare the withholding.** That is Carrier Color Theory written into registration-data governance, and it is the same distinction as an undeclared denial (deny the question exists, attack the asker) versus a declared withholding (admit a value, say you're withholding) — the metacognitive move.
+
 ---
 
 ## Mapping to engine doctrine
