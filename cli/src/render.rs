@@ -34,8 +34,9 @@ pub const RISK_WEIGHTED_NOTE: &str =
 pub const EXCLUDED_NOTE: &str = "excluded from both scores";
 /// The seal's one honest claim.
 pub const SEAL_NOTE: &str =
-    "tamper-evidence only: hash these exact bytes under the named scheme and you \
-re-derive the seal — it proves the verdict you hold is the one that was sealed, nothing more";
+    "tamper-evidence only: hash these exact bytes under the named scheme (every line, the last \
+included, ends in a newline) and you re-derive the seal — it proves the verdict you hold is the \
+one that was sealed, nothing more";
 
 /// Tier labels — layout over the engine's Severity ordering.
 pub const TIER_FINDINGS: &str = "FINDINGS";
@@ -106,11 +107,23 @@ impl Observation {
     }
 }
 
-/// Unix epoch seconds → `YYYY-MM-DD HH:MM:SS UTC`. Pure presentation of the
-/// engine's `timestamp_local` (which IS UTC — the field name predates the
-/// zone label). Civil-from-days per Howard Hinnant's algorithm; no
-/// dependency, no local zone.
+/// Unix epoch seconds → `YYYY-MM-DD HH:MM:SS UTC`, the human form. Pure
+/// presentation of the engine's `timestamp_local` (which IS UTC — the field
+/// name predates the zone label). Civil-from-days per Howard Hinnant's
+/// algorithm; no dependency, no local zone.
 pub fn iso_utc(epoch: u64) -> String {
+    let (y, mo, d, h, m, s) = civil_utc(epoch);
+    format!("{y:04}-{mo:02}-{d:02} {h:02}:{m:02}:{s:02} UTC")
+}
+
+/// Unix epoch seconds → RFC 3339 `YYYY-MM-DDTHH:MM:SSZ`, the machine form
+/// (parseable by stock JSON tooling).
+pub fn rfc3339_utc(epoch: u64) -> String {
+    let (y, mo, d, h, m, s) = civil_utc(epoch);
+    format!("{y:04}-{mo:02}-{d:02}T{h:02}:{m:02}:{s:02}Z")
+}
+
+fn civil_utc(epoch: u64) -> (i64, i64, i64, u64, u64, u64) {
     let days = (epoch / 86_400) as i64;
     let secs = epoch % 86_400;
     let (h, m, s) = (secs / 3600, (secs % 3600) / 60, secs % 60);
@@ -124,7 +137,7 @@ pub fn iso_utc(epoch: u64) -> String {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let mo = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = if mo <= 2 { y + 1 } else { y };
-    format!("{y:04}-{mo:02}-{d:02} {h:02}:{m:02}:{s:02} UTC")
+    (y, mo, d, h, m, s)
 }
 
 // ── text surfaces ────────────────────────────────────────────────────────
@@ -177,8 +190,8 @@ fn render_text_surface(analyses: &[ScoredAnalysis], audience: Audience, opts: Te
             a.domain
         ));
         s.push_str(&format!(
-            "engine {} \u{00b7} resolver {} \u{00b7} {} (epoch {})\n",
-            obs.engine, obs.resolver, obs.when_utc, obs.epoch
+            "engine {} \u{00b7} resolver {} \u{00b7} {} (epoch {}) \u{00b7} session {}\n",
+            obs.engine, obs.resolver, obs.when_utc, obs.epoch, obs.session_hex
         ));
         if opts.rederive {
             s.push_str(&format!("seal   {}\n", obs.seal));
@@ -231,7 +244,7 @@ fn render_text_surface(analyses: &[ScoredAnalysis], audience: Audience, opts: Te
             RISK_WEIGHTED_NOTE,
         ));
         s.push_str(&format!(
-            "unmeasured: {} \u{00b7} not applicable: {}  \u{2014} {}\n",
+            "? (indeterminate): {} \u{00b7} N/A (not applicable): {}  \u{2014} {}\n",
             t.unmeasured, t.not_applicable, EXCLUDED_NOTE,
         ));
 
@@ -265,10 +278,12 @@ pub fn render_text_report(analyses: &[ScoredAnalysis]) -> String {
 /// (every disposition enum + every tri-state — the Arm-1 join contract, all
 /// 16 verdict keys by their exact names) PLUS the measurement conditions a
 /// consumer needs to verify and to score without re-implementing either:
-/// seal, seal_scheme, engine_version, session_hex, timestamp_utc, coverage,
-/// risk_weighted, scoring_version. Additive only — no verdict key is
-/// renamed, re-typed or nested. One object per domain, newline separated,
-/// so `resolution-scope example.com --format json | jq` composes.
+/// seal, seal_scheme, engine_version, session_hex, timestamp_utc (RFC 3339,
+/// the same instant as the engine's epoch `timestamp_local`, which is UTC
+/// despite its name), coverage, risk_weighted, scoring_version. Additive only
+/// — no verdict key is renamed, re-typed or nested; keys serialize sorted.
+/// One object per domain, newline separated, so
+/// `resolution-scope example.com --format json | jq` composes.
 pub fn render_json(analyses: &[ScoredAnalysis]) -> String {
     let mut s = String::new();
     for a in analyses {
@@ -283,7 +298,10 @@ pub fn render_json(analyses: &[ScoredAnalysis]) -> String {
         obj.insert("seal_scheme".into(), obs.scheme.into());
         obj.insert("engine_version".into(), obs.engine.clone().into());
         obj.insert("session_hex".into(), obs.session_hex.clone().into());
-        obj.insert("timestamp_utc".into(), obs.when_utc.clone().into());
+        obj.insert(
+            "timestamp_utc".into(),
+            rfc3339_utc(a.timestamp_local).into(),
+        );
         obj.insert(
             "coverage".into(),
             serde_json::json!({
@@ -337,7 +355,7 @@ pub fn render_history(domain: &str, history: &[StoredScan]) -> String {
         SEAL_SCHEME,
     ));
     s.push_str(
-        "  id     measured (UTC)        engine   coverage     risk-weighted          seal              check\n",
+        "  id     measured                 engine   coverage     risk-weighted           seal               check\n",
     );
     for h in history {
         let model = truth_chain(&h.verdict);
@@ -444,7 +462,7 @@ pub fn render_html_page(analyses: &[ScoredAnalysis], audience: Audience) -> Stri
             "<dl class=\"scores\">\n\
              <dt>Coverage Score</dt><dd><strong>{p}/{d}</strong> ({pct}%) <span class=\"note\">{cn}</span></dd>\n\
              <dt>Risk-Weighted</dt><dd><strong>{rws}</strong> <span class=\"note\">{rn}</span></dd>\n\
-             <dt>Excluded</dt><dd>unmeasured: {u} \u{00b7} not applicable: {na} <span class=\"note\">{en}</span></dd>\n\
+             <dt>Excluded</dt><dd>? (indeterminate): {u} \u{00b7} N/A (not applicable): {na} <span class=\"note\">{en}</span></dd>\n\
              </dl>\n",
             p = t.present,
             d = t.denominator(),
@@ -735,7 +753,7 @@ mod tests {
         assert_eq!(v["seal_scheme"], SEAL_SCHEME);
         assert_eq!(v["engine_version"], engine_version());
         assert_eq!(v["session_hex"], "0000000000000000");
-        assert_eq!(v["timestamp_utc"], "2026-08-23 17:52:13 UTC");
+        assert_eq!(v["timestamp_utc"], "2026-08-23T17:52:13Z");
     }
 
     #[test]
@@ -982,6 +1000,19 @@ mod tests {
     }
 
     // ── time ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn rfc3339_is_the_same_instant_in_machine_form() {
+        assert_eq!(rfc3339_utc(1_787_507_533), "2026-08-23T17:52:13Z");
+        assert_eq!(rfc3339_utc(0), "1970-01-01T00:00:00Z");
+    }
+
+    #[test]
+    fn report_header_carries_the_session() {
+        let a = fixture("example.test");
+        let report = render_report(std::slice::from_ref(&a), Audience::BlueTeam);
+        assert!(report.contains("session 0000000000000000"));
+    }
 
     #[test]
     fn iso_utc_matches_known_instants() {

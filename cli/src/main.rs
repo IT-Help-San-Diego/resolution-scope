@@ -202,6 +202,13 @@ fn build_resolver() -> Result<TokioResolver> {
     .build()?)
 }
 
+/// The verb names. A DOMAIN equal to one of these is a mis-ordered
+/// invocation (`resolution-scope example.com history`), never a zone to
+/// measure — clap stops recognising verbs once a root argument has been
+/// seen, so this boundary catches it before 14s of NXDOMAIN probing (or,
+/// with a store, a sealed row for a domain named "history").
+const VERBS: [&str; 3] = ["tui", "history", "help"];
+
 /// Merge the positional list with the hidden `-d` alias, then canonicalise
 /// through the input boundary. Empty → a usage error naming the form.
 fn domains_from(positional: &[String], flag: &[String]) -> Result<Vec<String>> {
@@ -209,6 +216,17 @@ fn domains_from(positional: &[String], flag: &[String]) -> Result<Vec<String>> {
     raw.extend_from_slice(flag);
     if raw.is_empty() {
         anyhow::bail!("at least one domain is required (e.g. `resolution-scope example.com`)");
+    }
+    let is_verb = |d: &String| VERBS.contains(&d.to_ascii_lowercase().as_str());
+    if let Some(verb) = raw.iter().find(|d| is_verb(d)) {
+        let example = raw
+            .iter()
+            .find(|d| !is_verb(d))
+            .map(String::as_str)
+            .unwrap_or("example.com");
+        anyhow::bail!(
+            "{verb:?} is a verb, not a domain — the verb goes first: `resolution-scope {verb} {example}`"
+        );
     }
     Ok(input::canonical_domains(&raw)?)
 }
@@ -226,7 +244,14 @@ async fn main() -> Result<()> {
                 args.audience.into()
             };
             let resolver = build_resolver()?;
-            tui::run(resolver, domains, args.dkim_selector, audience).await
+            tui::run(
+                resolver,
+                RESOLVER_IDENTITY,
+                domains,
+                args.dkim_selector,
+                audience,
+            )
+            .await
         }
         Some(Command::History(args)) => {
             let url = args
@@ -240,12 +265,20 @@ async fn main() -> Result<()> {
             // names the fix.
             let store = resolution_scope_store::Store::connect(url).await?;
             for domain in &domains {
-                let history = store.scan_history(domain).await.with_context(|| {
-                    format!(
-                        "reading history for {domain} — if the store is new, run one scan \
-                         with --store-url first to initialise it"
-                    )
-                })?;
+                let history = match store.scan_history(domain).await {
+                    Ok(h) => h,
+                    Err(e) if e.to_string().contains("does not exist") => {
+                        return Err(e).with_context(|| {
+                            format!(
+                                "reading history for {domain}: the store has no schema yet — \
+                                 run one scan with --store-url first to initialise it"
+                            )
+                        });
+                    }
+                    Err(e) => {
+                        return Err(e).with_context(|| format!("reading history for {domain}"))
+                    }
+                };
                 print!("{}", render::render_history(domain, &history));
             }
             Ok(())
@@ -385,6 +418,25 @@ mod tests {
             tui.command,
             Some(Command::Tui(TuiArgs { covert: true, .. }))
         ));
+    }
+
+    /// `resolution-scope example.com history` must not measure a domain
+    /// called "history" (clap hands the verb to the DOMAIN list once a root
+    /// argument has been seen).
+    #[test]
+    fn a_verb_after_a_domain_is_refused_with_the_right_order_named() {
+        let cli = Cli::try_parse_from(["resolution-scope", "example.com", "history"]).unwrap();
+        assert!(cli.command.is_none(), "clap parses it as two domains");
+        let err = domains_from(&cli.scan.domains, &cli.scan.domains_flag).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("`resolution-scope history example.com`"),
+            "{err}"
+        );
+        let err = domains_from(&["TUI".to_string()], &[]).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("`resolution-scope TUI example.com`"));
     }
 
     #[test]

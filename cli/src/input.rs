@@ -25,6 +25,9 @@ use std::fmt;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InputError {
     Empty,
+    Root,
+    Whitespace(String),
+    IpAddress(String),
     LooksLikeUrl(String),
     NotAscii(String),
     BadLabel { domain: String, label: String },
@@ -37,6 +40,18 @@ impl fmt::Display for InputError {
             InputError::Empty => write!(
                 f,
                 "empty domain — pass a name like `example.com` (an unset shell variable is the usual cause)"
+            ),
+            InputError::Root => write!(
+                f,
+                "`.` is the DNS root, not a zone to measure — pass a name like `example.com`"
+            ),
+            InputError::Whitespace(s) => write!(
+                f,
+                "{s:?} contains whitespace — one domain per argument (e.g. `resolution-scope a.com b.com`)"
+            ),
+            InputError::IpAddress(s) => write!(
+                f,
+                "{s:?} is an IP address — pass the zone name, not an address"
             ),
             InputError::LooksLikeUrl(s) => write!(
                 f,
@@ -68,8 +83,14 @@ pub fn canonical_domain(raw: &str) -> Result<String, InputError> {
     if trimmed.is_empty() {
         return Err(InputError::Empty);
     }
-    if trimmed.contains("://") || trimmed.contains('/') || trimmed.contains(' ') {
+    if trimmed.chars().any(char::is_whitespace) {
+        return Err(InputError::Whitespace(trimmed.to_string()));
+    }
+    if trimmed.contains("://") || trimmed.contains('/') {
         return Err(InputError::LooksLikeUrl(trimmed.to_string()));
+    }
+    if trimmed.parse::<std::net::IpAddr>().is_ok() {
+        return Err(InputError::IpAddress(trimmed.to_string()));
     }
     if !trimmed.is_ascii() {
         return Err(InputError::NotAscii(trimmed.to_string()));
@@ -82,7 +103,7 @@ pub fn canonical_domain(raw: &str) -> Result<String, InputError> {
     if lower.is_empty() {
         // The input was "." — the root. Scanning the root as a customer zone
         // grades mail posture on "." (a real failure mode, caught 2026-08-23).
-        return Err(InputError::Empty);
+        return Err(InputError::Root);
     }
     if lower.len() > 253 {
         return Err(InputError::TooLong(trimmed.to_string()));
@@ -126,20 +147,28 @@ mod tests {
         // `-d ""` scanned the DNS root and graded it as a customer zone.
         assert_eq!(canonical_domain(""), Err(InputError::Empty));
         assert_eq!(canonical_domain("   "), Err(InputError::Empty));
-        assert_eq!(canonical_domain("."), Err(InputError::Empty));
+        assert_eq!(canonical_domain("."), Err(InputError::Root));
     }
 
     #[test]
     fn urls_and_paths_are_refused_with_the_fix_named() {
-        for s in [
-            "https://example.com/",
-            "example.com/path",
-            "http://x",
-            "not a domain",
-        ] {
+        for s in ["https://example.com/", "example.com/path", "http://x"] {
             let e = canonical_domain(s).unwrap_err();
             assert!(matches!(e, InputError::LooksLikeUrl(_)), "{s}: {e:?}");
             assert!(e.to_string().contains("bare domain name"));
+        }
+        let e = canonical_domain("not a domain").unwrap_err();
+        assert!(matches!(e, InputError::Whitespace(_)));
+        assert!(e.to_string().contains("one domain per argument"));
+        let e = canonical_domain("a.com\tb.com").unwrap_err();
+        assert!(matches!(e, InputError::Whitespace(_)));
+    }
+
+    #[test]
+    fn ip_addresses_are_refused() {
+        for s in ["1.1.1.1", "::1", "2606:4700::1111"] {
+            let e = canonical_domain(s).unwrap_err();
+            assert!(matches!(e, InputError::IpAddress(_)), "{s}: {e:?}");
         }
     }
 
