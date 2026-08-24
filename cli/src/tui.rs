@@ -785,7 +785,7 @@ fn framing_word(a: Audience) -> &'static str {
 
 /// Header help line. One string, sized to fit an 80-column terminal.
 /// The tab bar names the tabs; this line names the actions.
-const HELP_LINE: &str = "j/k ↑↓ · enter · esc · m mode · r rescan · tab domain · d new · q quit";
+const HELP_LINE: &str = "j/k · enter · esc · m mode · r rescan · tab domain · d new · q quit";
 
 fn render_header(f: &mut Frame, area: Rect, app: &App) {
     let p = app.pal;
