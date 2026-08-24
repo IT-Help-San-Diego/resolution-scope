@@ -1,6 +1,6 @@
 [package]
 name        = "resolution-scope-types"
-version     = "0.1.0"
+version     = "26.0.0-alpha.1"
 edition     = "2021"
 description = "Resolution Scope — shared no_std type definitions (TriState, dispositions, ScoredAnalysis)"
 license     = "AGPL-3.0"

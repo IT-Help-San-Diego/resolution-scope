@@ -20,7 +20,7 @@
 
 [package]
 name        = "resolution-scope-engine"
-version     = "0.1.0"
+version     = "26.0.0-alpha.1"
 edition     = "2021"
 description = "Resolution Scope DNS analysis engine — Phase 1 (std + tokio, hickory)"
 license     = "AGPL-3.0"

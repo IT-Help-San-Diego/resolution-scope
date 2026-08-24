@@ -216,13 +216,20 @@ fn canonical_input_under_scheme(
     s
 }
 
-/// The engine version that produced a verdict. `CARGO_PKG_VERSION` is the
-/// crate's own identity; a release pipeline may pin a git-derived version
-/// instead (see dns-tool-intel `scripts/version.sh` for the parent pattern).
+/// The engine version that produced a verdict. Combines the crate version
+/// (`CARGO_PKG_VERSION`, bare semver — `26.x.y`, no leading `v`) with the git
+/// describe string from `build.rs`, so a seal names the exact build that
+/// produced it. Falls back to a bare crate version when the git stamp is
+/// absent/untracked (tarball build) — visibly distinct from a real commit,
+/// never a silent default.
 /// Public so the store can persist the producing version beside each verdict
 /// (verification of old rows hashes the stored version, never the current).
 pub fn engine_version() -> String {
-    env!("CARGO_PKG_VERSION").to_string()
+    let pkg = env!("CARGO_PKG_VERSION");
+    match option_env!("RESOLUTION_SCOPE_GIT_VERSION") {
+        Some(git) if !git.is_empty() && git != "untracked" => format!("{pkg}-{git}"),
+        _ => pkg.to_string(),
+    }
 }
 
 /// One control's canonical line: `name=disposition=tri\n`.

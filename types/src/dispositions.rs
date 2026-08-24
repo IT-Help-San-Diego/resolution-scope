@@ -650,6 +650,102 @@ mod tests {
                 "NoMxHost"
             ]
         );
+        // SPF — previously unpinned; the fork's rename proposal (PositiveAll →
+        // PassAll, OtherPolicy → Neutral) makes this load-bearing: a rename
+        // MUST fail here loudly rather than silently change what every seal
+        // means. Pinned to the CURRENT shipped names.
+        assert_eq!(
+            names(&[
+                SpfDisposition::HardFail,
+                SpfDisposition::SoftFail,
+                SpfDisposition::OtherPolicy,
+                SpfDisposition::PositiveAll,
+                SpfDisposition::NotConfigured,
+                SpfDisposition::NoMail,
+                SpfDisposition::TransientError,
+            ]),
+            [
+                "HardFail",
+                "SoftFail",
+                "OtherPolicy",
+                "PositiveAll",
+                "NotConfigured",
+                "NoMail",
+                "TransientError"
+            ]
+        );
+        assert_eq!(
+            names(&[
+                DmarcDisposition::Reject,
+                DmarcDisposition::Quarantine,
+                DmarcDisposition::Monitor,
+                DmarcDisposition::InvalidPolicy,
+                DmarcDisposition::NotConfigured,
+                DmarcDisposition::NoMail,
+                DmarcDisposition::TransientError,
+            ]),
+            [
+                "Reject",
+                "Quarantine",
+                "Monitor",
+                "InvalidPolicy",
+                "NotConfigured",
+                "NoMail",
+                "TransientError"
+            ]
+        );
+        assert_eq!(
+            names(&[
+                MtaStsDisposition::Enforced,
+                MtaStsDisposition::RecordAbsent,
+                MtaStsDisposition::NoZone,
+                MtaStsDisposition::TransientError,
+                MtaStsDisposition::NotEnforced,
+                MtaStsDisposition::PolicyInvalid,
+            ]),
+            [
+                "Enforced",
+                "RecordAbsent",
+                "NoZone",
+                "TransientError",
+                "NotEnforced",
+                "PolicyInvalid"
+            ]
+        );
+        assert_eq!(
+            names(&[
+                CaaDisposition::FullyRestricted,
+                CaaDisposition::Configured,
+                CaaDisposition::WildcardFullyRestricted,
+                CaaDisposition::NotConfigured,
+                CaaDisposition::NoZone,
+                CaaDisposition::TransientError,
+            ]),
+            [
+                "FullyRestricted",
+                "Configured",
+                "WildcardFullyRestricted",
+                "NotConfigured",
+                "NoZone",
+                "TransientError"
+            ]
+        );
+        assert_eq!(
+            names(&[
+                CdsDisposition::Published,
+                CdsDisposition::DeletionRequested,
+                CdsDisposition::NotPublished,
+                CdsDisposition::NoZone,
+                CdsDisposition::TransientError,
+            ]),
+            [
+                "Published",
+                "DeletionRequested",
+                "NotPublished",
+                "NoZone",
+                "TransientError"
+            ]
+        );
     }
 
     /// chain() is the single collapse point (disposition -> TriState). The

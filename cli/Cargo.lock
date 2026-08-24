@@ -2145,7 +2145,7 @@ dependencies = [
 
 [[package]]
 name = "resolution-scope-cli"
-version = "0.1.0"
+version = "26.0.0-alpha.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -2160,7 +2160,7 @@ dependencies = [
 
 [[package]]
 name = "resolution-scope-engine"
-version = "0.1.0"
+version = "26.0.0-alpha.1"
 dependencies = [
  "anyhow",
  "hickory-proto",
@@ -2178,7 +2178,7 @@ dependencies = [
 
 [[package]]
 name = "resolution-scope-store"
-version = "0.1.0"
+version = "26.0.0-alpha.1"
 dependencies = [
  "anyhow",
  "resolution-scope-engine",
@@ -2190,7 +2190,7 @@ dependencies = [
 
 [[package]]
 name = "resolution-scope-types"
-version = "0.1.0"
+version = "26.0.0-alpha.1"
 dependencies = [
  "serde",
 ]
