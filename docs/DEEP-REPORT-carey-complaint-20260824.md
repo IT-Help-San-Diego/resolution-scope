@@ -250,3 +250,76 @@ opposed to a *surveying* one, where DNSSEC validation isn't the point)?
 ---
 
 *Every file:line in §3 was read first-hand. §4 is flagged for re-verification.*
+
+---
+
+## 7. Hermes first-hand verification of Science's Q1 finding (2026-08-24)
+
+**The finding is real, and I verified it against the wire — with one correction
+to its stated consequence.**
+
+### What I measured (all live, specific-type queries — NOT `ANY`)
+
+| query (type A) | rcode | authority | NSEC? |
+|---|---|---|---|
+| `no-such-name-xyz-987.example.com` | **NOERROR** | example.com SOA (own zone) | **`\000.no-such-name-xyz-987.example.com.`** (do=1) |
+| `definitely-not-here-4471.ietf.org` | **NOERROR** | ietf.org SOA | (same provider) |
+| `no-such-xyz-987.example.org` | **NOERROR** | example.org SOA | (signed — DNSKEY present) |
+| `no-such-xyz-987.microsoft.com` | **NXDOMAIN** | microsoft.com SOA (Azure) | none |
+
+- **Confirmed the mechanism precisely.** With `+dnssec`, the NOERROR response
+  carries a **minimally-covering NSEC**: `no-such-name-xyz-987.example.com. NSEC
+  \000.no-such-name-xyz-987.example.com. RRSIG NSEC TYPE128` — the synthesized
+  "black lies" anti-enumeration record (a signed zone proving a name's
+  non-existence without revealing its neighbors). This is not a DNSSEC-OK
+  artifact; it is the provider's negative-response synthesis.
+- **My own methodological error caught:** my first pass used `ANY`, which
+  triggered RFC 8482's synthesized `HINFO "RFC8482" ""` — the very "don't use
+  ANY" behavior §4 documents. Re-ran with a specific type. This is the
+  look-before-you-measure discipline, applied to my own probe.
+
+### The correction to Science's stated consequence
+
+Science wrote: *"the NXDOMAIN-with-parent-SOA→Indet branch, which exists to
+catch 'the domain itself is missing,' cannot fire behind such a provider — so a
+missing DOMAIN would read as an absent RECORD."*
+
+**That specific consequence is not reachable, and I measured it directly:**
+a genuinely missing domain still returns **NXDOMAIN from the parent** (root/com
+SOA), never NOERROR —
+
+```
+_dmarc.zzzz-nonexistent-domain-9f3k2.com  →  NXDOMAIN, com. SOA
+```
+
+The black-lies NSEC is synthesized **by the authoritative server of an existing
+signed zone.** A missing domain has no authoritative server to synthesize it, so
+the parent returns genuine NXDOMAIN. The "domain missing → reads as absent
+record" failure requires a signed zone that doesn't exist — a contradiction.
+
+### What the finding DOES establish (the real value)
+
+1. **For a fixed-name control under an existing signed "black-lies" zone**
+   (`_dmarc`, `_25._tcp.<mx>`, `_mta-sts`), "name doesn't exist" and "name
+   exists but has no such record" both arrive as NOERROR/NODATA → `Absent`.
+   That verdict is **correct** for our fixed-name controls (the control is
+   absent either way).
+2. **The receipt-fidelity gap is real and Science's `denial_proof` column is the
+   right fix.** Right now we cannot distinguish, after the fact, "NODATA with an
+   NSEC proof of non-existence" (black lie) from "NODATA with SOA only" from
+   "NXDOMAIN." Recording `denial_proof ∈ {none, soa_only, nsec, nsec3}` per
+   lookup turns this into a re-inspectable fact. It is a **provenance
+   improvement, not a verdict correction** — no live control was shown to
+   produce a wrong verdict (Science's own conclusion, which my measurement
+   corroborates).
+
+### Verdict on Science's Q1
+
+**CONFIRMED.** No arm folds a transient failure into an absence. The two
+bypass arms (`dnssec_disposition_err`, the CDS ladder) are correct — the DNSSEC
+one is *better* than the classifier (SERVFAIL→BrokenChain is a measured hostile
+state, not "couldn't measure"). The black-lies finding is real and first-hand
+verified, but its "missing domain reads as absent" consequence does not occur;
+its real yield is the `denial_proof` receipt column, which is already the right
+shape for the Q2 schema.
+
