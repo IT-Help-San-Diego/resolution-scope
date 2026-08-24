@@ -659,6 +659,23 @@ fn cds_report(d: CdsDisposition) -> ControlReport {
             "The operator has published the DNSSEC delete signal (algorithm 0): the parent is asked to remove the DS RRset. This zone is being deliberately decommissioned from DNSSEC.",
             "The zone is transitioning to unsigned — every DNSSEC-provided guarantee (authenticity, integrity) is being withdrawn by the operator's own signed instruction.",
         ),
+        // RULED: policy/RULING_cds_cdnskey_20260821.md — "LEAVE IT". Do not
+        // relabel this arm as "no rollover in progress" / "absence is correct"
+        // / a healthy resting state. That premise (publication signals a
+        // rollover IN PROGRESS) is FALSIFIED BY MEASUREMENT: 6 of 16 signed
+        // zones publish CDS/CDNSKEY at rest — and 4 of those 6 share
+        // byte-identical KSK material (tag 2371), so it is 3 independent
+        // operators, which makes the finding stronger: a hosting provider does
+        // not put every customer zone into permanent rollover.
+        //
+        // Absence cannot carry a rollover claim at all — it is precisely the
+        // state where nothing is learned about rollover. The legitimate home
+        // for "no rollover in progress" is ungraded vector N1 (CDS MATCHES the
+        // parent DS) in docs/cds-match-differ-scope-out.md, which requires a
+        // PUBLISHED CDS to compare. Grade N1/N2 for Published zones if that
+        // sentence is wanted on screen; never relabel NotPublished.
+        //
+        // Pinned by cds_not_published_copy_is_ruled_do_not_soften.
         CdsDisposition::NotPublished => (
             "not published — zone exists, no CDS/CDNSKEY",
             Severity::Low,
@@ -1271,6 +1288,70 @@ mod tests {
             dane_report(DaneDisposition::NotConfigured, TlsaZone::SameZone).severity,
             Severity::Low,
             "DANE's missing disposition is Low; identity_weight derives 1 from it"
+        );
+    }
+
+    /// The CDS/CDNSKEY `NotPublished` copy is RULED, not stylistic:
+    /// policy/RULING_cds_cdnskey_20260821.md — "LEAVE IT".
+    ///
+    /// This premise has now been re-proposed three times (a Hermes brief, an
+    /// uncommitted rewrite in the shared checkout, and again on 2026-08-24),
+    /// twice by an agent that had the ruling available. A comment did not stop
+    /// it, so this is the mechanical gate: the softening reaches the reader
+    /// only through these strings, and this test fails if it does.
+    #[test]
+    fn cds_not_published_copy_is_ruled_do_not_soften() {
+        let r = cds_report(CdsDisposition::NotPublished);
+
+        // The ruled state. (a) NotApplicable was rejected — a signed zone HAS
+        // the surface, was measured, and answered. (b) relabelling FAIL while
+        // keeping the arithmetic was rejected as "an arithmetic penalty with
+        // words denying it" — the display-vs-state defect shape.
+        assert_eq!(
+            r.tri,
+            TriState::Absent,
+            "measured absence, not NotApplicable"
+        );
+        assert_eq!(
+            r.severity,
+            Severity::Low,
+            "Low is the concession; erasing the finding is not"
+        );
+
+        // The falsified premise, in every phrasing it has arrived in. Absence
+        // is the state where NOTHING is learned about rollover, so no absence
+        // copy may make a rollover claim in either direction.
+        let all = format!(
+            "{} {} {}",
+            r.measured,
+            r.consequence(Audience::BlueTeam),
+            r.consequence(Audience::RedTeam)
+        )
+        .to_lowercase();
+        for banned in [
+            "no rollover in progress",
+            "not currently in rollover",
+            "no rollover is in progress",
+            "absence is correct",
+            "resting state",
+            "healthy state",
+            "not a defect",
+            "no key rollover",
+        ] {
+            assert!(
+                !all.contains(banned),
+                "RULED AGAINST (policy/RULING_cds_cdnskey_20260821.md): absence cannot carry a \
+                 rollover claim — {banned:?} re-asserts the premise falsified by 6-of-16 \
+                 publishing at rest. The legitimate home is vector N1 (CDS matches parent DS) \
+                 for PUBLISHED zones: docs/cds-match-differ-scope-out.md"
+            );
+        }
+
+        // The finding the ruling exists to protect: manual DS maintenance was
+        // reportable on 10 of 16 signed zones in the ruling's own sample.
+        assert!(
+            r.consequence(Audience::BlueTeam).contains("manual"),
+            "the manual-DS-maintenance finding must survive any rewording"
         );
     }
 
