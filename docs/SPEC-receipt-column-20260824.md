@@ -144,3 +144,37 @@ philosophy call, not a correctness call — and it is Carey's.**
 ---
 
 *Grounded in: store/migrations/001_sealed_history.sql (read), types/src/dispositions.rs ScoredAnalysis (read), engine/src/seal.rs canonical_input (read), engine/src/analysis.rs record_absence_verdict (read).*
+
+---
+
+## 6. Failure is a measurement — Carey's principle (2026-08-24)
+
+A "failed" lookup is only failed if we stop reading at the rcode. Every
+response — including NOERROR-with-empty-answer, SERVFAIL, REFUSED, timeout,
+NXDOMAIN, NODATA-with-NXNAME — carries recoverable information about *how* the
+DNS chose to fail, and that choice is a fingerprint.
+
+**The principle, named:** the failure mode is a recorded signal, not a dead end.
+Extract what is recoverable from every response, report it honestly, and track
+how failure modes *change* over time.
+
+**Concrete consequence:** `Indet` ("couldn't measure") is today a single
+catch-all. The receipt fields `rcode` × `denial_proof` decompose it into the
+distinct failure modes (SERVFAIL vs timeout vs REFUSED vs NODATA vs
+NODATA-NXNAME). A domain whose failure mode *changes* between scans — SERVFAIL
+yesterday, NODATA-NXNAME today — has changed how it hides, and that transition
+is itself a signal. This is flux detection moved from the address layer to the
+denial layer.
+
+**The canonical proof case:** my own §9 measurement. The server returned NODATA
+for a nonexistent name; the NSEC Type Bit Map carried `TYPE128` = NXNAME; I first
+read it as an anonymous type. The recoverable signal ("this name does not
+exist") was present in a response I filed as "nothing here." The receipt columns
+make that signal first-class and re-inspectable instead of dependent on an
+analyst recognizing a type code by eye.
+
+**Relationship to the seal:** this does not change the verdict. The verdict
+still says `Indet` (couldn't measure the *control*). The receipt now *also* says
+*how* it couldn't measure, and that second fact is the intelligence. Witness and
+judge stay separate — the judge says "no verdict," the witness says "and here is
+exactly how the absence of a verdict arrived."
