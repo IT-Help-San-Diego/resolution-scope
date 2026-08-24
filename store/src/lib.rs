@@ -24,7 +24,9 @@ use tokio_postgres::{Client, NoTls};
 use tracing::{info, warn};
 
 use resolution_scope_engine::flux::{FluxObservation, FluxVantage};
-use resolution_scope_engine::seal::{engine_version, seal_versioned, SEAL_SCHEME};
+use resolution_scope_engine::seal::{
+    engine_version, seal_versioned, seal_versioned_under_scheme, SEAL_SCHEME, SEAL_SCHEME_V3,
+};
 use resolution_scope_engine::ScoredAnalysis;
 
 // =============================================================================
@@ -65,7 +67,37 @@ pub enum SealCheck {
     /// accusation — the one failure a tamper-evidence system must never
     /// produce. Whoever bumps SEAL_SCHEME adds the previous scheme's
     /// re-derivation arm to verify_scan, keeping old rows verifiable.
+    /// Arms present: v4 (current) and v3 (identical canonical form — see
+    /// `SEAL_SCHEME_V3`). Rows labeled v1/v2 remain unverifiable here:
+    /// v2's form differs (no tlsa_zone line) and whether real v2 rows
+    /// still exist and deserialize is an open ledger item.
     UnverifiableScheme { stored_scheme: String },
+}
+
+/// The pure seal-check decision, factored from [`Store::verify_scan`] so the
+/// scheme dispatch is testable without a database. Dispatch is on the scheme
+/// that SEALED the row: the current scheme re-derives directly; v3 re-derives
+/// under its own label (identical canonical form — the v4 bump changed the
+/// disposition vocabulary, not the byte layout); any other scheme is
+/// UnverifiableScheme, never Mismatch.
+fn check_stored_seal(scan: StoredScan) -> SealCheck {
+    let recomputed = if scan.seal_scheme == SEAL_SCHEME {
+        seal_versioned(&scan.verdict, &scan.engine_version)
+    } else if scan.seal_scheme == SEAL_SCHEME_V3 {
+        seal_versioned_under_scheme(&scan.verdict, &scan.engine_version, SEAL_SCHEME_V3)
+    } else {
+        return SealCheck::UnverifiableScheme {
+            stored_scheme: scan.seal_scheme,
+        };
+    };
+    if recomputed == scan.seal {
+        SealCheck::Verified
+    } else {
+        SealCheck::Mismatch {
+            stored: scan.seal,
+            recomputed,
+        }
+    }
 }
 
 /// One stored scan, read back whole.
@@ -175,23 +207,7 @@ impl Store {
     /// producing version. Detects any post-write alteration of verdict,
     /// seal, or version.
     pub async fn verify_scan(&self, id: i64) -> Result<SealCheck> {
-        let scan = self.read_scan(id).await?;
-        // Dispatch on the scheme that SEALED the row. A scheme this build
-        // cannot re-derive is UnverifiableScheme, never Mismatch.
-        if scan.seal_scheme != SEAL_SCHEME {
-            return Ok(SealCheck::UnverifiableScheme {
-                stored_scheme: scan.seal_scheme,
-            });
-        }
-        let recomputed = seal_versioned(&scan.verdict, &scan.engine_version);
-        if recomputed == scan.seal {
-            Ok(SealCheck::Verified)
-        } else {
-            Ok(SealCheck::Mismatch {
-                stored: scan.seal,
-                recomputed,
-            })
-        }
+        Ok(check_stored_seal(self.read_scan(id).await?))
     }
 
     /// Read one stored scan back whole.
@@ -542,6 +558,103 @@ mod tests {
             }
             other => panic!("unknown scheme must be UnverifiableScheme, got {other:?}"),
         }
+    }
+
+    // ── check_stored_seal: the pure dispatch, no database needed ──────────
+
+    fn planted(scheme: &str, seal: String, a: ScoredAnalysis) -> StoredScan {
+        StoredScan {
+            id: 0,
+            domain: a.domain.clone(),
+            engine_version: "0.1.0".into(),
+            seal,
+            seal_scheme: scheme.into(),
+            verdict: a,
+        }
+    }
+
+    /// The v4 bump's obligation (this enum's own doc): rows sealed under v3
+    /// stay VERIFIABLE, because v3's canonical form is byte-identical to
+    /// v4's apart from the scheme line.
+    #[test]
+    fn v3_sealed_row_rederives_to_verified() {
+        let a = verdict("v3row.test");
+        let s = seal_versioned_under_scheme(&a, "0.1.0", SEAL_SCHEME_V3);
+        assert_eq!(
+            check_stored_seal(planted(SEAL_SCHEME_V3, s, a)),
+            SealCheck::Verified
+        );
+    }
+
+    /// A re-derivable scheme that does NOT match is tamper evidence — the
+    /// arm must produce Mismatch, not hide behind UnverifiableScheme.
+    #[test]
+    fn v3_sealed_row_tamper_reads_mismatch_not_unverifiable() {
+        let a = verdict("v3tamper.test");
+        let s = seal_versioned_under_scheme(&a, "0.1.0", SEAL_SCHEME_V3);
+        let mut altered = verdict("v3tamper.test");
+        altered.resolver_identity = "attacker".into();
+        match check_stored_seal(planted(SEAL_SCHEME_V3, s, altered)) {
+            SealCheck::Mismatch { .. } => {}
+            other => panic!("altered v3 row must read Mismatch, got {other:?}"),
+        }
+    }
+
+    /// Pure twin of the planted-v1 database test above.
+    #[test]
+    fn unknown_scheme_is_unverifiable_in_the_pure_path_too() {
+        let a = verdict("v1row.test");
+        match check_stored_seal(planted("resolution-scope-sha3-512-v1", "f".repeat(128), a)) {
+            SealCheck::UnverifiableScheme { stored_scheme } => {
+                assert_eq!(stored_scheme, "resolution-scope-sha3-512-v1");
+            }
+            other => panic!("must be UnverifiableScheme, got {other:?}"),
+        }
+    }
+
+    /// Refactor guard: the scheme-parameterized path under the CURRENT
+    /// scheme reproduces `seal_versioned` exactly, and the current-scheme
+    /// roundtrip still verifies.
+    #[test]
+    fn current_scheme_roundtrip_still_verifies() {
+        let a = verdict("current.test");
+        assert_eq!(
+            seal_versioned_under_scheme(&a, "0.1.0", SEAL_SCHEME),
+            seal_versioned(&a, "0.1.0")
+        );
+        let s = seal_versioned(&a, "0.1.0");
+        assert_eq!(
+            check_stored_seal(planted(SEAL_SCHEME, s, a)),
+            SealCheck::Verified
+        );
+    }
+
+    /// Full-path variant of the pure v3 test: a v3-sealed row planted in a
+    /// real database still verifies through verify_scan after the v4 bump.
+    #[tokio::test]
+    #[ignore = "requires RS_STORE_TEST_URL (disposable postgres)"]
+    async fn v3_scheme_row_stays_verifiable_after_the_v4_bump() {
+        let store = test_store().await;
+        let a = verdict("v3keeps.test");
+        let v3_seal = seal_versioned_under_scheme(&a, "0.1.0", SEAL_SCHEME_V3);
+        let verdict_json = serde_json::to_value(&a).unwrap();
+        let row = store
+            .client
+            .query_one(
+                "INSERT INTO scans (domain, engine_version, seal, seal_scheme, verdict)
+                 VALUES ($1, $2, $3, $4, $5) RETURNING id",
+                &[
+                    &a.domain,
+                    &"0.1.0",
+                    &v3_seal,
+                    &SEAL_SCHEME_V3,
+                    &verdict_json,
+                ],
+            )
+            .await
+            .unwrap();
+        let id: i64 = row.get(0);
+        assert_eq!(store.verify_scan(id).await.unwrap(), SealCheck::Verified);
     }
 
     #[tokio::test]

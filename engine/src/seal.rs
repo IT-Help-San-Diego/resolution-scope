@@ -78,6 +78,14 @@ use crate::analysis::ScoredAnalysis;
 /// v3 added `tlsa_zone` (the MX-host zone relationship — DANE attribution).
 pub const SEAL_SCHEME: &str = "resolution-scope-sha3-512-v4";
 
+/// The immediately prior scheme, retained so the store can RE-DERIVE rows
+/// sealed before the v4 bump. v3→v4 changed the disposition token
+/// VOCABULARY (the `+all` split added `PositiveAll`), not the byte layout —
+/// the canonical form is identical and differs only in the scheme line, so
+/// v3 rows re-derive exactly. Verification-only: new seals always bind
+/// [`SEAL_SCHEME`].
+pub const SEAL_SCHEME_V3: &str = "resolution-scope-sha3-512-v3";
+
 /// Compute the hex-encoded SHA3-512 seal of a measurement's verdict content.
 ///
 /// Deterministic: identical `ScoredAnalysis` verdict fields (domain + the
@@ -98,8 +106,20 @@ pub fn seal(analysis: &ScoredAnalysis) -> String {
 /// store persists `engine_version` beside each verdict and verifies through
 /// here.
 pub fn seal_versioned(analysis: &ScoredAnalysis, produced_by_version: &str) -> String {
+    seal_versioned_under_scheme(analysis, produced_by_version, SEAL_SCHEME)
+}
+
+/// [`seal_versioned`] under an EXPLICIT scheme label — the re-derivation
+/// entry point for rows sealed by a prior scheme whose canonical form this
+/// build can still reproduce (today: [`SEAL_SCHEME_V3`]). Never a write
+/// path: recording always seals under [`SEAL_SCHEME`].
+pub fn seal_versioned_under_scheme(
+    analysis: &ScoredAnalysis,
+    produced_by_version: &str,
+    scheme: &str,
+) -> String {
     let mut hasher = Sha3_512::new();
-    hasher.update(canonical_input(analysis, produced_by_version).as_bytes());
+    hasher.update(canonical_input_under_scheme(analysis, produced_by_version, scheme).as_bytes());
     hex(&hasher.finalize())
 }
 
@@ -119,8 +139,20 @@ pub fn seal_versioned(analysis: &ScoredAnalysis, produced_by_version: &str) -> S
 /// would name the seal inputs without their values, which is the same as
 /// omitting them.
 pub fn canonical_input(analysis: &ScoredAnalysis, produced_by_version: &str) -> String {
+    canonical_input_under_scheme(analysis, produced_by_version, SEAL_SCHEME)
+}
+
+/// [`canonical_input`] under an explicit scheme label. The scheme string is
+/// the preimage's FIRST line; every re-derivable prior scheme shares the
+/// rest of the builder byte-for-byte (a prior scheme whose field set or
+/// encoding differed could NOT reuse this and would need its own builder).
+fn canonical_input_under_scheme(
+    analysis: &ScoredAnalysis,
+    produced_by_version: &str,
+    scheme: &str,
+) -> String {
     let mut s = String::with_capacity(384);
-    s.push_str(SEAL_SCHEME);
+    s.push_str(scheme);
     s.push('\n');
     s.push_str(&analysis.domain);
     s.push('\n');
