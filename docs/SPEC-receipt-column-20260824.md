@@ -188,8 +188,10 @@ exactly how the absence of a verdict arrived."
 My "the rest of the world discards the receipt" was too broad. Corrected to the
 specific novelty:
 
-- **DNSViz** stores raw response bytes (pcap-level).
-- **SecurityTrails** keeps historical A/MX/NS records.
+- **DNSViz** serializes parsed query results to JSON for offline re-analysis
+  (its own README: "serialized into JSON format") — it does NOT capture pcap.
+- **SecurityTrails** reportedly keeps historical A/MX/NS records
+  (product claim; no open codebase to verify).
 
 So "keeping raw data" is *not* the novelty in general. The actual novelty is
 **keeping the denial-layer fingerprint (denial_proof grade) as a tracked
@@ -208,7 +210,7 @@ fingerprint that is *orthogonal* to it. A domain can be:
 - address-unstable **and** denial-stable (fast-fluxing IPs, constant denial).
 
 Tracking both gives a **2D flux surface**. This is a **flux-schema design
-choice, not a receipt-schema choice** — the receipt already stores everything
+choice, not a receipt-schema choice** — the receipt schema already specifies everything
 needed; the question is only whether the flux classifier consumes the
 denial-grade column as a second axis.
 

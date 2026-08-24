@@ -184,3 +184,70 @@ It is an **append-only ledger with versioned, loud, mechanical migration paths**
 `engine/src/seal.rs`, `native/src/seal.rs`, `engine/src/report.rs`,
 `cli/src/render.rs`, `store/src/lib.rs`, `types/src/dispositions.rs`,
 `types/src/tristate.rs`.
+
+---
+
+## 8. POST-REVIEW CORRECTION (2026-08-24) — SciSpace + Claude Science caught a P0 in my own brief
+
+After the brief shipped at `c25b388`, the red team returned six files. Two findings
+correct ME, and one is a P0 in the seal itself. All verified first-hand below.
+
+### 8a. My `serde(alias)` claim was WRONG (corrected)
+
+My §5 migration said a variant rename is "bump + `#[serde(alias)]` + spelling
+map + golden re-pin." The `serde(alias)` part is **structurally irrelevant to
+the seal path**, and I stated it as if it rescued re-derivation. It does not:
+
+- `serde(alias)` is **deserialize-only** — it changes which JSON spellings parse.
+- The seal never touches serde. `control_line` uses `format!("{disposition:?}")`
+  — the **`Debug`** representation, not the serde representation.
+- Proof (Claude Code experiment `7c86c42` + serde's own docs): rename a variant,
+  add `#[serde(alias="OldName")]`, and old JSON deserializes fine — but
+  `verify_scan` re-hashes the NEW `Debug` spelling, so the re-derived seal
+  mismatches the stored seal on **every pre-rename row** = false tamper
+  accusation. The alias rescues JSON parsing; it rescues nothing in the seal.
+
+**Corrected migration:** the **per-scheme spelling map** is the SOLE seal
+backward-compatibility mechanism. `serde(alias)` is a *separate, orthogonal*
+concern for the stored JSON only.
+
+### 8b. P0 — the seal binds `#[derive(Debug)]`, which Rust officially disclaims as unstable
+
+Verified first-hand:
+- `control_line` hashes `format!("{disposition:?}={tri:?}")` — `Debug`.
+- Every disposition/tri enum is `#[derive(Debug)]`; **zero custom `Debug` impls
+  in the tree** (grep confirmed).
+- Rust's own docs (std::fmt::Debug §Stability): *"Derived `Debug` formats are
+  not stable, and so may change with future Rust versions."*
+
+**Consequence:** a future rustc change to derived-`Debug` output for unit
+variants would change the seal preimage — orphaning every stored seal — *without
+the data changing.* The tamper-evidence layer currently rests on a
+compiler-version-dependent formatting function. This is the single most
+important finding of the whole red-team pass.
+
+**Fix direction (SciSpace, two options):**
+- **Option A** — hand-written `Display` impls + switch `{:?}`→`{}`. **Caution for
+  THIS codebase:** the disposition enums already have `Display` impls carrying
+  *human labels* ("signed-but-not-delegated (island of security)"), not the seal
+  tokens. Binding the seal to `Display` would hash the *mutable human strings*
+  (which Carey explicitly wants free to change) — a new and worse coupling.
+- **Option B (correct for this codebase)** — a dedicated `SealFormat` trait (or
+  `fn seal_repr(&self) -> &'static str`) returning the exact variant name,
+  decoupled from BOTH `Debug` and `Display`. The seal hashes `seal_repr()`;
+  `Debug` stays for logging; `Display` stays for humans. Three concerns, three
+  traits, no coupling.
+
+**Recommendation: Option B.** This is not cosmetic — it makes the tamper-evidence
+layer compiler-stable and decouples it from the human label, which is precisely
+the "future can change the words without touching the seal" property the whole
+rename discussion was circling.
+
+### 8c. Spec honesty fixes (applied to `SPEC-receipt-column-20260824.md`)
+
+Science measured three present-tense/attribution errors in my spec and I applied
+the exact diffs:
+1. "the receipt already **stores** everything" → "**specifies**" (nothing is built yet).
+2. "DNSViz stores raw response bytes (pcap-level)" → "serializes parsed results to JSON" (its README: pcap=0 hits).
+3. "SecurityTrails keeps historical A/MX/NS" → "**reportedly** keeps… (product claim, no open codebase)".
+
