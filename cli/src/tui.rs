@@ -783,13 +783,9 @@ fn framing_word(a: Audience) -> &'static str {
     }
 }
 
-/// Header help line, wide and narrow. The wide form's own column count is
-/// the header's wide/narrow cutover (every glyph in it is single-column, so
-/// `chars().count()` IS its display width) — derived, so the string and the
-/// threshold cannot drift apart.
-const HELP_WIDE: &str =
-    "1-7 tabs · ↑/↓ or j/k select · enter open · esc back · m mode · r re-measure · tab next domain · d new domain · q quit";
-const HELP_NARROW: &str = "1-7 · j/k · enter · esc · m · r · tab · d · q";
+/// Header help line. One string, sized to fit an 80-column terminal.
+/// The tab bar names the tabs; this line names the actions.
+const HELP_LINE: &str = "j/k ↑↓ · enter · esc · m mode · r rescan · tab domain · d new · q quit";
 
 fn render_header(f: &mut Frame, area: Rect, app: &App) {
     let p = app.pal;
@@ -818,7 +814,9 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
             Style::default().fg(p.fg).add_modifier(Modifier::BOLD),
         ),
     ]);
-    let wide = usize::from(area.width) >= HELP_WIDE.chars().count();
+    // The seal prefix is the point of line 2; at narrow widths the labels
+    // go, the prefix stays. 80 columns is the standard terminal width.
+    let wide = usize::from(area.width) >= 80;
     // Line 2: the measurement conditions — or the live measuring state.
     let line2 = match &app.scan {
         ScanState::Measuring {
@@ -876,10 +874,7 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
             muted,
         )),
     };
-    let line3 = Line::from(Span::styled(
-        if wide { HELP_WIDE } else { HELP_NARROW },
-        muted,
-    ));
+    let line3 = Line::from(Span::styled(HELP_LINE, muted));
     let widget = Paragraph::new(vec![line1, line2, line3]).block(
         Block::default()
             .style(Style::default().bg(p.header_bg))
@@ -1527,8 +1522,12 @@ mod tests {
 
     #[test]
     fn help_line_names_the_new_domain_verb() {
-        assert!(HELP_WIDE.contains("d new domain"), "{HELP_WIDE:?}");
-        assert!(!HELP_WIDE.contains("d add"));
+        assert!(HELP_LINE.contains("d new"), "{HELP_LINE:?}");
+        assert!(!HELP_LINE.contains("d add"));
+        assert!(
+            HELP_LINE.chars().count() <= 80,
+            "help line must fit an 80-col terminal"
+        );
     }
 
     #[tokio::test]

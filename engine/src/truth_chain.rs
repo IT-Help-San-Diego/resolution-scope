@@ -307,9 +307,9 @@ fn spf_report(d: SpfDisposition) -> ControlReport {
             "Sender-IP spoofing of this domain fails SPF outright at conforming receivers.",
         ),
         SpfDisposition::SoftFail => (
-            "softfail (~all) — deployed, not enforcing",
+            "softfail (~all) — the DMARC-era standard",
             Severity::Medium,
-            "SPF is published and ~all asks receivers to mark, not reject — the correct deployment posture while legitimate senders are being confirmed, and the standard path toward -all.",
+            "SPF is published with ~all: receivers mark suspicious mail rather than reject it. With DMARC enforcing alignment, softfail is the correct terminal posture — the era of moving to -all ended when DMARC arrived.",
             "Spoofed mail is marked, not blocked: softfail typically lands in spam rather than being refused — usable with a pretext that survives a spam folder, and DMARC disposition decides the rest.",
         ),
         SpfDisposition::OtherPolicy => (
@@ -1236,18 +1236,16 @@ mod tests {
         );
     }
 
-    /// The softfail consequence celebrates correct staging (2026-08-23 voice
-    /// fix) while the §8 ruling stands: deployed-but-not-enforcing is a
-    /// severity fact, so Medium stays.
+    /// The softfail consequence celebrates the DMARC-era standard (2026-08-23
+    /// voice fix): softfail is the correct terminal posture, not a stepping
+    /// stone to -all. The §8 ruling stands: Medium stays.
     #[test]
     fn softfail_voice_is_correct_staging_not_deficiency() {
         let r = spf_report(SpfDisposition::SoftFail);
-        assert!(
-            r.consequence_blue.contains("correct deployment posture"),
-            "{}",
-            r.consequence_blue
-        );
+        assert!(r.measured.contains("DMARC-era standard"), "{}", r.measured);
+        assert!(r.consequence_blue.contains("correct terminal posture"));
         assert!(!r.consequence_blue.contains("Move to -all"));
+        assert!(!r.consequence_blue.contains("path toward -all"));
         assert_eq!(r.severity, Severity::Medium);
     }
 
