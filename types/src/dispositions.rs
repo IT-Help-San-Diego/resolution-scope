@@ -43,7 +43,7 @@ impl DnssecDisposition {
     pub fn chain(self) -> TriState {
         match self {
             DnssecDisposition::SignedAndDelegated => TriState::Present,
-            DnssecDisposition::SignedNotDelegated => TriState::Indet,
+            DnssecDisposition::SignedNotDelegated => TriState::Absent,
             DnssecDisposition::BrokenChain => TriState::Absent,
             DnssecDisposition::ChainUnverified => TriState::Indet,
             DnssecDisposition::Unsigned => TriState::Absent,
@@ -277,11 +277,19 @@ impl core::fmt::Display for DaneDisposition {
 pub enum SpfDisposition {
     HardFail, // -all — SPF enforced
     SoftFail, // ~all — deployed but not enforced
-    /// Record present but the terminal qualifier is neither -all nor ~all
-    /// (?all, +all, no all mechanism, bare redirect=). Measured as deployed
-    /// with no enforcement instruction — NEVER report this as HardFail: the
-    /// -all was measured to be absent.
+    /// Record present but the terminal qualifier is ?all, or there is no `all`
+    /// mechanism at all (bare redirect=). Neutral: asserts nothing against
+    /// unauthorized senders. RFC 7208 §8.2 — neutral is treated exactly like
+    /// none. Measured as deployed with no negative assertion — NEVER report
+    /// this as HardFail: the -all was measured to be absent.
     OtherPolicy,
+    /// +all — an explicit statement that ANY host is authorized to inject mail
+    /// with this identity. RFC 7208 §2.6.3 / §8.3: a pass means the domain
+    /// "can now, in the sense of reputation, be considered responsible for
+    /// sending the message." It authorizes the entire internet, so it provides
+    /// no selective authorization — functionally identical to no record. The
+    /// one disposition that makes forgery SUCCEED rather than go unblocked.
+    PositiveAll,
     NotConfigured, // no SPF record
     NoMail,        // null MX — SPF not applicable
     TransientError,
@@ -293,6 +301,7 @@ impl SpfDisposition {
             SpfDisposition::HardFail => TriState::Present,
             SpfDisposition::SoftFail => TriState::Present,
             SpfDisposition::OtherPolicy => TriState::Present,
+            SpfDisposition::PositiveAll => TriState::Absent,
             SpfDisposition::NotConfigured => TriState::Absent,
             SpfDisposition::NoMail => TriState::NotApplicable,
             SpfDisposition::TransientError => TriState::Indet,
@@ -306,6 +315,7 @@ impl core::fmt::Display for SpfDisposition {
             SpfDisposition::HardFail => write!(f, "hardfail (-all)"),
             SpfDisposition::SoftFail => write!(f, "softfail (~all)"),
             SpfDisposition::OtherPolicy => write!(f, "other-policy (no -all/~all terminal)"),
+            SpfDisposition::PositiveAll => write!(f, "authorizes-all (+all)"),
             SpfDisposition::NotConfigured => write!(f, "not-configured"),
             SpfDisposition::NoMail => write!(f, "no-mail"),
             SpfDisposition::TransientError => write!(f, "transient-error"),

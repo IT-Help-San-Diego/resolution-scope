@@ -1062,7 +1062,7 @@ mod tests {
         assert_eq!(
             seal_check_label(&stored(
                 "example.test",
-                "resolution-scope-sha3-512-v4",
+                "resolution-scope-sha3-512-v3",
                 good
             )),
             "UNVERIFIABLE (scheme)"

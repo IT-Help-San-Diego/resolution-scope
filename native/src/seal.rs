@@ -28,7 +28,7 @@ use resolution_scope_types::ScoredAnalysis;
 
 /// Versioned identifier for the seal scheme. Changing the canonical form MUST
 /// bump this string, or old seals silently become unverifiable.
-pub const SEAL_SCHEME: &str = "resolution-scope-sha3-512-v3";
+pub const SEAL_SCHEME: &str = "resolution-scope-sha3-512-v4";
 
 /// Compute the hex-encoded SHA3-512 seal for a verdict produced by a SPECIFIC
 /// engine version. Deterministic over (domain, the 8 dispositions, the 8
@@ -141,7 +141,7 @@ mod tests {
     fn seal_matches_engine_golden_value() {
         assert_eq!(
             seal_versioned(&fixture(), "0.1.0"),
-            "874eaa678ebf9c2258ca9e202e53b5a8605e6eefd8927a738e6de763f24677ad4c013aaeadeb17305cf1cfde8aa1b7530cdd458148e70ad2a606d2db2066552b"
+            "7590c0b86ee37215b9fbcd0f457d14928aee16d5b55de7e96dc00a145e06d086e74a764b5e74707481dc439c873025d50f4821439ec31096e36a4b40efba7229"
         );
     }
 
@@ -151,7 +151,7 @@ mod tests {
         // a seal scheme that drifts is a seal that lies.
         assert_eq!(
             canonical_input(&fixture(), "0.1.0"),
-            "resolution-scope-sha3-512-v3\nexample.com\n0.1.0\ndefault\n\
+            "resolution-scope-sha3-512-v4\nexample.com\n0.1.0\ndefault\n\
              dnssec=SignedAndDelegated=Present\n\
              spf=SoftFail=Present\n\
              dkim=NotFoundDefaults=Absent\n\

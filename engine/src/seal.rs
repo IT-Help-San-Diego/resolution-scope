@@ -76,7 +76,7 @@ use crate::analysis::ScoredAnalysis;
 /// become unverifiable — a seal scheme that drifts is a seal that lies.
 /// v2 added `resolver_identity` (the observer's vantage) to the input set.
 /// v3 added `tlsa_zone` (the MX-host zone relationship — DANE attribution).
-pub const SEAL_SCHEME: &str = "resolution-scope-sha3-512-v3";
+pub const SEAL_SCHEME: &str = "resolution-scope-sha3-512-v4";
 
 /// Compute the hex-encoded SHA3-512 seal of a measurement's verdict content.
 ///

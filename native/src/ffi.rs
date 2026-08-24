@@ -131,7 +131,7 @@ mod tests {
     /// The golden seal for the demo verdict, produced by "0.1.0" — the drift-pin
     /// from seal.rs. Used here to prove the FFI round-trip returns a report that
     /// carries exactly this seal.
-    const GOLDEN_SEAL: &str = "874eaa678ebf9c2258ca9e202e53b5a8605e6eefd8927a738e6de763f24677ad4c013aaeadeb17305cf1cfde8aa1b7530cdd458148e70ad2a606d2db2066552b";
+    const GOLDEN_SEAL: &str = "7590c0b86ee37215b9fbcd0f457d14928aee16d5b55de7e96dc00a145e06d086e74a764b5e74707481dc439c873025d50f4821439ec31096e36a4b40efba7229";
 
     /// Serialise the demo verdict, seal it, and run it through the FFI entry —
     /// the report must come back non-null and carry the golden seal.

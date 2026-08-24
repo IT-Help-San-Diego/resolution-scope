@@ -286,6 +286,8 @@ fn spf_disposition_from_records(spf_records: &[String]) -> SpfDisposition {
         SpfDisposition::HardFail
     } else if spf_records.iter().any(|r| r.contains("~all")) {
         SpfDisposition::SoftFail
+    } else if spf_records.iter().any(|r| r.contains("+all")) {
+        SpfDisposition::PositiveAll
     } else {
         SpfDisposition::OtherPolicy
     }
@@ -1561,7 +1563,7 @@ mod tests {
         );
         assert_eq!(
             spf_disposition_from_records(&["v=spf1 +all".to_string()]),
-            SpfDisposition::OtherPolicy,
+            SpfDisposition::PositiveAll,
             "G5: +all = permissive, never misread as enforced"
         );
         assert_eq!(
@@ -2618,7 +2620,7 @@ mod tests {
         );
         assert_eq!(
             DnssecDisposition::SignedNotDelegated.chain(),
-            TriState::Indet
+            TriState::Absent
         );
         assert_eq!(DnssecDisposition::BrokenChain.chain(), TriState::Absent);
         assert_eq!(DnssecDisposition::ChainUnverified.chain(), TriState::Indet);
@@ -2986,15 +2988,16 @@ mod tests {
             spf_disposition_from_records(&rec("v=spf1 include:x ~all")),
             SpfDisposition::SoftFail
         );
-        // The 2026-08-19 panel case: ?all / +all / bare redirect MUST read
-        // OtherPolicy — the old fallback fabricated HardFail here.
+        // The 2026-08-19 panel case: ?all / bare redirect MUST read
+        // OtherPolicy; +all MUST read PositiveAll (its own variant, split out
+        // per the 2026-08-24 ruling) — the old fallback fabricated HardFail.
         assert_eq!(
             spf_disposition_from_records(&rec("v=spf1 mx ?all")),
             SpfDisposition::OtherPolicy
         );
         assert_eq!(
             spf_disposition_from_records(&rec("v=spf1 +all")),
-            SpfDisposition::OtherPolicy
+            SpfDisposition::PositiveAll
         );
         assert_eq!(
             spf_disposition_from_records(&rec("v=spf1 redirect=_spf.example.com")),

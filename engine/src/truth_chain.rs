@@ -254,10 +254,10 @@ fn dnssec_report(d: DnssecDisposition) -> ControlReport {
             "Zone data is signed and validated; forged-response and cache-poisoning plays are cryptographically detectable.",
         ),
         DnssecDisposition::SignedNotDelegated => (
-            "island of security — DNSKEY present, no DS at the parent",
-            Severity::Medium,
-            "The zone signs its data but the parent holds no DS, so no resolver can validate it from the root. Publish the DS at the registrar to complete the chain.",
-            "Signatures exist but nothing chains to the root: validating resolvers treat the zone as insecure, so spoofed responses are not rejected on signature grounds.",
+            "signed but not delegated — DNSKEY present, no DS at the parent",
+            Severity::High,
+            "The zone signs its data but the parent holds no DS, so no resolver can build a chain of trust from the root: validating resolvers treat it as Insecure (RFC 4033 §5), the same state as an unsigned zone. This is the false-confidence case — the operator signed believing the zone was protected, and it is not. Publish the DS at the registrar to complete the chain.",
+            "Signatures exist but nothing chains to the root: a validating resolver treats this zone as Insecure, identical to an unsigned one, so spoofed responses are not rejected on signature grounds.",
         ),
         DnssecDisposition::BrokenChain => (
             "broken chain (bogus) — DS present but validation fails",
@@ -317,10 +317,16 @@ fn spf_report(d: SpfDisposition) -> ControlReport {
             "Spoofed mail is marked, not blocked: softfail typically lands in spam rather than being refused — usable with a pretext that survives a spam folder, and DMARC disposition decides the rest.",
         ),
         SpfDisposition::OtherPolicy => (
-            "record present, no negative assertion (?all, +all, or no all)",
+            "record present, no negative assertion (?all or no all)",
             Severity::High,
-            "SPF is published but makes no negative assertion — ?all is explicitly neutral, +all authorizes every host on the internet, and a record with no all mechanism defaults to neutral. Unlike ~all (a weak negative statement), this asserts nothing against unauthorized senders, so DMARC's SPF leg can never contribute a fail.",
-            "SPF exists but instructs nothing: spoofed senders do not fail SPF here, so DMARC's SPF leg never fires. +all is an open authorization of the entire internet.",
+            "SPF is published but makes no negative assertion — ?all is explicitly neutral, and a record with no all mechanism defaults to neutral. It asserts nothing against unauthorized senders, so DMARC's SPF leg can never contribute a fail.",
+            "SPF exists but instructs nothing: spoofed senders do not fail SPF here, so DMARC's SPF leg never fires.",
+        ),
+        SpfDisposition::PositiveAll => (
+            "authorizes-all (+all) — every sender is authorized",
+            Severity::Critical,
+            "RFC 7208 §8.3: a pass means the domain 'can now, in the sense of reputation, be considered responsible for sending the message.' +all affirms that ANY host may inject mail with this identity — it authorizes the entire internet and lends the domain's reputation to every spoofer. This is the one disposition that makes forgery succeed rather than merely go unblocked. Remove it or replace with -all once legitimate senders are known.",
+            "Any host on the internet can send mail that passes SPF for this domain: +all authorizes every sender, so the domain's reputation is available to anyone who spoofs it.",
         ),
         SpfDisposition::NotConfigured => (
             "not configured — no SPF record",
@@ -1419,6 +1425,111 @@ mod tests {
         );
     }
 
+    /// SPF `+all` is the inverted control — the one disposition that makes
+    /// forgery SUCCEED. RFC 7208 §8.3: a pass means the domain "can now, in
+    /// the sense of reputation, be considered responsible for sending the
+    /// message." A record authorizing every sender conveys exactly the
+    /// information of no record, which is already `Absent`.
+    ///
+    /// Ruled 2026-08-24 (Claude Science, RFC 7208 §2.6.3/§8.3 verified): the
+    /// sharper test than §8's "score deployment" is "does the record authorize
+    /// anything?" — `+all` authorizes everyone, so `Absent` + `Critical`.
+    #[test]
+    fn spf_positive_all_is_critical_and_absent() {
+        let r = spf_report(SpfDisposition::PositiveAll);
+
+        assert_eq!(
+            r.tri,
+            TriState::Absent,
+            "+all authorizes everyone = no selective authorization = Absent"
+        );
+        assert_eq!(
+            r.severity,
+            Severity::Critical,
+            "+all is the one disposition that makes forgery succeed"
+        );
+
+        let blue = r.consequence(Audience::BlueTeam);
+        assert!(
+            blue.contains("8.3"),
+            "must cite RFC 7208 §8.3 (the reputation-lending definition)"
+        );
+        assert!(
+            blue.contains("reputation"),
+            "the consequence must name that +all lends the domain's reputation to spoofers"
+        );
+
+        // ?all stays the distinct neutral case — splitting +all out must not
+        // have dragged the neutral case with it.
+        let neutral = spf_report(SpfDisposition::OtherPolicy);
+        assert_eq!(
+            neutral.tri,
+            TriState::Present,
+            "?all/no-all is still a published record"
+        );
+        assert_eq!(
+            neutral.severity,
+            Severity::High,
+            "neutral is High, not Critical"
+        );
+        assert_ne!(
+            r.severity, neutral.severity,
+            "PositiveAll (Critical) and OtherPolicy (High) must remain distinguishable"
+        );
+    }
+
+    /// DNSSEC `SignedNotDelegated` is resolver-identical to unsigned, so it
+    /// must score the same — not milder.
+    ///
+    /// RFC 4033 §5 "Insecure": "signed proof of the non-existence of a DS
+    /// record… subsequent branches in the tree are provably insecure." A
+    /// validating resolver reaches the identical state for an unsigned zone
+    /// and a signed-but-undelegated one. The old mapping scored them
+    /// differently (`Unsigned`=Absent/High vs `SignedNotDelegated`=Indet/
+    /// Medium), which *rewarded* a half-finished deployment — the
+    /// display-vs-state defect in numeric form (Indet removed DNSSEC's weight
+    /// 3 from both sums).
+    ///
+    /// Ruled 2026-08-24 (Claude Science, RFC 4033 §5 verified). The
+    /// false-confidence reading ("the operator signed believing they were
+    /// protected, and they aren't") is the sharpest sentence — it lives in the
+    /// consequence TEXT, not the tri-state: belief is prose, resolver state is
+    /// Insecure.
+    #[test]
+    fn dnssec_signed_not_delegated_is_high_and_absent() {
+        let r = dnssec_report(DnssecDisposition::SignedNotDelegated);
+
+        assert_eq!(
+            r.tri,
+            TriState::Absent,
+            "resolver-identical to unsigned, so Absent not Indet"
+        );
+        assert_eq!(
+            r.severity,
+            Severity::High,
+            "no protection and a false claim — not Medium"
+        );
+
+        // The false-confidence reading must be present in the consequence text.
+        let blue = r.consequence(Audience::BlueTeam);
+        assert!(
+            blue.contains("Insecure"),
+            "must name the RFC 4033 §5 state a resolver reaches"
+        );
+        assert!(
+            blue.contains("false-confidence"),
+            "the sharpest sentence: the operator signed believing they were protected, and they aren't"
+        );
+
+        // And it must be prose, not the tri-state — the tri-state is the
+        // resolver's state (Insecure = Absent), not the operator's belief.
+        assert_ne!(
+            r.tri,
+            TriState::Indet,
+            "couldn't-measure is wrong; this is precisely measured"
+        );
+    }
+
     /// SPF qualifier severities encode ASSERTION STRENGTH, not enforcement —
     /// RFC 7208 §2.6.5 ("a weak statement by the publishing ADMD") and the
     /// deferral of action to receiver local policy. Neither qualifier
@@ -1672,6 +1783,6 @@ mod tests {
         // with a seal-scheme bump). The one load-bearing fact: the seal scheme
         // string identifies the SEAL scheme, not the scoring formula.
         assert_eq!(SCORING_VERSION, 1);
-        assert_eq!(SEAL_SCHEME, "resolution-scope-sha3-512-v3");
+        assert_eq!(SEAL_SCHEME, "resolution-scope-sha3-512-v4");
     }
 }
