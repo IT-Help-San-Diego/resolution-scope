@@ -212,6 +212,52 @@ is Carey's to settle — see the ledger `651ce6e` / `3c05975`.
   `SignedNotDelegated`'s tri change and the `build.rs` version stamp are value
   changes (no bump of their own).
 
+**Fork record — complete picture (added 2026-08-24, after SciSpace's sound-off and Claude Science's falsification):**
+
+The fork is now argued on both sides with its strongest cases on record. Neither
+side is refuted wholesale; each is strong on a different axis.
+
+**Fork A's strongest argument (SciSpace, seal integrity):** the seal preimage
+carries the disposition *token*. `PositiveAll` + tri-state `Absent` stamps a
+preimage that says "we found a record called `PositiveAll`, and we classify its
+deployment as absent" — the name of the thing we found sits right beside a
+tri-state claiming we didn't. `PositiveAll` + `Present` makes every field
+independently true; the *judgment* (authorizes everyone) then belongs to
+severity, which is where it already lives. This is the clean-layers argument:
+measurement (did we find it) ≠ judgment (does it help).
+
+**Fork A's three supporting arguments were falsified by Claude Science (Operon),
+verified against main:**
+
+- **R1** ("`Absent` means 'no record found'") — `TriState::Absent`'s own doc
+  comment says "Control is absent *or invalid*", with a note that warning states
+  MUST map to `Absent` rather than a fourth value. `Absent` never meant
+  "no record found."
+- **R2** (the scoring amendment is a zero-delta change) — it is **not**
+  numerically identical to Fork B. Enumerating all 54 (disposition, tri,
+  severity) triples: two dispositions are `Present` with severity outside
+  `{Ok, Medium}` — CDS `DeletionRequested` (Present/High) and SPF
+  `OtherPolicy`/`?all` (Present/High). Both silently drop out of the numerator
+  under the amendment. `?all` is *unchanged in both forks* per SciSpace's own
+  table, yet the amendment reclassifies it. And it makes the score read
+  `Severity` — display vocabulary entering the arithmetic, the defect class
+  this project rules against repeatedly (and the reason the pinning test is
+  named `risk_weighted_score_identity_not_state`).
+- **R3** ("`Critical` is new with no precedent / no weight") — `Critical` has
+  three prior call sites on main (`BrokenChain`, `KeyMismatch`,
+  `DaneDisposition::Mismatch`), and `identity_weight()` reads
+  `absent_severity(control)` — a per-control canonical arm (DNSSEC→`Unsigned`,
+  SPF→`NotConfigured`, …) — not a general severity→weight map, so `Critical`
+  on `PositiveAll` cannot touch any weight by construction.
+
+**Net:** Fork B (shipped) is *not* refuted; Fork A is *not* trivially dismissed
+— its seal-integrity argument survives, and it is genuinely Carey's call which
+axis the tri-state measures (deployment-fact vs constitutes-the-control). If
+Fork A is adopted, the correct path is a **v4→v5 bump with a v4 re-derivation
+arm** (one line via `seal_versioned_under_scheme`), with the renames, the
+scoring change, and the golden re-pins landing together — never a second
+vocabulary under the spent v4 label.
+
 **Landed 2026-08-24:** `SignedNotDelegated → Absent/High`, `+all →
 PositiveAll/Absent/Critical` (with `?all`/no-all remaining `OtherPolicy`),
 v3→v4 seal bump, golden seal recomputed (byte-exact verified — Python
