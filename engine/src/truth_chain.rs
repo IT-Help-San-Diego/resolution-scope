@@ -308,8 +308,8 @@ fn spf_report(d: SpfDisposition) -> ControlReport {
         ),
         SpfDisposition::SoftFail => (
             "softfail (~all) — publisher's weaker assertion",
-            Severity::Medium,
-            "RFC 7208 §2.6.5: softfail is a weak statement by the publishing domain that the host is probably not authorized — a weaker assertion than -all, which is why it ranks below it. Neither qualifier enforces: the action is the receiver's local policy, and DMARC is the layer that turns the assertion into a disposition. Paired with DMARC p=reject, the assertion and the enforcement are both in place.",
+            Severity::Ok,
+            "RFC 7208 §2.6.5: softfail is a weak statement by the publishing domain that the host is probably not authorized. It is not a lesser version of -all but a different trade: RFC 9989 §7.1 documents two harms that -all carries and ~all avoids — rejection before DMARC is consulted, and permanent absence from your own aggregate reports. Neither qualifier enforces; DMARC turns the assertion into a disposition.",
             "Spoofed mail is marked, not blocked: softfail typically lands in spam rather than being refused — usable with a pretext that survives a spam folder, and DMARC disposition decides the rest.",
         ),
         SpfDisposition::OtherPolicy => (
@@ -972,10 +972,16 @@ mod tests {
     ///
     /// The two axes are independent, and §8 governs only the first. TriState
     /// answers "is it published"; severity answers "how bad is the gap".
-    /// `OtherPolicy` moved to High on 2026-08-23 (Claude Science: ?all/+all
-    /// make NO negative assertion, unlike ~all's weak one — +all authorizes
-    /// the entire internet) while its TriState stayed Present, which is
-    /// exactly the separation §8 requires.
+    /// Two severity re-rulings have moved states on the second axis while
+    /// every member kept TriState::Present, which is exactly the separation
+    /// §8 requires:
+    ///   - `OtherPolicy` Medium -> High (?all/+all assert nothing at all)
+    ///   - `SoftFail`    Medium -> Ok   (a hedged-but-adverse position, the
+    ///     same posture as DMARC quarantine, which already scored Ok)
+    ///
+    /// What remains Medium is the genuinely deficient middle: MTA-STS
+    /// `NotEnforced`, where the publisher has declared the policy MUST NOT be
+    /// applied, and DMARC `Monitor`, which requests no action at all.
     #[test]
     fn enforcement_ruling_pinned() {
         for r in [
@@ -995,20 +1001,23 @@ mod tests {
             );
         }
 
-        // Severity is the SEPARATE axis. The weak-negative-assertion states
-        // rank Medium; no-assertion-at-all ranks High.
-        for r in [
-            spf_report(SpfDisposition::SoftFail),
-            dmarc_report(DmarcDisposition::Monitor),
-            mta_sts_report(MtaStsDisposition::NotEnforced),
-        ] {
-            assert_eq!(
-                r.severity,
-                Severity::Medium,
-                "{:?}: enforcement gap must rank Medium",
-                r.control
-            );
-        }
+        // Severity is the SEPARATE axis, and the four members no longer share
+        // a rank — the states mean four different things.
+        assert_eq!(
+            mta_sts_report(MtaStsDisposition::NotEnforced).severity,
+            Severity::Medium,
+            "testing mode protects nothing by the publisher's own declaration"
+        );
+        assert_eq!(
+            dmarc_report(DmarcDisposition::Monitor).severity,
+            Severity::Medium,
+            "p=none requests no action"
+        );
+        assert_eq!(
+            spf_report(SpfDisposition::SoftFail).severity,
+            Severity::Ok,
+            "~all is a hedged-but-adverse position, like DMARC quarantine"
+        );
         assert_eq!(
             spf_report(SpfDisposition::OtherPolicy).severity,
             Severity::High,
@@ -1284,19 +1293,30 @@ mod tests {
             hard.consequence_blue
         );
 
-        // ~all is a WEAKER assertion (hence below -all), never "not enforcing".
-        assert_eq!(soft.severity, Severity::Medium);
+        // ~all is a legitimate posture, not a lesser one. RFC 9989 §7.1
+        // documents two harms -all carries that ~all avoids (rejection before
+        // DMARC is consulted; permanent absence from aggregate reports), so a
+        // taxonomy awarding Ok only to the qualifier the RFC cautions against
+        // would measure the wrong axis. Ruled 2026-08-23 after the DMARC
+        // ladder showed the offset: quarantine ("possible the mail is valid")
+        // passed while softfail ("probably not authorized") did not — the same
+        // epistemic posture scored two different ways.
+        assert_eq!(soft.severity, Severity::Ok);
         assert!(
             soft.consequence_blue.contains("weak statement"),
             "softfail must use the publisher-assertion framing: {}",
+            soft.consequence_blue
+        );
+        assert!(
+            soft.consequence_blue.contains("9989"),
+            "softfail must cite the §7.1 trade that justifies parity: {}",
             soft.consequence_blue
         );
         assert!(!soft.consequence_blue.contains("Move to -all"));
         assert!(!soft.consequence_blue.contains("path toward -all"));
 
         // The unconditional-DMARC defect: this control never measures DMARC,
-        // so it must not assert a co-control's state. "Paired with p=reject"
-        // states the pairing; "With DMARC enforcing" asserts it.
+        // so it must not assert a co-control's state.
         assert!(
             !soft.consequence_blue.contains("With DMARC enforcing"),
             "softfail must not assert an unmeasured co-control state: {}",
@@ -1310,6 +1330,16 @@ mod tests {
         assert!(
             other.severity < soft.severity,
             "no-assertion must outrank a weak negative assertion"
+        );
+
+        // SPF's ladder must stay aligned with DMARC's: both middle rungs are
+        // hedged publisher positions and both pass; both bottom rungs take no
+        // adverse position and both are findings. The offset between them was
+        // a display inconsistency with no basis in the standards text.
+        assert_eq!(
+            soft.severity,
+            dmarc_report(DmarcDisposition::Quarantine).severity,
+            "hedged-but-adverse must score the same on both ladders"
         );
     }
 
