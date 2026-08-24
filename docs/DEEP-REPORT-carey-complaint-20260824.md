@@ -359,3 +359,88 @@ the proof type, don't depend on the RCODE.**
 was of `analysis_raw.rs`; the file is `analysis.rs`. Substance is correct (verified
 first-hand), but the filename drift would make a future `grep analysis_raw` miss.
 
+
+---
+
+## 9. The NXNAME recovery — correcting §7, and the APT answer (2026-08-24)
+
+### The correction to my own §7
+
+§7 concluded "the NXDOMAIN→Indet branch cannot fire behind a compact-denial
+provider." That is true *of the rcode*, but it was the wrong variable. RFC 9824
+§6 says the nonexistent-name information survives in the **NSEC Type Bit Maps
+field** — specifically the **NXNAME (TYPE128)** synthetic type — not in the
+response code. A nonexistent name under Cloudflare/Route53/NS1 returns NOERROR
+with an NSEC whose type bitmap is exactly `RRSIG NSEC NXNAME`.
+
+I proved this against my own earlier capture: the `dig` in §7 printed
+`RRSIG NSEC TYPE128`, and I read `TYPE128` as an anonymous type code instead of
+recognizing it as the compact-denial sentinel. **The recovery signal was in my
+own measurement; I missed it.**
+
+Consequences (verified against RFC 9824 first-hand):
+
+- **`denial_proof` gains a fourth, sharper grade.** The four grades become:
+  `nsec` (authenticated denial, NSEC/NSEC3 proof) / `nsec_nxname` (compact
+  denial — NOERROR but the bitmap says "name doesn't exist") / `soa_only`
+  (unsigned bare NODATA) / `none` (no proof at all). The NXNAME grade is what
+  lets a re-inspector tell "name never existed" from "name exists, no such
+  record" behind a compact-answer provider.
+- **Normative force, settled:** RFC 9824 §2 ("No special handling... required")
+  is a general resolver statement; §6 ("will need to infer") is a lowercase
+  factual consequence, not a BCP 14 MUST; §3.5 (MUST return FORMERR to an
+  explicit NXNAME query) is normative but only concerns explicit NXNAME queries,
+  which we never make. Net: **`denial_proof` (including the NXNAME grade) is
+  architecturally well-founded and RFC-named, but not compliance-mandated.**
+  My original "should not must" stands; SciSpace's escalation to "must" was
+  over-stated; Claude Code's correction is confirmed.
+- **The Indet branch remains correct and now has a companion.** The rcode-based
+  NXDOMAIN→Indet branch still fires for a genuinely missing domain (parent SOA,
+  measured §7). For a nonexistent *name within an existing zone* behind compact
+  denial, the NXNAME bit is the recovery path. Neither is a defect; both are now
+  fully mapped.
+
+### What we were not telling the APT hunter
+
+The question — "most-secure SOC on the planet, tracing an APT, what makes our
+tool next-level magic?" — has a grounded answer, and it is the *receipt*, not a
+new verdict:
+
+1. **We see through the anti-enumeration shield the adversary actually uses.**
+   Compact denial (RFC 9824) exists *specifically* to defeat zone enumeration —
+   to stop exactly what an APT hunter does. It is deployed by Cloudflare, NS1,
+   Route53, Knot DNS, and Oracle. Every other scanner reads NOERROR+NODATA and
+   reports "nothing here / name absent." We read the NSEC type bitmap, see
+   NXNAME, and correctly report "this name does not exist — and the zone itself
+   proved it, cryptographically." The adversary's shield is transparent to us.
+2. **The receipt is the evidence, and we keep it.** Attribution ends in a
+   forensic claim that must survive a courtroom or an intelligence writeup.
+   Other tools say "we judged this domain absent." We say "here is the signed
+   NSEC record with its RRSIG, the rcode, the exact bytes — re-run it and you
+   get the same proof." A sealed, re-derivable receipt is *evidence*, not an
+   assertion.
+3. **The denial grade is itself a fingerprint.** A domain that answers with a
+   cryptographic NSEC proof, vs an unsigned bare NODATA, vs a compact-denial
+   NXNAME, vs SERVFAIL — each is a different *kind of hiding*. Recording the
+   grade lets a hunter detect when a domain's denial behavior *changes* (moved
+   behind Cloudflare, taken down, rotated) — flux detection at the denial layer,
+   which no current scanner captures.
+4. **"We don't know" is a first-class, sealed finding.** When every resolver
+   SERVFAILs a domain, a normal scanner says "error, re-run." We report
+   "indeterminate — here is the exact rcode from each vantage, sealed." For a
+   hunter, the domain that *can't be measured* is often the most interesting
+   one: it is being actively interfered with, or misconfigured in a way that is
+   itself a signature. We do not throw that away.
+5. **Observation and conclusion stay in separate, auditable channels.** The
+   whole arc — witness not judge, receipts beside the seal (R-B) — is the
+   discipline an analyst needs: "here is what I *observed* (sealed raw
+   evidence), here is what I *concluded* (sealed verdict), and you can audit the
+   jump." The tool never lets the judgment wear the measurement's clothes —
+   which is the single most common way intelligence analysis goes wrong, and the
+   exact failure the Verification Principle exists to catch.
+
+**Honest labeling:** #4 and #5 are shipped (Indet is already a first-class
+TriState; witness/judge separation is the converged architecture). #1, #2, #3
+are the capability the receipt column (SPEC §1) *enables* — specced, not yet
+built. The magic is the combination, and the receipts are the missing piece.
+
