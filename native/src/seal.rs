@@ -6,7 +6,7 @@
 // was not altered after measurement.
 //
 // BYTE-IDENTITY IS LOAD-BEARING. The canonical form (field order, encoding,
-// enum variant names via Debug) must match the engine byte-for-byte, or a
+// SealSpelling of every enum value) must match the engine byte-for-byte, or a
 // verdict sealed by the engine fails verification in the compartment (and vice
 // versa). The golden-seal test below pins this mirror to a value computed from
 // the ENGINE (the single source of truth).
@@ -24,7 +24,7 @@ use sha3::{Digest, Sha3_512};
 use alloc::format;
 use alloc::string::String;
 
-use resolution_scope_types::ScoredAnalysis;
+use resolution_scope_types::{ScoredAnalysis, SealSpelling};
 
 /// Versioned identifier for the seal scheme. Changing the canonical form MUST
 /// bump this string, or old seals silently become unverifiable.
@@ -79,10 +79,11 @@ pub fn canonical_input(analysis: &ScoredAnalysis, produced_by_version: &str) -> 
         &analysis.dane,
     ));
     // tlsa_zone is a primary measurement (DANE attribution zone), sealed as its
-    // own `tlsa_zone=<variant>` line (variant NAME via Debug, same as every
-    // disposition). Byte-identical to the engine.
+    // own `tlsa_zone=<variant>` line (SealSpelling, same as every disposition).
+    // Byte-identical to the engine.
     s.push_str("tlsa_zone=");
-    s.push_str(&format!("{:?}\n", analysis.tlsa_zone));
+    s.push_str(analysis.tlsa_zone.seal_spelling());
+    s.push('\n');
     s.push_str(&control_line(
         "mta_sts",
         &analysis.mta_sts_disposition,
@@ -102,13 +103,13 @@ pub fn canonical_input(analysis: &ScoredAnalysis, produced_by_version: &str) -> 
     s
 }
 
-/// One control's canonical line: `name=disposition=tri\n` (Debug variant names).
-fn control_line(
-    name: &str,
-    disposition: &dyn core::fmt::Debug,
-    tri: &dyn core::fmt::Debug,
-) -> String {
-    format!("{name}={disposition:?}={tri:?}\n")
+/// One control's canonical line: `name=disposition=tri\n` (SealSpelling values).
+fn control_line(name: &str, disposition: &dyn SealSpelling, tri: &dyn SealSpelling) -> String {
+    format!(
+        "{name}={}={}\n",
+        disposition.seal_spelling(),
+        tri.seal_spelling()
+    )
 }
 
 /// Lowercase hex of a byte slice (SHA3-512 → 128 hex chars).

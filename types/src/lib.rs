@@ -26,10 +26,12 @@
 extern crate alloc;
 
 mod dispositions;
+mod seal_spelling;
 mod tristate;
 
 pub use dispositions::{
     CaaDisposition, CdsDisposition, DaneDisposition, DkimDisposition, DmarcDisposition,
     DnssecDisposition, MtaStsDisposition, ScoredAnalysis, SpfDisposition, TlsaZone,
 };
+pub use seal_spelling::SealSpelling;
 pub use tristate::TriState;

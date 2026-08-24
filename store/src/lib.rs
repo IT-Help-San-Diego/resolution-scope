@@ -188,6 +188,14 @@ impl Store {
     /// Persist a verdict, sealed. The seal is computed HERE, from the
     /// verdict being stored, bound to the engine version compiled into this
     /// build — never accepted from the caller.
+    ///
+    /// INVARIANT — stored verdict JSON is append-only. No migration,
+    /// backfill, or schema update may deserialize and rewrite a verdict row:
+    /// serde normalizes old variant spellings on re-serialization (aliases
+    /// are deserialize-only, measured 2026-08-25), so a rewrite pass would
+    /// silently change sealed bytes under their unchanged seal and
+    /// self-inflict Mismatch on every touched row. Re-derivation happens in
+    /// `verify_scan` at read time, never at write time.
     pub async fn record_scan(&self, a: &ScoredAnalysis) -> Result<i64> {
         let version = engine_version();
         let sealed = seal_versioned(a, &version);

@@ -70,6 +70,7 @@
 use sha3::{Digest, Sha3_512};
 
 use crate::analysis::ScoredAnalysis;
+use resolution_scope_types::SealSpelling;
 
 /// Versioned identifier for the seal scheme. Changing the canonical form
 /// (field set, order, encoding) MUST bump this string, or old seals silently
@@ -133,11 +134,14 @@ pub fn seal_versioned_under_scheme(
 /// different encoding than the seal hashes is a second, hand-kept copy of the
 /// canonical form, and it WILL fall out of sync).
 ///
-/// The input carries the enum VARIANT NAMES (not the human labels), because
-/// that is what the seal binds — `SignedAndDelegated`, not "signed + delegated
-/// — chain validates from the root". A report that showed only the human label
-/// would name the seal inputs without their values, which is the same as
-/// omitting them.
+/// The input carries each value's SEAL SPELLING (not the human labels) —
+/// hand-pinned literals owned by resolution-scope-types::seal_spelling, today
+/// identical to the Rust variant names: `SignedAndDelegated`, not "signed +
+/// delegated — chain validates from the root". Deliberately NOT derived
+/// `Debug` output (Rust disclaims its stability across compiler versions), so
+/// no toolchain upgrade can orphan sealed history. A report that showed only
+/// the human label would name the seal inputs without their values, which is
+/// the same as omitting them.
 pub fn canonical_input(analysis: &ScoredAnalysis, produced_by_version: &str) -> String {
     canonical_input_under_scheme(analysis, produced_by_version, SEAL_SCHEME)
 }
@@ -196,7 +200,8 @@ fn canonical_input_under_scheme(
     // as every disposition. Not a control (no tri-state), so a bare
     // `tlsa_zone=<variant>` line, not the `name=disposition=tri` shape.
     s.push_str("tlsa_zone=");
-    s.push_str(&format!("{:?}\n", analysis.tlsa_zone));
+    s.push_str(analysis.tlsa_zone.seal_spelling());
+    s.push('\n');
     s.push_str(&control_line(
         "mta_sts",
         &analysis.mta_sts_disposition,
@@ -233,12 +238,17 @@ pub fn engine_version() -> String {
 }
 
 /// One control's canonical line: `name=disposition=tri\n`.
-fn control_line(
-    name: &str,
-    disposition: &dyn std::fmt::Debug,
-    tri: &dyn std::fmt::Debug,
-) -> String {
-    format!("{name}={disposition:?}={tri:?}\n")
+///
+/// Values are formatted through [`SealSpelling`] — hand-pinned literals in
+/// resolution-scope-types — never through derived `Debug`, whose output Rust
+/// officially disclaims as unstable across compiler versions (std::fmt::Debug
+/// "Stability"). The switch was byte-identical (every golden held).
+fn control_line(name: &str, disposition: &dyn SealSpelling, tri: &dyn SealSpelling) -> String {
+    format!(
+        "{name}={}={}\n",
+        disposition.seal_spelling(),
+        tri.seal_spelling()
+    )
 }
 
 /// Lowercase hex of a byte slice (SHA3-512 → 128 hex chars).

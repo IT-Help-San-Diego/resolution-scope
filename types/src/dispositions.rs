@@ -2,9 +2,12 @@
 //
 // Extracted from engine/src/analysis.rs (the former single location) into this
 // shared crate so the engine (std) and the native store compartment (no_std)
-// compile against ONE definition. The enum VARIANT NAMES are load-bearing:
-// the verdict seal hashes the `Debug` representation, so a rename is a
-// seal-breaking change — which is exactly why the definition must not be
+// compile against ONE definition. The enum VARIANT NAMES are load-bearing
+// twice over: serde writes them verbatim into stored verdict JSON, and the
+// verdict seal hashes each variant's SealSpelling (seal_spelling.rs —
+// hand-pinned literals, today identical to the variant names; no longer the
+// derived `Debug` output, whose stability Rust disclaims). A rename is a
+// seal-scheme event — which is exactly why the definition must not be
 // duplicated anywhere.
 //
 // The RFC citations in the doc comments below are layer-1 facts of the
@@ -562,7 +565,9 @@ mod tests {
     use super::*;
     use alloc::{format, vec::Vec};
 
-    /// The seal hashes the `Debug` repr (variant NAME). Pin the exact ordered
+    /// Serde writes the variant NAMES verbatim into stored JSON, and the seal
+    /// spellings (seal_spelling.rs, pinned separately) today equal them too —
+    /// so this test guards the JSON vocabulary. Pin the exact ordered
     /// variant-name sets so a rename fails loudly here rather than silently
     /// changing what every existing seal means.
     #[test]
