@@ -236,7 +236,17 @@ impl DaneDisposition {
             DaneDisposition::NoMx => TriState::Absent,
             DaneDisposition::NoMail => TriState::NotApplicable,
             DaneDisposition::TransientError => TriState::Indet,
-            DaneDisposition::DnssecRequired => TriState::Indet,
+            // NOT Indet. The gate that emits this (dane_host_zone_requires_dnssec)
+            // fires ONLY on Unsigned/NoZone — both MEASURED — and deliberately
+            // passes Unreachable/ChainUnverified through to the TLSA loop so a
+            // genuine couldn't-measure reports itself. So this is a measured
+            // structural unavailability, not a gap in our knowledge: we queried
+            // the MX host's zone, found no DNSKEY, and concluded DANE cannot be
+            // trusted here (RFC 7672 §1.3.2). Rendering "?" told the reader we
+            // failed to determine something the DNSSEC row two lines up already
+            // determined. Absent is also wrong — it attributes the DNSSEC
+            // failure to DANE and counts one deficiency twice.
+            DaneDisposition::DnssecRequired => TriState::NotApplicable,
         }
     }
 }

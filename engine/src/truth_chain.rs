@@ -218,8 +218,12 @@ fn rfc_requirement(control: ControlId) -> &'static str {
              quarantine and reject enforce."
         }
         ControlId::Dane => {
+            // §1.3.2, not §4 — pinned by the known-answer vector table
+            // (docs/arm2-rfc-known-answer-vectors.md row A1). The two lines
+            // rendered adjacent on screen with different section numbers for
+            // the same requirement; §1.3.2 is the verified one.
             "Optional (RFC 7672). TLSA at _25._tcp.<mx-host> for each MX; \
-             requires a DNSSEC-signed zone (§4) to mean anything."
+             requires a DNSSEC-signed zone (§1.3.2) to mean anything."
         }
         ControlId::MtaSts => {
             "Optional (RFC 8461). TXT at _mta-sts.<domain> plus an HTTPS policy \
@@ -515,11 +519,16 @@ fn dane_report(d: DaneDisposition, z: TlsaZone) -> ControlReport {
             "Could not measure DANE on this pass. Not a finding — re-run.",
             "No measurement obtained on this pass.",
         ),
+        // Severity::NotApplicable, matching the tri-state. The deficiency here
+        // is REAL but it is DNSSEC's, and the DNSSEC row already scores it —
+        // ranking this Low too would count one unsigned zone as two findings.
+        // The remediation still names the fix, so the reader is not left
+        // wondering what to do; it just isn't charged twice for it.
         DaneDisposition::DnssecRequired => (
-            "dnssec required — zone unsigned, TLSA cannot be trusted",
-            Severity::Low,
-            "DANE only means something inside a signed zone (RFC 7672 §1.3.2). Sign the zone first; TLSA records in an unsigned zone are unverifiable.",
-            "Any TLSA present is unverifiable without DNSSEC; DANE offers no obstacle here.",
+            "not applicable — MX host zone is unsigned, so DANE cannot apply",
+            Severity::NotApplicable,
+            "DANE only means something inside a signed zone (RFC 7672 §1.3.2). This is not an unknown: the MX host's zone was queried and carries no DNSKEY. Sign the zone first — then TLSA records become verifiable and this control starts applying.",
+            "DANE is structurally unavailable here, not merely undeployed: any TLSA present is unverifiable without DNSSEC, so DANE offers no obstacle.",
         ),
     };
     ControlReport {
@@ -1262,6 +1271,70 @@ mod tests {
             dane_report(DaneDisposition::NotConfigured, TlsaZone::SameZone).severity,
             Severity::Low,
             "DANE's missing disposition is Low; identity_weight derives 1 from it"
+        );
+    }
+
+    /// DANE's `DnssecRequired` is a MEASURED structural unavailability, not a
+    /// gap in our knowledge — the distinction Carey caught rendering as "?".
+    #[test]
+    fn dane_dnssec_required_is_measured_unavailability_not_a_gap() {
+        // Carey caught this on screen: an unsigned mail domain rendered DNSSEC
+        // FAIL two rows above a DANE "?" — the tool asking a question it had
+        // just answered itself.
+        //
+        // The emitting gate is the evidence. dane_host_zone_requires_dnssec
+        // fires ONLY on Unsigned/NoZone and deliberately passes Unreachable and
+        // ChainUnverified through to the TLSA loop. So every emission of this
+        // disposition stands on a completed measurement. Indet claimed the
+        // opposite.
+        let req = dane_report(DaneDisposition::DnssecRequired, TlsaZone::SameZone);
+        assert_eq!(
+            req.tri,
+            TriState::NotApplicable,
+            "DnssecRequired is a MEASURED structural unavailability — its gate fires only on \
+             measured Unsigned/NoZone — so it must not render as couldn't-measure"
+        );
+        assert_eq!(
+            req.severity,
+            Severity::NotApplicable,
+            "the unsigned zone is DNSSEC's finding; scoring it here too counts it twice"
+        );
+
+        // The genuine couldn't-measure keeps Indet. If this ever equals the
+        // line above, the distinction this whole change exists to draw is gone.
+        let transient = dane_report(DaneDisposition::TransientError, TlsaZone::SameZone);
+        assert_eq!(
+            transient.tri,
+            TriState::Indet,
+            "TransientError is the real couldn't-measure and must stay Indet"
+        );
+        assert_ne!(
+            req.tri, transient.tri,
+            "measured-unavailable and couldn't-measure must remain distinguishable"
+        );
+
+        // Absent was the other candidate and is wrong: it attributes DNSSEC's
+        // failure to DANE. NoMx is the correctly-Absent sibling — mail routing
+        // is genuinely missing there, which IS DANE's own surface.
+        assert_eq!(
+            dane_report(DaneDisposition::NoMx, TlsaZone::SameZone).tri,
+            TriState::Absent,
+            "NoMx stays Absent — a missing mail path is DANE's own measured gap"
+        );
+
+        // Not-applicable must never be silent about the remedy.
+        let blue = req.consequence(Audience::BlueTeam);
+        assert!(
+            blue.contains("7672"),
+            "must cite the RFC that makes DANE conditional on DNSSEC"
+        );
+        assert!(
+            blue.contains("Sign the zone"),
+            "not-applicable must still tell the operator what unlocks the control"
+        );
+        assert!(
+            !req.measured.contains("cannot be trusted"),
+            "the old wording read as a DANE verdict; the finding belongs to DNSSEC"
         );
     }
 
