@@ -301,22 +301,22 @@ fn dnssec_report(d: DnssecDisposition) -> ControlReport {
 fn spf_report(d: SpfDisposition) -> ControlReport {
     let (measured, severity, blue, red) = match d {
         SpfDisposition::HardFail => (
-            "hardfail (-all) — enforced",
+            "hardfail (-all) — strongest publisher assertion",
             Severity::Ok,
-            "SPF authorizes specific senders and tells receivers to reject the rest.",
-            "Sender-IP spoofing of this domain fails SPF outright at conforming receivers.",
+            "SPF authorizes specific senders and asserts the rest are unauthorized — the strongest statement the record can make. RFC 9989 §7.1 names a trade: because SPF runs early in the SMTP transaction, -all can cause rejection before DMARC is consulted, so mail that would have passed via an aligned DKIM signature may be refused — and those rejections never reach the DATA phase, so they never appear in your aggregate reports.",
+            "Sender-IP spoofing of this domain fails SPF outright at conforming receivers, and may be refused before DMARC is evaluated.",
         ),
         SpfDisposition::SoftFail => (
-            "softfail (~all) — the DMARC-era standard",
+            "softfail (~all) — publisher's weaker assertion",
             Severity::Medium,
-            "SPF is published with ~all: receivers mark suspicious mail rather than reject it. With DMARC enforcing alignment, softfail is the correct terminal posture — the era of moving to -all ended when DMARC arrived.",
+            "RFC 7208 §2.6.5: softfail is a weak statement by the publishing domain that the host is probably not authorized — a weaker assertion than -all, which is why it ranks below it. Neither qualifier enforces: the action is the receiver's local policy, and DMARC is the layer that turns the assertion into a disposition. Paired with DMARC p=reject, the assertion and the enforcement are both in place.",
             "Spoofed mail is marked, not blocked: softfail typically lands in spam rather than being refused — usable with a pretext that survives a spam folder, and DMARC disposition decides the rest.",
         ),
         SpfDisposition::OtherPolicy => (
-            "record present, terminal qualifier neither -all nor ~all",
-            Severity::Medium,
-            "SPF is published but ends in a neutral/permissive qualifier (?all, +all, or no all mechanism) — receivers get no rejection instruction at all. Terminate the record with -all.",
-            "SPF exists but instructs nothing: spoofed senders do not fail SPF here, so DMARC's SPF leg never fires.",
+            "record present, no negative assertion (?all, +all, or no all)",
+            Severity::High,
+            "SPF is published but makes no negative assertion — ?all is explicitly neutral, +all authorizes every host on the internet, and a record with no all mechanism defaults to neutral. Unlike ~all (a weak negative statement), this asserts nothing against unauthorized senders, so DMARC's SPF leg can never contribute a fail.",
+            "SPF exists but instructs nothing: spoofed senders do not fail SPF here, so DMARC's SPF leg never fires. +all is an open authorization of the entire internet.",
         ),
         SpfDisposition::NotConfigured => (
             "not configured — no SPF record",
@@ -966,10 +966,16 @@ mod tests {
         }
     }
 
-    /// §8 enforcement ruling, pinned: the three deployed-but-not-enforcing
-    /// states score Present (deployment) with severity Medium (the enforcement
-    /// gap) — the score never erases the gap, the severity never erases the
-    /// deployment.
+    /// §8 enforcement ruling, pinned: deployed-but-not-enforcing states score
+    /// Present (deployment) — the score never erases the gap, the severity
+    /// never erases the deployment.
+    ///
+    /// The two axes are independent, and §8 governs only the first. TriState
+    /// answers "is it published"; severity answers "how bad is the gap".
+    /// `OtherPolicy` moved to High on 2026-08-23 (Claude Science: ?all/+all
+    /// make NO negative assertion, unlike ~all's weak one — +all authorizes
+    /// the entire internet) while its TriState stayed Present, which is
+    /// exactly the separation §8 requires.
     #[test]
     fn enforcement_ruling_pinned() {
         for r in [
@@ -987,6 +993,15 @@ mod tests {
                 "{:?}: non-enforcing must score Present",
                 r.control
             );
+        }
+
+        // Severity is the SEPARATE axis. The weak-negative-assertion states
+        // rank Medium; no-assertion-at-all ranks High.
+        for r in [
+            spf_report(SpfDisposition::SoftFail),
+            dmarc_report(DmarcDisposition::Monitor),
+            mta_sts_report(MtaStsDisposition::NotEnforced),
+        ] {
             assert_eq!(
                 r.severity,
                 Severity::Medium,
@@ -994,6 +1009,11 @@ mod tests {
                 r.control
             );
         }
+        assert_eq!(
+            spf_report(SpfDisposition::OtherPolicy).severity,
+            Severity::High,
+            "?all/+all assert nothing — not equivalent to ~all's weak negative"
+        );
     }
 
     /// Deployed-but-INVALID is measured absence, never a policy claim: an
@@ -1236,17 +1256,61 @@ mod tests {
         );
     }
 
-    /// The softfail consequence celebrates the DMARC-era standard (2026-08-23
-    /// voice fix): softfail is the correct terminal posture, not a stepping
-    /// stone to -all. The §8 ruling stands: Medium stays.
+    /// SPF qualifier severities encode ASSERTION STRENGTH, not enforcement —
+    /// RFC 7208 §2.6.5 ("a weak statement by the publishing ADMD") and the
+    /// deferral of action to receiver local policy. Neither qualifier
+    /// enforces; DMARC turns the assertion into a disposition.
+    ///
+    /// Ruling (Claude Science, 2026-08-23, standards-verified first-hand):
+    /// Option 1 — per-control severity stands, the WORDING carries the
+    /// layering. Cross-control severity was rejected ON FACT, not purity:
+    /// RFC 9989 §7.1 cautions the publisher AGAINST -all (early SMTP
+    /// rejection before DMARC is consulted, and those rejections never reach
+    /// the DATA phase so they never appear in aggregate reports), so making
+    /// softfail worse when DMARC is absent would penalise the safer
+    /// publication exactly where it is most correct.
     #[test]
-    fn softfail_voice_is_correct_staging_not_deficiency() {
-        let r = spf_report(SpfDisposition::SoftFail);
-        assert!(r.measured.contains("DMARC-era standard"), "{}", r.measured);
-        assert!(r.consequence_blue.contains("correct terminal posture"));
-        assert!(!r.consequence_blue.contains("Move to -all"));
-        assert!(!r.consequence_blue.contains("path toward -all"));
-        assert_eq!(r.severity, Severity::Medium);
+    fn spf_severities_rank_assertion_strength_not_enforcement() {
+        let hard = spf_report(SpfDisposition::HardFail);
+        let soft = spf_report(SpfDisposition::SoftFail);
+        let other = spf_report(SpfDisposition::OtherPolicy);
+
+        // -all is the strongest assertion — but its consequence must state
+        // the RFC 9989 §7.1 trade, not report one side of it.
+        assert_eq!(hard.severity, Severity::Ok);
+        assert!(
+            hard.consequence_blue.contains("9989"),
+            "hardfail must cite the §7.1 trade: {}",
+            hard.consequence_blue
+        );
+
+        // ~all is a WEAKER assertion (hence below -all), never "not enforcing".
+        assert_eq!(soft.severity, Severity::Medium);
+        assert!(
+            soft.consequence_blue.contains("weak statement"),
+            "softfail must use the publisher-assertion framing: {}",
+            soft.consequence_blue
+        );
+        assert!(!soft.consequence_blue.contains("Move to -all"));
+        assert!(!soft.consequence_blue.contains("path toward -all"));
+
+        // The unconditional-DMARC defect: this control never measures DMARC,
+        // so it must not assert a co-control's state. "Paired with p=reject"
+        // states the pairing; "With DMARC enforcing" asserts it.
+        assert!(
+            !soft.consequence_blue.contains("With DMARC enforcing"),
+            "softfail must not assert an unmeasured co-control state: {}",
+            soft.consequence_blue
+        );
+
+        // ?all / +all make NO negative assertion — not equivalent to ~all's
+        // weak one. +all authorizes the entire internet. Severity orders
+        // worst-first, so the harsher rank sorts BELOW the weaker one.
+        assert_eq!(other.severity, Severity::High);
+        assert!(
+            other.severity < soft.severity,
+            "no-assertion must outrank a weak negative assertion"
+        );
     }
 
     /// A domain missing only CAA (weight 1) vs missing only DMARC (weight 3) —
