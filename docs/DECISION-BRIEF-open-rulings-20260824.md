@@ -1,11 +1,16 @@
 # DECISION BRIEF — the four open Resolution Scope rulings (2026-08-24)
 
-> **RESOLVED 2026-08-24** — Claude Science ruled both "definitional" questions,
-> and both turned out to have measured answers, not values calls. Items 2 and 3
-> below are now **RULED AND LANDED**. Item 1 is engineering (build.rs, no
-> ruling needed). Item 4 is a scope call to settle by measuring the N2 rate.
-> The "cannot be vectored from data" premise in the original brief was half
-> wrong — see the correction note at the bottom.
+> **RESOLVED 2026-08-24, AMENDED 2026-08-24 for attribution** — the two
+> "definitional" questions were ruled `Absent` (item 2: `+all`; item 3:
+> `SignedNotDelegated`) and **landed at `936a5f0` by Hermes**. The original
+> header below attributed these to "Claude Science ruled"; that attribution is
+> NOT supported by the record — see the attribution amendment at the bottom.
+> Both rulings arrived in a "SCIENCE → HERMES" relay whose source lane is
+> unverified, and SciSpace's own docs (`SCISPACE_ruling_open_rulings_plusall_snd.md`)
+> rule the OPPOSITE (`Present`/`High` for both). **This is the fork, and it is
+> Carey's call.** Item 1 is engineering (build.rs, no ruling needed). Item 4 is
+> a scope call, now measured (N2 rate = 0% at rest — see
+> `docs/cds-n2-rate-spot-check-20260824.md`).
 
 Prepared by Hermes for the four-mind group (Carey + Claude Science + Claude Code
 + SciSpace). Every RFC claim below is cited to the standard, verified first-hand;
@@ -169,7 +174,14 @@ engineering or a measurement I can run this session.
 ## Correction note (what the original brief got wrong)
 
 The brief framed items 2 and 3 as "definitional — no experiment settles a
-definition." **Science falsified that** on both:
+definition." The RFC text shows both have measured answers, NOT values calls
+(`SignedNotDelegated` is resolver-identical to unsigned per RFC 4033 §5; `+all`
+authorizes everyone per RFC 7208 §8.3). **Attribution amendment:** the original
+"Science falsified that" and the header's "Claude Science ruled" over-attribute.
+The `Absent`/`Critical`/`High` implementation was Hermes's, made from a
+"SCIENCE → HERMES" relay of unverified source; SciSpace's own docs rule
+`Present`/`High` for both. The fork (deployment-fact vs constitutes-the-control)
+is Carey's to settle — see the ledger `651ce6e` / `3c05975`.
 
 - **`SignedNotDelegated` was never a definition question.** RFC 4033 §5 makes a
   resolver reach the *identical* state (Insecure) for unsigned and
