@@ -323,3 +323,39 @@ verified, but its "missing domain reads as absent" consequence does not occur;
 its real yield is the `denial_proof` receipt column, which is already the right
 shape for the Q2 schema.
 
+
+---
+
+## 8. Fork converged + RFC 9824 verified (2026-08-24)
+
+**The fork is closed by consensus across all three lanes.** SciSpace retracted
+all three Fork A arguments (R1 "Absent = no record" falsified by the "or invalid"
+clause; seal-integrity dissolved; scoring amendment unnecessary) and its session
+summary now states the same resolution as Hermes and Claude Science: **Fork B as
+shipped is correct. `+all` → Absent/Critical, `SignedNotDelegated` → Absent/High,
+no seal bump, no rename, no scoring change.**
+
+**RFC 9824 verified first-hand (the "black lies" authority).**
+`datatracker.ietf.org/doc/rfc9824` — "Compact Denial of Existence in DNSSEC,"
+Proposed Standard, September 2025, Huque/Elmerot/Gudmundsson, updates RFC
+4034/4035. This is the authoritative spec for the NOERROR-for-nonexistent-name
+behavior measured in §7.
+
+- §2: "No special handling of this RR type is required on the part of DNS
+  resolvers." → **`denial_proof` is a "should" (provenance), not a "must"
+  (compliance).**
+- §6: a compact-answer zone "will never return NXDOMAIN" — confirms the
+  NXDOMAIN→Indet branch cannot fire behind such a provider, exactly as measured.
+- Appendix B: deployed by Cloudflare, NS1, Amazon Route53, Knot DNS, Oracle
+  Cloud. (So the behavior is widespread, not exotic.)
+
+**Bonus finding (SciSpace, corroborated against RFC text):** RFC 9989 (DMARCbis)
+§5.7.1's `np` tag defines "non-existent domain" by NXDOMAIN rcode — which compact
+denial erases. So DMARC's own subdomain-policy signal has the *same* structural
+blind spot as our NXDOMAIN→Indet branch. This validates the architecture: **record
+the proof type, don't depend on the RCODE.**
+
+**Transcription error (flagged to SciSpace):** its session summary says the audit
+was of `analysis_raw.rs`; the file is `analysis.rs`. Substance is correct (verified
+first-hand), but the filename drift would make a future `grep analysis_raw` miss.
+
