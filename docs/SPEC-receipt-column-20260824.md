@@ -178,3 +178,42 @@ still says `Indet` (couldn't measure the *control*). The receipt now *also* says
 *how* it couldn't measure, and that second fact is the intelligence. Witness and
 judge stay separate — the judge says "no verdict," the witness says "and here is
 exactly how the absence of a verdict arrived."
+
+---
+
+## 7. Two corrections (Claude Science, 2026-08-24) — the empirical caveat + the flux-axis fork
+
+### 7a. The "everyone else deletes it" claim was overstated — corrected
+
+My "the rest of the world discards the receipt" was too broad. Corrected to the
+specific novelty:
+
+- **DNSViz** stores raw response bytes (pcap-level).
+- **SecurityTrails** keeps historical A/MX/NS records.
+
+So "keeping raw data" is *not* the novelty in general. The actual novelty is
+**keeping the denial-layer fingerprint (denial_proof grade) as a tracked
+time-series dimension** — which neither of the above treats as a first-class
+signal. The claim narrows to that, and only that: nobody tracks the *grade of
+denial* over time as a first-class dimension.
+
+### 7b. The open fork: is denial-layer flux a second axis or part of the existing flux classifier?
+
+The existing flux classifier (`engine/src/flux.rs`) is **address-layer**: ASN/IP
+churn. The receipt columns (`rcode` × `denial_proof`) give a **denial-layer**
+fingerprint that is *orthogonal* to it. A domain can be:
+
+- address-stable **and** denial-unstable (same IP, but flips SERVFAIL ↔
+  NODATA-NXNAME ↔ REFUSED between scans), or
+- address-unstable **and** denial-stable (fast-fluxing IPs, constant denial).
+
+Tracking both gives a **2D flux surface**. This is a **flux-schema design
+choice, not a receipt-schema choice** — the receipt already stores everything
+needed; the question is only whether the flux classifier consumes the
+denial-grade column as a second axis.
+
+**Named, not decided.** It is not urgent (the receipt columns must exist before
+any flux consumer can read them), but it should be on the board so the receipt
+schema isn't later found to have *mis-stored* the denial grade (e.g., folded into
+a single value rather than kept orthogonal to the address axis).
+
