@@ -784,8 +784,12 @@ fn framing_word(a: Audience) -> &'static str {
 }
 
 /// Header help line. One string, sized to fit an 80-column terminal.
-/// The tab bar names the tabs; this line names the actions.
-const HELP_LINE: &str = "j/k · enter · esc · m mode · r rescan · tab domain · d new · q quit";
+/// The tab bar names the tabs; this line names the actions. `1-7` jumps to a
+/// tab (the number keys — the tab bar is numbered); `tab` (the key) switches
+/// domain. The two "tab" words are different: number = section, Tab key =
+/// domain.
+const HELP_LINE: &str =
+    "1-7 tabs · j/k · enter · esc · m mode · r rescan · tab domain · d new · q quit";
 
 fn render_header(f: &mut Frame, area: Rect, app: &App) {
     let p = app.pal;
