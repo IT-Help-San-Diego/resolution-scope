@@ -120,10 +120,16 @@ const TAB_LABELS: &[&str] = &[
     "4:SPF·DKIM·DMARC",
     "5:MTA-STS",
     "6:CAA/CDS",
-    "7:Seal",
+    "9:Seal",
 ];
 const TAB_SUMMARY: usize = 0;
 const TAB_SEAL: usize = 6;
+// The tab numbering jumps from 6 to 9: slots 7 and 8 are reserved for future
+// controls. The seal is FIXED at 9 so a future control slots into 7 or 8 and
+// the seal never renumbers — the gap itself is the "reserved" signal, no
+// placeholder text wasting a column. Keys 7 and 8 are no-ops until a control
+// claims them.
+const SEAL_KEY: u32 = 9;
 
 /// Which detail tab shows a given control (Enter on the summary jumps there).
 fn tab_for_control(c: ControlId) -> usize {
@@ -160,6 +166,20 @@ fn controls_for_tab(tab: usize) -> (&'static str, &'static [ControlId]) {
         ),
         _ => ("\u{2014}", &[]),
     }
+}
+
+/// Map a number key to a tab index. Keys 1..=TAB_SEAL are the summary + control
+/// groups (indices 0..=TAB_SEAL-1); key `SEAL_KEY` (9) is the seal (index
+/// `TAB_SEAL`). 7 and 8 — and anything else — are reserved/no-op until a future
+/// control claims them. The seal's key is fixed at 9 so it never renumbers.
+fn tab_for_key(n: u32) -> Option<usize> {
+    if n == SEAL_KEY {
+        return Some(TAB_SEAL);
+    }
+    if n >= 1 && n <= TAB_SEAL as u32 {
+        return Some((n - 1) as usize);
+    }
+    None
 }
 
 // ── text layout helpers ────────────────────────────────────────────
@@ -784,12 +804,12 @@ fn framing_word(a: Audience) -> &'static str {
 }
 
 /// Header help line. One string, sized to fit an 80-column terminal.
-/// The tab bar names the tabs; this line names the actions. `1-7` jumps to a
-/// tab (the number keys — the tab bar is numbered); `tab` (the key) switches
-/// domain. The two "tab" words are different: number = section, Tab key =
-/// domain.
+/// The tab bar names the tabs; this line names the actions. Number keys jump
+/// to a tab (1-6 controls, 9 = seal; 7 and 8 are reserved — the seal is fixed
+/// at 9 so it never renumbers); `tab` (the key) switches domain. The two "tab"
+/// words are different: number = section, Tab key = domain.
 const HELP_LINE: &str =
-    "1-7 tabs · j/k · enter · esc · m mode · r rescan · tab domain · d new · q quit";
+    "1-6·9 tabs · j/k · enter · esc · m mode · r rescan · tab domain · d new · q quit";
 
 fn render_header(f: &mut Frame, area: Rect, app: &App) {
     let p = app.pal;
@@ -902,8 +922,8 @@ fn render_tabs(f: &mut Frame, area: Rect, app: &App) {
             Line::from(Span::styled(*t, style))
         })
         .collect();
-    // Trailing-space padding + bare divider: the seven labels total 76
-    // columns, so the tab bar fits a stock 80-column terminal.
+    // Trailing-space padding + bare divider: the seven labels fit a stock
+    // 80-column terminal (the "9:Seal" gap carries the reserved 7 and 8).
     let tabs = Tabs::new(titles)
         .select(app.selected_tab)
         .style(Style::default().fg(p.muted))
@@ -1170,8 +1190,8 @@ fn handle_input(app: &mut App, code: KeyCode, modifiers: KeyModifiers) -> Action
         }
         (KeyCode::Char(c), _) if c.is_ascii_digit() => {
             if let Some(n) = c.to_digit(10) {
-                if (1..=TAB_LABELS.len() as u32).contains(&n) {
-                    app.selected_tab = n as usize - 1;
+                if let Some(tab) = tab_for_key(n) {
+                    app.selected_tab = tab;
                     app.scroll = 0;
                 }
             }
@@ -1576,12 +1596,15 @@ mod tests {
         assert_eq!(a.selected_tab, 2);
         handle_input(&mut a, KeyCode::Esc, KeyModifiers::NONE);
         assert_eq!(a.selected_tab, TAB_SUMMARY);
-        handle_input(&mut a, KeyCode::Char('7'), KeyModifiers::NONE);
+        // The seal is at key 9 (not 7): key 9 selects it.
+        handle_input(&mut a, KeyCode::Char('9'), KeyModifiers::NONE);
         assert_eq!(a.selected_tab, TAB_SEAL);
         handle_input(&mut a, KeyCode::Backspace, KeyModifiers::NONE);
         assert_eq!(a.selected_tab, TAB_SUMMARY);
-        // Digits outside the tab range do nothing.
-        handle_input(&mut a, KeyCode::Char('9'), KeyModifiers::NONE);
+        // Reserved keys (7, 8) and out-of-range digits (0) do nothing.
+        handle_input(&mut a, KeyCode::Char('7'), KeyModifiers::NONE);
+        assert_eq!(a.selected_tab, TAB_SUMMARY);
+        handle_input(&mut a, KeyCode::Char('0'), KeyModifiers::NONE);
         assert_eq!(a.selected_tab, TAB_SUMMARY);
     }
 
