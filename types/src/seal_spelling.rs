@@ -264,4 +264,136 @@ mod tests {
         check(TlsaZone::ZoneUnmeasured, "ZoneUnmeasured");
         check(TlsaZone::NoMxHost, "NoMxHost");
     }
+
+    /// The OTHER half of the spelling contract (Science's directive,
+    /// 2026-08-25): `SealSpelling` pins what is EMITTED — this pins what is
+    /// ACCEPTED. Serde must accept exactly the seal spelling and nothing
+    /// else: a `#[serde(alias)]` or `rename_all` would silently widen the
+    /// accepted set, and a deserialize-then-reserialize pass would then
+    /// normalize old spellings under an unchanged seal (the recorded
+    /// alias-normalization hazard, store/src/lib.rs beside record_scan).
+    /// Three checks per variant: serde output == seal_spelling; the spelling
+    /// roundtrips; case-mangled forms (lower/UPPER/camel/snake) all reject.
+    #[test]
+    fn serde_accepts_exactly_the_seal_spellings() {
+        use alloc::string::String;
+
+        fn camel(s: &str) -> String {
+            let mut c = s.chars();
+            match c.next() {
+                Some(f) => f.to_lowercase().chain(c).collect(),
+                None => String::new(),
+            }
+        }
+        fn snake(s: &str) -> String {
+            let mut out = String::new();
+            for (i, ch) in s.chars().enumerate() {
+                if ch.is_uppercase() {
+                    if i != 0 {
+                        out.push('_');
+                    }
+                    out.extend(ch.to_lowercase());
+                } else {
+                    out.push(ch);
+                }
+            }
+            out
+        }
+
+        fn guard<T>(v: T)
+        where
+            T: SealSpelling
+                + serde::Serialize
+                + serde::de::DeserializeOwned
+                + PartialEq
+                + core::fmt::Debug,
+        {
+            let spelling = v.seal_spelling();
+            let json = serde_json::to_string(&v).unwrap();
+            assert_eq!(
+                json,
+                format!("\"{spelling}\""),
+                "serde surface diverged from the seal surface for {v:?}"
+            );
+            let back: T = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, v, "seal spelling failed serde roundtrip for {v:?}");
+            for wrong in [
+                spelling.to_lowercase(),
+                spelling.to_uppercase(),
+                camel(spelling),
+                snake(spelling),
+            ] {
+                if wrong != spelling {
+                    assert!(
+                        serde_json::from_str::<T>(&format!("\"{wrong}\"")).is_err(),
+                        "{wrong:?} must NOT deserialize as {v:?} — an alias/rename has widened the accepted set"
+                    );
+                }
+            }
+        }
+
+        guard(TriState::Present);
+        guard(TriState::Absent);
+        guard(TriState::Indet);
+        guard(TriState::NotApplicable);
+        guard(DnssecDisposition::SignedAndDelegated);
+        guard(DnssecDisposition::SignedNotDelegated);
+        guard(DnssecDisposition::BrokenChain);
+        guard(DnssecDisposition::ChainUnverified);
+        guard(DnssecDisposition::Unsigned);
+        guard(DnssecDisposition::NoZone);
+        guard(DnssecDisposition::Unreachable);
+        guard(SpfDisposition::HardFail);
+        guard(SpfDisposition::SoftFail);
+        guard(SpfDisposition::OtherPolicy);
+        guard(SpfDisposition::PositiveAll);
+        guard(SpfDisposition::NotConfigured);
+        guard(SpfDisposition::NoMail);
+        guard(SpfDisposition::TransientError);
+        guard(DkimDisposition::Verified);
+        guard(DkimDisposition::NotFoundDefaults);
+        guard(DkimDisposition::NotProbed);
+        guard(DkimDisposition::NoMailDomain);
+        guard(DkimDisposition::TransientError);
+        guard(DkimDisposition::KeyMismatch);
+        guard(DkimDisposition::Revoked);
+        guard(DkimDisposition::Wildcard);
+        guard(DmarcDisposition::Reject);
+        guard(DmarcDisposition::Quarantine);
+        guard(DmarcDisposition::Monitor);
+        guard(DmarcDisposition::InvalidPolicy);
+        guard(DmarcDisposition::NotConfigured);
+        guard(DmarcDisposition::NoMail);
+        guard(DmarcDisposition::TransientError);
+        guard(DaneDisposition::TlsaPublished);
+        guard(DaneDisposition::Verified);
+        guard(DaneDisposition::Mismatch);
+        guard(DaneDisposition::NotConfigured);
+        guard(DaneDisposition::NoMx);
+        guard(DaneDisposition::NoMail);
+        guard(DaneDisposition::TransientError);
+        guard(DaneDisposition::DnssecRequired);
+        guard(MtaStsDisposition::Enforced);
+        guard(MtaStsDisposition::RecordAbsent);
+        guard(MtaStsDisposition::NoZone);
+        guard(MtaStsDisposition::TransientError);
+        guard(MtaStsDisposition::NotEnforced);
+        guard(MtaStsDisposition::PolicyInvalid);
+        guard(CaaDisposition::FullyRestricted);
+        guard(CaaDisposition::Configured);
+        guard(CaaDisposition::WildcardFullyRestricted);
+        guard(CaaDisposition::NotConfigured);
+        guard(CaaDisposition::NoZone);
+        guard(CaaDisposition::TransientError);
+        guard(CdsDisposition::Published);
+        guard(CdsDisposition::DeletionRequested);
+        guard(CdsDisposition::NotPublished);
+        guard(CdsDisposition::NoZone);
+        guard(CdsDisposition::TransientError);
+        guard(TlsaZone::SameZone);
+        guard(TlsaZone::DescendantZone);
+        guard(TlsaZone::ForeignZone);
+        guard(TlsaZone::ZoneUnmeasured);
+        guard(TlsaZone::NoMxHost);
+    }
 }

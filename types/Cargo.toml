@@ -11,3 +11,7 @@ repository  = "https://github.com/IT-Help-San-Diego/resolution-scope"
 # the IPC boundary in the engine/native crates; this crate only defines the
 # types both sides serialize.
 serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
+
+[dev-dependencies]
+# std-linked test-only: the accepted-set serde guard needs a JSON codec.
+serde_json = "1"
