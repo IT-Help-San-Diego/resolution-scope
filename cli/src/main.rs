@@ -55,11 +55,12 @@ and are always shown as such — never guessed.";
 
 const AFTER_HELP: &str = "\
 Examples:
-  resolution-scope example.com                    measure + human report (default)
-  resolution-scope example.com --audience red     consequence text framed for an assessor
-  resolution-scope a.com b.com --format html -o r.html
-  resolution-scope example.com --format json | jq .seal
-  resolution-scope tui example.com                interactive dashboard
+  resolution-scope example.com               measure + human report (default)
+  resolution-scope example.com --red          red-team framing + scotopic palette
+  resolution-scope example.com --format json  machine output | jq .seal
+  resolution-scope example.com --format html -o r.html
+  resolution-scope tui example.com           interactive dashboard
+  resolution-scope tui example.com --red     dashboard in red-team mode
   resolution-scope history example.com --store-url postgres://…";
 
 #[derive(Parser)]
@@ -86,22 +87,22 @@ struct ScanArgs {
     #[arg(value_name = "DOMAIN")]
     domains: Vec<String>,
 
-    /// Compatibility alias for the positional DOMAIN list.
-    #[arg(short = 'd', long = "domains", value_name = "DOMAIN", hide = true)]
-    domains_flag: Vec<String>,
-
     /// Output format.
     #[arg(short, long, value_enum, default_value_t = Format::Report)]
     format: Format,
 
-    /// Consequence framing: blue (defend — what it costs you, what to do) or
-    /// red (assess — what it exposes during an authorised assessment).
-    #[arg(long, value_enum, default_value_t = AudienceArg::Blue)]
-    audience: AudienceArg,
+    /// Blue-team framing: defend — what it costs you, what to do. (Default.)
+    #[arg(long, group = "framing")]
+    blue: bool,
+
+    /// Red-team framing: assess — what it exposes during an authorised
+    /// assessment. The scotopic red-on-charcoal palette.
+    #[arg(long, group = "framing")]
+    red: bool,
 
     /// DKIM selector(s) to probe ahead of the 81 defaults (repeatable). The
     /// `s=` tag of any outbound DKIM-Signature header is the selector.
-    #[arg(long, value_name = "SELECTOR")]
+    #[arg(long = "dkim", value_name = "SELECTOR")]
     dkim_selector: Vec<String>,
 
     /// Write the report here instead of stdout (html defaults to report.html).
@@ -127,21 +128,19 @@ struct TuiArgs {
     #[arg(value_name = "DOMAIN")]
     domains: Vec<String>,
 
-    /// Compatibility alias for the positional DOMAIN list.
-    #[arg(short = 'd', long = "domains", value_name = "DOMAIN", hide = true)]
-    domains_flag: Vec<String>,
+    /// Blue-team framing: defend — what it costs you, what to do. (Default.)
+    /// Press `m` to flip live — palette and framing together.
+    #[arg(long, group = "framing")]
+    blue: bool,
 
-    /// Consequence framing to start in: blue (defend) or red (assess). `m`
-    /// flips it live — palette and framing together.
-    #[arg(long, value_enum, default_value_t = AudienceArg::Blue)]
-    audience: AudienceArg,
-
-    /// Same as `--audience red` (the scotopic red-on-charcoal palette).
-    #[arg(long)]
-    covert: bool,
+    /// Red-team framing: assess — what it exposes during an authorised
+    /// assessment. The scotopic red-on-charcoal palette. Press `m` to flip
+    /// live — palette and framing together.
+    #[arg(long, group = "framing")]
+    red: bool,
 
     /// DKIM selector(s) to probe ahead of the 81 defaults (repeatable).
-    #[arg(long, value_name = "SELECTOR")]
+    #[arg(long = "dkim", value_name = "SELECTOR")]
     dkim_selector: Vec<String>,
 }
 
@@ -150,10 +149,6 @@ struct HistoryArgs {
     /// Domain(s) whose sealed history to list (repeatable).
     #[arg(value_name = "DOMAIN")]
     domains: Vec<String>,
-
-    /// Compatibility alias for the positional DOMAIN list.
-    #[arg(short = 'd', long = "domains", value_name = "DOMAIN", hide = true)]
-    domains_flag: Vec<String>,
 
     /// PostgreSQL URL of the sealed-history store.
     #[arg(long, env = "RS_STORE_URL", value_name = "URL")]
@@ -182,21 +177,6 @@ enum Format {
     Text,
 }
 
-#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
-enum AudienceArg {
-    Blue,
-    Red,
-}
-
-impl From<AudienceArg> for Audience {
-    fn from(a: AudienceArg) -> Audience {
-        match a {
-            AudienceArg::Blue => Audience::BlueTeam,
-            AudienceArg::Red => Audience::RedTeam,
-        }
-    }
-}
-
 fn build_resolver() -> Result<TokioResolver> {
     // Same resolver for every verb: validating, DNSSEC-capable.
     let mut opts = ResolverOpts::default();
@@ -216,17 +196,15 @@ fn build_resolver() -> Result<TokioResolver> {
 /// with a store, a sealed row for a domain named "history").
 const VERBS: [&str; 3] = ["tui", "history", "help"];
 
-/// Merge the positional list with the hidden `-d` alias, then canonicalise
-/// through the input boundary. Empty → a usage error naming the form.
-fn domains_from(positional: &[String], flag: &[String]) -> Result<Vec<String>> {
-    let mut raw: Vec<String> = positional.to_vec();
-    raw.extend_from_slice(flag);
-    if raw.is_empty() {
+/// Canonicalise the positional domain list through the input boundary.
+/// Empty → a usage error naming the form.
+fn domains_from(domains: &[String]) -> Result<Vec<String>> {
+    if domains.is_empty() {
         anyhow::bail!("at least one domain is required (e.g. `resolution-scope example.com`)");
     }
     let is_verb = |d: &String| VERBS.contains(&d.to_ascii_lowercase().as_str());
-    if let Some(verb) = raw.iter().find(|d| is_verb(d)) {
-        let example = raw
+    if let Some(verb) = domains.iter().find(|d| is_verb(d)) {
+        let example = domains
             .iter()
             .find(|d| !is_verb(d))
             .map(String::as_str)
@@ -235,7 +213,7 @@ fn domains_from(positional: &[String], flag: &[String]) -> Result<Vec<String>> {
             "{verb:?} is a verb, not a domain — the verb goes first: `resolution-scope {verb} {example}`"
         );
     }
-    Ok(input::canonical_domains(&raw)?)
+    Ok(input::canonical_domains(domains)?)
 }
 
 #[tokio::main]
@@ -244,11 +222,11 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Some(Command::Tui(args)) => {
-            let domains = domains_from(&args.domains, &args.domains_flag)?;
-            let audience = if args.covert {
+            let domains = domains_from(&args.domains)?;
+            let audience = if args.red {
                 Audience::RedTeam
             } else {
-                args.audience.into()
+                Audience::BlueTeam
             };
             let resolver = build_resolver()?;
             tui::run(
@@ -265,7 +243,7 @@ async fn main() -> Result<()> {
                 .store_url
                 .as_ref()
                 .ok_or_else(|| anyhow::anyhow!("history requires --store-url (or RS_STORE_URL)"))?;
-            let domains = domains_from(&args.domains, &args.domains_flag)?;
+            let domains = domains_from(&args.domains)?;
             // A read verb does not migrate: it must work under a read-only
             // database role, and "does NOT scan" should also mean "does not
             // write". An uninitialised store reads back as an error that
@@ -296,8 +274,8 @@ async fn main() -> Result<()> {
 }
 
 async fn scan(args: ScanArgs) -> Result<()> {
-    let domains = domains_from(&args.domains, &args.domains_flag)?;
-    let audience: Audience = args.audience.into();
+    let domains = domains_from(&args.domains)?;
+    let audience: Audience = if args.red { Audience::RedTeam } else { Audience::BlueTeam };
     let resolver = build_resolver()?;
 
     let mut analyses = Vec::with_capacity(domains.len());
@@ -460,46 +438,36 @@ mod tests {
     }
 
     #[test]
-    fn hidden_dash_d_alias_still_works() {
-        let cli = Cli::try_parse_from(["resolution-scope", "-d", "a.com", "-d", "b.com"]).unwrap();
-        assert_eq!(
-            domains_from(&cli.scan.domains, &cli.scan.domains_flag).unwrap(),
-            ["a.com", "b.com"]
-        );
-    }
-
-    #[test]
-    fn format_and_audience_are_validated_at_parse_time() {
+    fn format_and_framing_are_validated_at_parse_time() {
         // Before: `-f yaml` scanned the domain and THEN errored.
         assert!(Cli::try_parse_from(["resolution-scope", "x.com", "-f", "yaml"]).is_err());
-        assert!(
-            Cli::try_parse_from(["resolution-scope", "x.com", "--audience", "purple"]).is_err()
-        );
+        // --blue and --red are the allowed framing flags.
         let ok = Cli::try_parse_from([
             "resolution-scope",
             "x.com",
             "-f",
             "json",
-            "--audience",
-            "red",
+            "--red",
         ])
         .unwrap();
         assert_eq!(ok.scan.format, Format::Json);
-        assert_eq!(ok.scan.audience, AudienceArg::Red);
+        assert!(ok.scan.red);
     }
 
     #[test]
     fn verbs_own_their_flags() {
-        // tui has no --format; the scan verb has no --covert.
+        // tui has no --format; the scan verb has no tui-only flags.
         assert!(
             Cli::try_parse_from(["resolution-scope", "tui", "x.com", "--format", "html"]).is_err()
         );
-        assert!(Cli::try_parse_from(["resolution-scope", "x.com", "--covert"]).is_err());
-        let tui = Cli::try_parse_from(["resolution-scope", "tui", "x.com", "--covert"]).unwrap();
+        // --red is valid on both scan and tui.
+        let tui = Cli::try_parse_from(["resolution-scope", "tui", "x.com", "--red"]).unwrap();
         assert!(matches!(
             tui.command,
-            Some(Command::Tui(TuiArgs { covert: true, .. }))
+            Some(Command::Tui(TuiArgs { red: true, .. }))
         ));
+        let scan = Cli::try_parse_from(["resolution-scope", "x.com", "--red"]).unwrap();
+        assert!(scan.scan.red);
     }
 
     /// `resolution-scope example.com history` must not measure a domain
@@ -509,13 +477,13 @@ mod tests {
     fn a_verb_after_a_domain_is_refused_with_the_right_order_named() {
         let cli = Cli::try_parse_from(["resolution-scope", "example.com", "history"]).unwrap();
         assert!(cli.command.is_none(), "clap parses it as two domains");
-        let err = domains_from(&cli.scan.domains, &cli.scan.domains_flag).unwrap_err();
+        let err = domains_from(&cli.scan.domains).unwrap_err();
         assert!(
             err.to_string()
                 .contains("`resolution-scope history example.com`"),
             "{err}"
         );
-        let err = domains_from(&["TUI".to_string()], &[]).unwrap_err();
+        let err = domains_from(&["TUI".to_string()]).unwrap_err();
         assert!(err
             .to_string()
             .contains("`resolution-scope TUI example.com`"));
@@ -523,11 +491,11 @@ mod tests {
 
     #[test]
     fn domains_pass_the_input_boundary() {
-        let got = domains_from(&["EXAMPLE.COM.".to_string()], &[]).unwrap();
+        let got = domains_from(&["EXAMPLE.COM.".to_string()]).unwrap();
         assert_eq!(got, ["example.com"]);
-        let err = domains_from(&["https://example.com/".to_string()], &[]).unwrap_err();
+        let err = domains_from(&["https://example.com/".to_string()]).unwrap_err();
         assert!(err.to_string().contains("bare domain name"));
-        let err = domains_from(&[], &[]).unwrap_err();
+        let err = domains_from(&[]).unwrap_err();
         assert!(err.to_string().contains("resolution-scope example.com"));
     }
 
