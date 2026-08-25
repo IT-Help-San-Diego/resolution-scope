@@ -28,7 +28,7 @@ Four fields per lookup, one row per control per scan:
 |---|---|---|---|
 | `rcode` | enum `{NOERROR, NXDOMAIN, SERVFAIL, REFUSED, TIMEOUT}` | the server's verdict on the wire | open question (§4) |
 | `answer_count` | `u16` | records actually returned (0 = NODATA/absent) | open question (§4) |
-| `denial_proof` | enum `{none, soa_only, nsec, nsec3}` | *who vouched* for an absence | open question (§4) |
+| `denial_proof` | enum `{none, soa_only, nsec, nsec3, nsec_nxname}` | *who vouched* for an absence (`nsec_nxname` added @80f5760) | open question (§4) |
 | `elapsed_ms` | `u64` | how long the lookup took | **never** (run metadata) |
 
 `denial_proof` is the load-bearing one — it is the "receipt has grades" column.
@@ -41,6 +41,20 @@ The four grades, now RFC-backed:
    name and never emit NXDOMAIN).
 3. `none` — an **unsigned plain answer** (a response, not silence, but no proof).
 4. (no row / `TIMEOUT`) — an **error**, no receipt at all → `Indet`.
+
+Two hard constraints on anything DERIVED from these fields (transition tables,
+fingerprints, classifiers) — added 2026-08-25 after the cross-check found both
+violated in derived documents:
+
+- **`nsec_nxname` co-occurs with `NOERROR`/NODATA only.** RFC 9824 §6:
+  compact-denial zones never emit NXDOMAIN, so the TYPE128 sentinel rides
+  NOERROR responses. A fingerprint pairing `nsec_nxname` with `NXDOMAIN` names
+  a wire state this instrument can never observe — reject it at review. (RFC
+  9824 adoption looks like `nsec` → `nsec_nxname` under NOERROR; going to
+  honest NXDOMAIN means GAINING rcode 3 and LOSING the sentinel.)
+- **Store `rcode` as this TEXT vocabulary, never a raw wire u8.** TIMEOUT has
+  no wire rcode; any numeric encoding silently drops one of the five failure
+  modes the failure-is-a-measurement principle requires decomposing.
 
 `elapsed_ms` is **run metadata, not measurement** — it is a fact about the
 *observer* (which resolver, how busy, how far), not about the *target*. It must
