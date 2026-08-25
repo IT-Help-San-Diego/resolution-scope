@@ -345,7 +345,7 @@ async fn scan(args: ScanArgs) -> Result<()> {
         let mut store = resolution_scope_store::Store::connect(url).await?;
         store.migrate().await?;
         for a in &analyses {
-            let id = store.record_scan(a).await?;
+            let id = store.record_scan(a, &[]).await?;
             let seal = resolution_scope_engine::seal::seal(a);
             eprintln!("stored {} as scan #{id} (seal {}…)", a.domain, &seal[..16]);
         }

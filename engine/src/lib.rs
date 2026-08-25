@@ -41,6 +41,7 @@ compile_error!(
 
 pub mod analysis;
 pub mod asn_classification;
+pub mod denial_proof;
 pub mod flux;
 pub mod ipc;
 pub mod name_similarity;
@@ -59,6 +60,9 @@ pub use analysis::DmarcDisposition;
 pub use analysis::MtaStsDisposition;
 pub use analysis::ScoredAnalysis;
 pub use analysis::SpfDisposition;
+pub use denial_proof::{
+    control_from_key, control_key, extract_denial_proof, DenialProof, LookupReceipt, ReceiptRcode,
+};
 pub use seal::{seal, SEAL_SCHEME};
 pub use tristate::TriState;
 pub use truth_chain::{

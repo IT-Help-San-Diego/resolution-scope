@@ -23,6 +23,9 @@ use anyhow::{bail, Context, Result};
 use tokio_postgres::{Client, NoTls};
 use tracing::{info, warn};
 
+use resolution_scope_engine::denial_proof::{
+    control_from_key, control_key, DenialProof, LookupReceipt, ReceiptRcode,
+};
 use resolution_scope_engine::flux::{FluxObservation, FluxVantage};
 use resolution_scope_engine::seal::{
     engine_version, seal_versioned, seal_versioned_under_scheme, SEAL_SCHEME, SEAL_SCHEME_V3,
@@ -39,6 +42,7 @@ use resolution_scope_engine::ScoredAnalysis;
 const MIGRATIONS: &[(i32, &str)] = &[
     (1, include_str!("../migrations/001_sealed_history.sql")),
     (2, include_str!("../migrations/002_seal_scheme.sql")),
+    (3, include_str!("../migrations/003_lookup_receipts.sql")),
 ];
 
 /// Advisory-lock key for migration serialization — arbitrary but fixed;
@@ -196,19 +200,84 @@ impl Store {
     /// silently change sealed bytes under their unchanged seal and
     /// self-inflict Mismatch on every touched row. Re-derivation happens in
     /// `verify_scan` at read time, never at write time.
-    pub async fn record_scan(&self, a: &ScoredAnalysis) -> Result<i64> {
+    pub async fn record_scan(
+        &mut self,
+        a: &ScoredAnalysis,
+        receipts: &[LookupReceipt],
+    ) -> Result<i64> {
         let version = engine_version();
         let sealed = seal_versioned(a, &version);
         let verdict = serde_json::to_value(a).context("store: verdict serialization failed")?;
-        let row = self
-            .client
+
+        // The scan and its receipts commit atomically: a verdict row with half
+        // its receipts would present a receipt set as complete when it is not.
+        // Receipts are BESIDE the seal (R-B) — this transaction touches the
+        // receipt table only; the seal path and its goldens are byte-untouched.
+        let tx = self.client.transaction().await?;
+        let row = tx
             .query_one(
                 "INSERT INTO scans (domain, engine_version, seal, seal_scheme, verdict)
                  VALUES ($1, $2, $3, $4, $5) RETURNING id",
                 &[&a.domain, &version, &sealed, &SEAL_SCHEME, &verdict],
             )
             .await?;
-        Ok(row.get(0))
+        let scan_id: i64 = row.get(0);
+        for r in receipts {
+            let control = control_key(r.control);
+            let rcode = r.rcode.label();
+            let answer_count = i32::from(r.answer_count);
+            let proof = r.denial_proof.label();
+            let elapsed =
+                i64::try_from(r.elapsed_ms).context("store: receipt elapsed_ms overflows i64")?;
+            tx.execute(
+                "INSERT INTO lookup_receipts
+                     (scan_id, control, rcode, answer_count, denial_proof, elapsed_ms)
+                 VALUES ($1, $2, $3, $4, $5, $6)",
+                &[&scan_id, &control, &rcode, &answer_count, &proof, &elapsed],
+            )
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(scan_id)
+    }
+
+    /// Read a scan's receipts back whole — one per control, in insert order.
+    /// The TEXT vocabulary roundtrips through the store's explicit labels; an
+    /// unknown stored label is a loud error, never a silent skip.
+    pub async fn receipts_for_scan(&self, scan_id: i64) -> Result<Vec<LookupReceipt>> {
+        let rows = self
+            .client
+            .query(
+                "SELECT control, rcode, answer_count, denial_proof, elapsed_ms
+                 FROM lookup_receipts WHERE scan_id = $1 ORDER BY ctid",
+                &[&scan_id],
+            )
+            .await?;
+        let mut receipts = Vec::with_capacity(rows.len());
+        for row in rows {
+            let control_key_str: String = row.get(0);
+            let rcode_str: String = row.get(1);
+            let answer_count: i32 = row.get(2);
+            let proof_str: String = row.get(3);
+            let elapsed: i64 = row.get(4);
+
+            let control = control_from_key(&control_key_str).with_context(|| {
+                format!("store: unknown stored control key {control_key_str:?}")
+            })?;
+            let rcode = ReceiptRcode::from_label(&rcode_str)
+                .with_context(|| format!("store: unknown stored rcode {rcode_str:?}"))?;
+            let denial_proof = DenialProof::from_label(&proof_str)
+                .with_context(|| format!("store: unknown stored denial_proof {proof_str:?}"))?;
+            receipts.push(LookupReceipt {
+                control,
+                rcode,
+                answer_count: u16::try_from(answer_count)
+                    .context("store: stored answer_count out of u16 range")?,
+                denial_proof,
+                elapsed_ms: u64::try_from(elapsed).context("store: stored elapsed_ms negative")?,
+            });
+        }
+        Ok(receipts)
     }
 
     /// Re-derive a stored scan's seal from its stored verdict and stored
@@ -459,9 +528,9 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires RS_STORE_TEST_URL (disposable postgres)"]
     async fn sealed_roundtrip_and_verification() {
-        let store = test_store().await;
+        let mut store = test_store().await;
         let a = verdict("roundtrip.test");
-        let id = store.record_scan(&a).await.expect("record");
+        let id = store.record_scan(&a, &[]).await.expect("record");
 
         // Read back whole: verdict fields survive the JSON roundtrip.
         let stored = store.read_scan(id).await.expect("read");
@@ -479,8 +548,11 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires RS_STORE_TEST_URL (disposable postgres)"]
     async fn tampered_verdict_fails_verification() {
-        let store = test_store().await;
-        let id = store.record_scan(&verdict("tamper.test")).await.unwrap();
+        let mut store = test_store().await;
+        let id = store
+            .record_scan(&verdict("tamper.test"), &[])
+            .await
+            .unwrap();
 
         // Simulate post-write tampering: flip the stored verdict's SPF
         // disposition directly in SQL, behind the seal's back.
@@ -714,5 +786,56 @@ mod tests {
             .unwrap()
             .get(0);
         assert_eq!(count as usize, MIGRATIONS.len());
+    }
+
+    #[tokio::test]
+    #[ignore = "requires RS_STORE_TEST_URL (disposable postgres)"]
+    async fn receipt_roundtrip_and_beside_seal() {
+        use resolution_scope_engine::ControlId;
+
+        let mut store = test_store().await;
+        let a = verdict("receipt.test");
+        let receipts = vec![
+            LookupReceipt {
+                control: ControlId::Dnssec,
+                rcode: ReceiptRcode::NoError,
+                answer_count: 1,
+                denial_proof: DenialProof::Nsec,
+                elapsed_ms: 42,
+            },
+            LookupReceipt {
+                control: ControlId::Spf,
+                rcode: ReceiptRcode::NxDomain,
+                answer_count: 0,
+                denial_proof: DenialProof::SoaOnly,
+                elapsed_ms: 7,
+            },
+            LookupReceipt {
+                control: ControlId::Caa,
+                rcode: ReceiptRcode::Timeout,
+                answer_count: 0,
+                denial_proof: DenialProof::None,
+                elapsed_ms: 1000,
+            },
+        ];
+        let id = store.record_scan(&a, &receipts).await.unwrap();
+
+        // Receipts roundtrip through the TEXT vocabulary in a stable order.
+        let mut back = store.receipts_for_scan(id).await.unwrap();
+        back.sort_by_key(|r| control_key(r.control));
+        let mut want = receipts.clone();
+        want.sort_by_key(|r| control_key(r.control));
+        assert_eq!(back, want);
+
+        // R-B: receipts are BESIDE the seal. The seal is computed from the
+        // verdict alone, so the same verdict seals identically with and without
+        // receipts — the receipt table never touches the seal preimage.
+        let no_receipt_id = store.record_scan(&a, &[]).await.unwrap();
+        let with = store.read_scan(id).await.unwrap();
+        let without = store.read_scan(no_receipt_id).await.unwrap();
+        assert_eq!(
+            with.seal, without.seal,
+            "receipts must never change the seal (R-B)"
+        );
     }
 }
