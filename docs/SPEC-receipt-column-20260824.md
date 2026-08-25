@@ -303,8 +303,12 @@ choice, not a receipt-schema choice** — the receipt schema already specifies e
 needed; the question is only whether the flux classifier consumes the
 denial-grade column as a second axis.
 
-**Named, not decided.** It is not urgent (the receipt columns must exist before
-any flux consumer can read them), but it should be on the board so the receipt
-schema isn't later found to have *mis-stored* the denial grade (e.g., folded into
-a single value rather than kept orthogonal to the address axis).
+**Decided — orthogonal-2D (Carey, 2026-08-25).** The composite arm is
+eliminated on arithmetic, not preference: a weighted sum `network×0.4 +
+denial×0.6` caps a maxed address axis at 0.40 while the denial axis alone
+reaches 0.60, so any warning threshold above 0.40 is unreachable by address
+churn however extreme — a test pinning that masking would be a defended
+contract. "Either axis alone can raise an alarm" requires `max()` or
+independent per-axis thresholds; only orthogonal-2D keeps it. Track both axes
+separately; never blend them into a single scalar.
 
