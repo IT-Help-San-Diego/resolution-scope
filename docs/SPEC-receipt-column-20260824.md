@@ -61,7 +61,16 @@ The grades, now RFC-backed:
    `RRSIG NSEC`, Cloudflare `RRSIG NSEC TYPE128` — so those responses grade
    `nsec`/`nsec_nxname`, not `soa_only`. This grade arises from unsigned zones'
    NODATA and from proof-stripped signed paths.)
-4. `none` — an **unsigned plain answer** (a response, not silence, but no proof).
+4. `none` — **no SOA and no NSEC/NSEC3 in the authority section**: a response
+   that vouched nothing. (Made mechanical 2026-08-25, closing the microsoft.com
+   grade dispute: `denial_proof` is a property of the RESPONSE, never the zone.
+   An unsigned zone's NXDOMAIN carrying an SOA grades `soa_only` — the server
+   *said something*, unsigned — while `none` is reserved for a response whose
+   authority section vouches nothing at all. The zone's signing state is
+   ALREADY the DNSSEC disposition; folding it into `denial_proof` would
+   double-count it. Two-lane convergent, same hour, independently: hermes's
+   response-axis lean + claude-code's adjudication. Carey holds a one-line
+   veto if he wants the zone-axis reading instead.)
 5. (no row / `TIMEOUT`) — an **error**, no receipt at all → `Indet`.
 
 **The three denial classes, measured (2026-08-25).** Science's corrected finding
