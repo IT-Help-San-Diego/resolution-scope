@@ -11,6 +11,31 @@ pub enum TriState {
     /// Control exists and is cryptographically valid.
     Present = 0,
     /// Control is absent or invalid — counted in the score denominator.
+    ///
+    /// "Absent" = looked for and definitively not found. "Invalid" = a
+    /// record exists but fails to constitute the control (syntactically,
+    /// cryptographically, or by inverting its own purpose) — treated
+    /// identically to absence, because a broken control protects nothing.
+    /// This clause settled the 2026-08-24 tri-state fork (see the ledger and
+    /// docs/CONSENSUS-REPORT-fork-resolution-20260824.md).
+    ///
+    /// Examples of the two sub-paths, on the two ends of the weight scale:
+    /// - SPF absent: no `v=spf1` record at all (`NotConfigured`). Weight 3
+    ///   joins the denominator, nothing joins the numerator.
+    /// - SPF invalid: `v=spf1 +all` (`PositiveAll`, severity Critical) — a
+    ///   record exists and affirmatively authorizes every sender; it scores
+    ///   exactly like no record.
+    /// - DNSSEC absent: no DNSKEY anywhere (`Unsigned`).
+    /// - DNSSEC invalid: DNSKEY published but no chain can validate —
+    ///   `SignedNotDelegated` (no DS at the parent) or `BrokenChain` (bad
+    ///   RRSIG): RFC 4033 §5 "Insecure"/bogus — a resolver gets the same
+    ///   protection as from an unsigned zone, i.e. none.
+    ///
+    /// Contrast with [`TriState::Indet`]: Absent is a definitive negative
+    /// measurement ("we looked; the answer is no, or broken"); Indet is an
+    /// inability to measure. A found-but-broken record is a FINDING, never
+    /// an Indet.
+    ///
     /// NOTE: "warning" states (e.g. MTA-STS T1-1) MUST map to Absent, not a
     /// fourth value.  See test plan Section F.2d (T1-1 regression test).
     Absent = 1,
