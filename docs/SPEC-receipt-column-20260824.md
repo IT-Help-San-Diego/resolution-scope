@@ -26,35 +26,63 @@ Four fields per lookup, one row per control per scan:
 
 | field | type | meaning | sealed? |
 |---|---|---|---|
-| `rcode` | enum `{NOERROR, NXDOMAIN, SERVFAIL, REFUSED, TIMEOUT}` | the server's verdict on the wire | open question (§4) |
-| `answer_count` | `u16` | records actually returned (0 = NODATA/absent) | open question (§4) |
-| `denial_proof` | enum `{none, soa_only, nsec, nsec3, nsec_nxname}` | *who vouched* for an absence (`nsec_nxname` added @80f5760) | open question (§4) |
+| `rcode` | enum `{NOERROR, NXDOMAIN, SERVFAIL, REFUSED, TIMEOUT}` | the server's verdict on the wire | **no — R-B ruled (§4)** |
+| `answer_count` | `u16` | records actually returned (0 = NODATA/absent) | **no — R-B ruled (§4)** |
+| `denial_proof` | enum `{none, soa_only, nsec, nsec3, nsec_nxname, nsec3_nxname}` | *who vouched* for an absence (`nsec_nxname` added @80f5760; `nsec3_nxname` added 2026-08-25, from the SciSpace wave, RFC-verified) | **no — R-B ruled (§4)** |
 | `elapsed_ms` | `u64` | how long the lookup took | **never** (run metadata) |
 
 `denial_proof` is the load-bearing one — it is the "receipt has grades" column.
-The four grades, now RFC-backed:
+The grades, now RFC-backed:
 
 1. `nsec` / `nsec3` — a **signed cryptographic proof** of non-existence (the
    gold receipt; RFC 4035 §5.4 authenticated denial).
-2. `soa_only` — a **signed but deliberately vague** receipt (RFC 9824 "compact
-   denial": Cloudflare/Route53/NS1/Knot/Oracle answer NODATA for a nonexistent
-   name and never emit NXDOMAIN).
-3. `none` — an **unsigned plain answer** (a response, not silence, but no proof).
-4. (no row / `TIMEOUT`) — an **error**, no receipt at all → `Indet`.
+2. `nsec_nxname` / `nsec3_nxname` — a **compact-denial response carrying the
+   TYPE128 (NXNAME) sentinel**: the wire rcode says NOERROR, but the bitmap
+   recovers "this name does not exist" with DNSSEC validation. Detection differs
+   by mechanism, per RFC 9824's own text: for **NSEC**, TYPE128 appears *in
+   addition to* the mandated RRSIG+NSEC types (§2: "added to the NSEC Type Bit
+   Maps field … in addition to the mandated RRSIG and NSEC types") — so the test
+   is *membership*; for **NSEC3**, TYPE128 is "the sole entry in the Type Bit
+   Maps field" (§2, restated §4: "the Type Bit Maps field will contain only the
+   NXNAME Meta-TYPE") — so the test is *sole-entry* (`len()==1`), which also
+   disambiguates nonexistent-name from Empty Non-Terminal (§4: ENT responses
+   carry an *empty* bitmap). (`nsec3_nxname` proposed by SciSpace 2026-08-25;
+   §-citation verified first-hand against the RFC text, both anchors.)
+3. `soa_only` — a **signed but deliberately vague** receipt (RFC 9824 "compact
+   denial" *without* the sentinel: Cloudflare/Route53/NS1/Knot/Oracle answer
+   NODATA for a nonexistent name and never emit NXDOMAIN).
+4. `none` — an **unsigned plain answer** (a response, not silence, but no proof).
+5. (no row / `TIMEOUT`) — an **error**, no receipt at all → `Indet`.
 
-Two hard constraints on anything DERIVED from these fields (transition tables,
-fingerprints, classifiers) — added 2026-08-25 after the cross-check found both
-violated in derived documents:
+Four hard constraints on anything DERIVED from these fields (transition tables,
+fingerprints, classifiers) — the first two added 2026-08-25 after the cross-check
+found both violated in derived documents; the second two added later the same day
+after the next wave violated the first two *through back doors* while honoring
+them in its headline rules:
 
-- **`nsec_nxname` co-occurs with `NOERROR`/NODATA only.** RFC 9824 §6:
-  compact-denial zones never emit NXDOMAIN, so the TYPE128 sentinel rides
-  NOERROR responses. A fingerprint pairing `nsec_nxname` with `NXDOMAIN` names
-  a wire state this instrument can never observe — reject it at review. (RFC
-  9824 adoption looks like `nsec` → `nsec_nxname` under NOERROR; going to
+- **`nsec_nxname`/`nsec3_nxname` co-occur with `NOERROR`/NODATA only.** RFC 9824
+  §6: compact-denial zones never emit NXDOMAIN, so the TYPE128 sentinel rides
+  NOERROR responses. A fingerprint pairing either sentinel grade with `NXDOMAIN`
+  names a wire state this instrument can never observe — reject it at review.
+  (RFC 9824 adoption looks like `nsec` → `nsec_nxname` under NOERROR; going to
   honest NXDOMAIN means GAINING rcode 3 and LOSING the sentinel.)
 - **Store `rcode` as this TEXT vocabulary, never a raw wire u8.** TIMEOUT has
   no wire rcode; any numeric encoding silently drops one of the five failure
   modes the failure-is-a-measurement principle requires decomposing.
+- **The co-occurrence constraint binds EVERY rule, including catch-alls.** The
+  2026-08-25 wave's headline rules honored constraint 1 while a proof-equality
+  rule (`NodataToNxdomain`: same proof, rcode 0↔3, any non-none proof) and a
+  rcode-wildcarded rule (`DegradationToUnsigned`: `*:nsec_nxname → *:none`)
+  re-admitted the forbidden pairing through the back door — and a property test
+  then *institutionalized* the unobservable states as required classifier
+  inputs. Review rule: any wildcard or equality guard over `proof` must exclude
+  the sentinel grades from rcode-3 arms explicitly, and no test may construct a
+  sentinel-grade fingerprint at NXDOMAIN even "defensively."
+- **No golden may freeze a numeric rcode encoding.** The same wave shipped a
+  frozen serde golden `{"rcode":255,"proof":"none"}` — a golden is the repo's
+  own mechanism for making things unchangeable, so a golden pinning the
+  forbidden encoding converts a correction into a breaking-change negotiation.
+  Reject at review any golden/pin/KAT whose bytes contain a numeric rcode.
 
 `elapsed_ms` is **run metadata, not measurement** — it is a fact about the
 *observer* (which resolver, how busy, how far), not about the *target*. It must
@@ -74,7 +102,7 @@ CREATE TABLE lookup_receipts (
     control       TEXT   NOT NULL,       -- 'dnssec' | 'spf' | ... (the ControlId)
     rcode         TEXT   NOT NULL,
     answer_count  INT    NOT NULL,
-    denial_proof  TEXT   NOT NULL,       -- 'none'|'soa_only'|'nsec'|'nsec3'
+    denial_proof  TEXT   NOT NULL,       -- 'none'|'soa_only'|'nsec'|'nsec3'|'nsec_nxname'|'nsec3_nxname'
     elapsed_ms    BIGINT NOT NULL
 );
 CREATE INDEX ix_receipts_scan ON lookup_receipts (scan_id, control);
@@ -119,10 +147,14 @@ measurement). Use per-control error isolation (`FuturesUnordered` + individual
 
 ---
 
-## 4. The one open fork — are receipts sealed?
+## 4. The one open fork — are receipts sealed? — **RESOLVED: R-B**
 
-This is the single unresolved design question, and it is real (not a restatement
-of the closed fork). It is Carey's call, but it is now precisely framed:
+**Carey ruled R-B in-chat, 2026-08-24** (recorded in the ledger by claude-code,
+the 22:05Z entry): receipts live BESIDE the seal, no scheme bump — the seal
+attests OUR verdict (judge), the receipt records the SERVER'S words (witness);
+mixing them in one hash blurs the distinction the architecture enforces.
+Receipt-level tamper-evidence, if ever wanted, is a separate append-only-log
+concern. The framing below is retained as the record of what was decided:
 
 **Fork R-A — receipts sealed (v4→v5 bump).** Add the receipt fields to the seal
 preimage. Then a tampered receipt breaks the seal, so the *evidence* is as
@@ -145,7 +177,7 @@ philosophy call, not a correctness call — and it is Carey's.**
 
 ---
 
-## 5. Build order (after §4 is settled)
+## 5. Build order (§4 settled: R-B — item 4's R-A arm is dead)
 
 1. `denial_proof` + `rcode` + `answer_count` extraction at every lookup site —
    the mapping already reads rcode+SOA in `record_absence_verdict`; expose the
