@@ -34,8 +34,14 @@ Four fields per lookup, one row per control per scan:
 `denial_proof` is the load-bearing one — it is the "receipt has grades" column.
 The grades, now RFC-backed:
 
-1. `nsec` / `nsec3` — a **signed cryptographic proof** of non-existence (the
-   gold receipt; RFC 4035 §5.4 authenticated denial).
+1. `nsec` / `nsec3` — a **signed cryptographic proof of the denial actually
+   asserted** (RFC 4035 §5.4 authenticated denial). Precision added 2026-08-25
+   (Science's correction, re-measured first-hand): under NXDOMAIN this proves
+   the name does not exist; under **NOERROR without a sentinel it proves only
+   "no data of this type here" and the name-existence question is
+   UNRECOVERABLE** — RFC 9824 §2's own ambiguity: an Empty Non-Terminal, which
+   positively exists, returns exactly the same bitmap. See the three-class
+   table below.
 2. `nsec_nxname` / `nsec3_nxname` — a **compact-denial response carrying the
    TYPE128 (NXNAME) sentinel**: the wire rcode says NOERROR, but the bitmap
    recovers "this name does not exist" with DNSSEC validation. Detection differs
@@ -48,17 +54,40 @@ The grades, now RFC-backed:
    disambiguates nonexistent-name from Empty Non-Terminal (§4: ENT responses
    carry an *empty* bitmap). (`nsec3_nxname` proposed by SciSpace 2026-08-25;
    §-citation verified first-hand against the RFC text, both anchors.)
-3. `soa_only` — a **signed but deliberately vague** receipt (RFC 9824 "compact
-   denial" *without* the sentinel: Cloudflare/Route53/NS1/Knot/Oracle answer
-   NODATA for a nonexistent name and never emit NXDOMAIN).
+3. `soa_only` — **SOA present in the authority section, no NSEC/NSEC3 proof
+   accompanying it.** (Definition made mechanical 2026-08-25; the earlier gloss
+   attributed this grade to compact-denial providers, but the measured wire
+   truth is that their compact denials CARRY an NSEC — Route53 bitmap
+   `RRSIG NSEC`, Cloudflare `RRSIG NSEC TYPE128` — so those responses grade
+   `nsec`/`nsec_nxname`, not `soa_only`. This grade arises from unsigned zones'
+   NODATA and from proof-stripped signed paths.)
 4. `none` — an **unsigned plain answer** (a response, not silence, but no proof).
 5. (no row / `TIMEOUT`) — an **error**, no receipt at all → `Indet`.
 
-Four hard constraints on anything DERIVED from these fields (transition tables,
+**The three denial classes, measured (2026-08-25).** Science's corrected finding
+(it retracted its own earlier "conventional shape / no TYPE128" reading, which
+came from a two-record truncated print), re-measured first-hand by claude-code
+the same day — nonexistent name, DO=1, via 1.1.1.1:
+
+| class | rcode | authority proof | nonexistence recoverable? | measured specimen |
+|---|---|---|---|---|
+| sentinel compact | NOERROR | NSEC `\000.<qname>`, bitmap `RRSIG NSEC TYPE128` | **yes** — the sentinel | example.com (Cloudflare-signed) |
+| conventional | **NXDOMAIN** | n/a | **yes** — the rcode | microsoft.com |
+| **sentinel-less compact** | NOERROR (AD set) | NSEC `\000.<qname>`, bitmap **`RRSIG NSEC` only** | **NO** — ENT-ambiguous (RFC 9824 §2) | resolutionscope.com + calibrationscope.com (both Route53) |
+
+Class three is the hardest case and we own two specimens of it: a real signed
+proof came back (grade `nsec` — the honest record), yet the name-existence
+question stays unresolved, because RFC 9824 §2 says in its own words that tools
+"cannot rely on this specific type bitmap" — an ENT returns the identical one.
+The TYPE128 `Indet`-recovery CANNOT fire here. Bounds, stated honestly: two
+zones, one provider, one vantage — this does not establish that all Route53
+zones behave this way, and there is no base rate for the class.
+
+Five hard constraints on anything DERIVED from these fields (transition tables,
 fingerprints, classifiers) — the first two added 2026-08-25 after the cross-check
-found both violated in derived documents; the second two added later the same day
+found both violated in derived documents; the next two added later the same day
 after the next wave violated the first two *through back doors* while honoring
-them in its headline rules:
+them in its headline rules; the fifth added after the three-class measurement:
 
 - **`nsec_nxname`/`nsec3_nxname` co-occur with `NOERROR`/NODATA only.** RFC 9824
   §6: compact-denial zones never emit NXDOMAIN, so the TYPE128 sentinel rides
@@ -83,6 +112,14 @@ them in its headline rules:
   own mechanism for making things unchangeable, so a golden pinning the
   forbidden encoding converts a correction into a breaking-change negotiation.
   Reject at review any golden/pin/KAT whose bytes contain a numeric rcode.
+- **"Bitmap present ⇒ existence answered" is a forbidden inference.** A
+  `denial_proof = nsec` receipt at NOERROR does NOT resolve whether the name
+  exists (three-class table above; RFC 9824 §2 ENT ambiguity, measured live on
+  the project's own Route53 zones). Any classifier, renderer, or derived view
+  that treats a signed-proof grade as a nonexistence verdict outside the
+  sentinel and NXDOMAIN classes is rejected at review. The grade records the
+  mechanism; the existence question is answered only by the rcode (NXDOMAIN)
+  or the sentinel (TYPE128) — never by proof-presence alone.
 
 `elapsed_ms` is **run metadata, not measurement** — it is a fact about the
 *observer* (which resolver, how busy, how far), not about the *target*. It must
@@ -181,7 +218,13 @@ philosophy call, not a correctness call — and it is Carey's.**
 
 1. `denial_proof` + `rcode` + `answer_count` extraction at every lookup site —
    the mapping already reads rcode+SOA in `record_absence_verdict`; expose the
-   NSEC/NSEC3 presence rather than discarding it.
+   NSEC/NSEC3 presence rather than discarding it. **Step-one probe, three arms**
+   (one per denial class, all measured 2026-08-25 as the expected shapes):
+   a sentinel zone (example.com), an honest-NXDOMAIN zone (microsoft.com), and
+   the owned sentinel-less specimen (resolutionscope.com) — the third arm is the
+   one most likely to expose a classifier that assumes bitmap-present ⇒
+   existence-answered. The probe's question: does the resolver populate
+   `NoRecords.authorities` in practice on each shape (measured, not assumed).
 2. `lookup_receipts` table + `record_scan` writing one row per control.
 3. Parallel conversion with per-control isolation (not `try_join!`).
 4. `verify_scan` extension (if R-A): receipt fields in the preimage under a v5
