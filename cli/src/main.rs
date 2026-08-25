@@ -275,7 +275,11 @@ async fn main() -> Result<()> {
 
 async fn scan(args: ScanArgs) -> Result<()> {
     let domains = domains_from(&args.domains)?;
-    let audience: Audience = if args.red { Audience::RedTeam } else { Audience::BlueTeam };
+    let audience: Audience = if args.red {
+        Audience::RedTeam
+    } else {
+        Audience::BlueTeam
+    };
     let resolver = build_resolver()?;
 
     let mut analyses = Vec::with_capacity(domains.len());
@@ -442,14 +446,7 @@ mod tests {
         // Before: `-f yaml` scanned the domain and THEN errored.
         assert!(Cli::try_parse_from(["resolution-scope", "x.com", "-f", "yaml"]).is_err());
         // --blue and --red are the allowed framing flags.
-        let ok = Cli::try_parse_from([
-            "resolution-scope",
-            "x.com",
-            "-f",
-            "json",
-            "--red",
-        ])
-        .unwrap();
+        let ok = Cli::try_parse_from(["resolution-scope", "x.com", "-f", "json", "--red"]).unwrap();
         assert_eq!(ok.scan.format, Format::Json);
         assert!(ok.scan.red);
     }
