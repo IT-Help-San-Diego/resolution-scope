@@ -112,6 +112,13 @@ struct ScanArgs {
     /// recorded with a store-computed seal.
     #[arg(long, env = "RS_STORE_URL", value_name = "URL")]
     store_url: Option<String>,
+
+    /// Null scan: measure but keep nothing. Persistence is the DEFAULT (§3a —
+    /// a scan is a sealed fact, and you don't silently discard a scientist's
+    /// data); this is the one explicit, irreversible opt-out, mirroring the
+    /// website's "null scan".
+    #[arg(long)]
+    discard: bool,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -339,19 +346,87 @@ async fn scan(args: ScanArgs) -> Result<()> {
         None => print!("{body}"),
     }
 
-    // Sealed history: when a store is configured, persist every verdict
-    // with a store-computed seal and echo the citable row id + prefix.
-    if let Some(url) = &args.store_url {
-        let mut store = resolution_scope_store::Store::connect(url).await?;
-        store.migrate().await?;
-        for a in &analyses {
-            let id = store.record_scan(a, &[]).await?;
-            let seal = resolution_scope_engine::seal::seal(a);
-            eprintln!("stored {} as scan #{id} (seal {}…)", a.domain, &seal[..16]);
+    // Persist-by-default (§3a, Carey): a scan is a sealed fact — it persists
+    // unless the operator explicitly says --discard. Resolution order:
+    //   --discard → no store (null scan)
+    //   --store-url / RS_STORE_URL → that DSN
+    //   default → postgres://localhost:<RS_DB_PORT>/resolution_scope
+    //   unreachable → refuse-and-instruct, never silently drop the data.
+    match resolve_store_dsn(args.store_url.as_deref(), args.discard) {
+        None => eprintln!(
+            "discarded {} verdict(s) — --discard (null scan)",
+            analyses.len()
+        ),
+        Some(url) => {
+            match resolution_scope_store::Store::connect(&url).await {
+                Ok(mut store) => {
+                    store.migrate().await?;
+                    for a in &analyses {
+                        let id = store.record_scan(a, &[]).await?;
+                        let seal = resolution_scope_engine::seal::seal(a);
+                        eprintln!("stored {} as scan #{id} (seal {}…)", a.domain, &seal[..16]);
+                    }
+                }
+                Err(e) => {
+                    // Refuse-and-instruct: the tool won't silently discard the
+                    // work. The DSN is redacted — a credential is never echoed.
+                    let shown = redact_dsn(&url);
+                    anyhow::bail!(
+                        "no store reachable at {shown}: {e}\n\n\
+                         resolution-scope persists every scan by default — your data, on your machine, yours.\n\
+                         To bootstrap the local store:\n\n\
+                         \x20   docker compose up -d   # starts local Postgres for resolution-scope\n\n\
+                         Or set RS_STORE_URL to point at an existing Postgres.\n\
+                         Or pass --discard to run a null scan (measure but keep nothing)."
+                    );
+                }
+            }
         }
     }
 
     Ok(())
+}
+
+/// Resolve the store DSN from the flags + env, per the §3a resolution order.
+/// Returns `None` when `--discard` (null scan). The default is the local
+/// compose store; `RS_DB_PORT` matches the compose publish so the two never
+/// drift (port doctrine).
+fn resolve_store_dsn(store_url: Option<&str>, discard: bool) -> Option<String> {
+    if discard {
+        return None;
+    }
+    if let Some(u) = store_url {
+        return Some(u.to_string());
+    }
+    let port = std::env::var("RS_DB_PORT").unwrap_or_else(|_| "5435".to_string());
+    Some(format!(
+        "postgres://resolution_scope:resolution_scope_local@localhost:{port}/resolution_scope"
+    ))
+}
+
+/// Redact the password from a postgres URL for safe display in an error
+/// message. A DSN is a credential; it must never be echoed verbatim.
+fn redact_dsn(url: &str) -> String {
+    match url.find("://") {
+        Some(scheme_end) => {
+            let after = &url[scheme_end + 3..];
+            match after.find('@') {
+                Some(at) => {
+                    let auth = &after[..at];
+                    if auth.contains(':') {
+                        // There is a password → redact it.
+                        let user = auth.split(':').next().unwrap_or("");
+                        format!("{}://{}:***{}", &url[..scheme_end], user, &after[at..])
+                    } else {
+                        // No password → nothing to redact.
+                        url.to_string()
+                    }
+                }
+                None => url.to_string(),
+            }
+        }
+        None => url.to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -447,5 +522,43 @@ mod tests {
         assert!(err.to_string().contains("bare domain name"));
         let err = domains_from(&[], &[]).unwrap_err();
         assert!(err.to_string().contains("resolution-scope example.com"));
+    }
+
+    /// §3a resolution order: --discard → None; explicit URL wins; default is
+    /// the local compose store keyed to RS_DB_PORT (default 5435).
+    #[test]
+    fn resolve_store_dsn_respects_resolution_order() {
+        // --discard is a null scan even when a URL is also given.
+        assert_eq!(resolve_store_dsn(None, true), None);
+        assert_eq!(resolve_store_dsn(Some("postgres://x"), true), None);
+
+        // An explicit store URL wins over the default.
+        assert_eq!(
+            resolve_store_dsn(Some("postgres://u:p@h/db"), false).as_deref(),
+            Some("postgres://u:p@h/db")
+        );
+
+        // The default is the compose store, creds matching the compose fixture.
+        let dsn = resolve_store_dsn(None, false).unwrap();
+        assert!(
+            dsn.starts_with("postgres://resolution_scope:resolution_scope_local@localhost:"),
+            "{dsn}"
+        );
+        assert!(dsn.ends_with("/resolution_scope"), "{dsn}");
+    }
+
+    #[test]
+    fn redact_dsn_masks_password_only() {
+        assert_eq!(
+            redact_dsn("postgres://user:hunter2@host:5432/db"),
+            "postgres://user:***@host:5432/db"
+        );
+        // No password → unchanged.
+        assert_eq!(
+            redact_dsn("postgres://user@host/db"),
+            "postgres://user@host/db"
+        );
+        // No scheme → unchanged.
+        assert_eq!(redact_dsn("localhost:5432"), "localhost:5432");
     }
 }

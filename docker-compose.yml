@@ -1,0 +1,45 @@
+# docker-compose.yml — one-command bootstrap for resolution-scope local
+# persistence.
+#
+# DESIGN RULING (DEBRIEF-four-mind-20260824.md §3a, Carey): "persist by
+# default; --discard is the named, explicit, irreversible opt-out." This file
+# makes the default REAL — a scientist types `docker compose up -d` and has a
+# working store. No configuration, no remembering.
+#
+# PORT DOCTRINE (2026-08-25): the published host port is `127.0.0.1:${RS_DB_PORT:-5435}`,
+# NEVER `5432:5432` on all interfaces. 5432 is the ecosystem's most-contested
+# port; a self-contained tool ships a distinctive default (5435) and binds the
+# loopback only. The CLI's default DSN reads the SAME RS_DB_PORT so the two
+# never drift.
+#
+# NO initdb mount: the schema authority is the embedded migration ledger
+# (store/migrations/**, compiled into the binary and applied by `migrate()`),
+# not a filesystem mount. Mounting ./migrations into docker-entrypoint-initdb.d
+# would run the SQL out from under the ledger and break it.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: resolution_scope_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: resolution_scope
+      POSTGRES_USER: resolution_scope
+      POSTGRES_PASSWORD: resolution_scope_local
+      # Local-only. Not a secret. Their machine, their data.
+    ports:
+      - "127.0.0.1:${RS_DB_PORT:-5435}:5432"
+    volumes:
+      - rs_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U resolution_scope -d resolution_scope"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  rs_data:
+    driver: local
+    # Named volume survives `docker compose down`. Only `docker compose down -v`
+    # destroys it. Intentional: their data, on their machine, theirs.
