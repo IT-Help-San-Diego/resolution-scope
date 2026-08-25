@@ -25,8 +25,10 @@ const NXNAME: RecordType = RecordType::Unknown(128);
 pub enum DenialProof {
     /// No proof at all — an unsigned plain answer, or no authority records.
     None,
-    /// SOA present but no NSEC/NSEC3 — a signed-but-vague denial (an unsigned
-    /// zone's NXDOMAIN, or a compact denial that dropped the proof entirely).
+    /// SOA present but no NSEC/NSEC3 proof accompanying it — an unsigned
+    /// zone's negative answer, or a proof-stripped signed path. (Measured:
+    /// unsigned microsoft.com NXDOMAIN arrives as exactly SOA-only. Compact
+    /// denials are NOT this grade — their wire responses carry an NSEC.)
     SoaOnly,
     /// An NSEC record present (signed proof of denial, no TYPE128 sentinel).
     Nsec,
