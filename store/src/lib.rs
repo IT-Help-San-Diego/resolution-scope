@@ -43,6 +43,7 @@ const MIGRATIONS: &[(i32, &str)] = &[
     (1, include_str!("../migrations/001_sealed_history.sql")),
     (2, include_str!("../migrations/002_seal_scheme.sql")),
     (3, include_str!("../migrations/003_lookup_receipts.sql")),
+    (4, include_str!("../migrations/004_receipt_domain_key.sql")),
 ];
 
 /// Advisory-lock key for migration serialization — arbitrary but fixed;
@@ -231,9 +232,17 @@ impl Store {
                 i64::try_from(r.elapsed_ms).context("store: receipt elapsed_ms overflows i64")?;
             tx.execute(
                 "INSERT INTO lookup_receipts
-                     (scan_id, control, rcode, answer_count, denial_proof, elapsed_ms)
-                 VALUES ($1, $2, $3, $4, $5, $6)",
-                &[&scan_id, &control, &rcode, &answer_count, &proof, &elapsed],
+                     (scan_id, domain, control, rcode, answer_count, denial_proof, elapsed_ms)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                &[
+                    &scan_id,
+                    &a.domain,
+                    &control,
+                    &rcode,
+                    &answer_count,
+                    &proof,
+                    &elapsed,
+                ],
             )
             .await?;
         }
@@ -276,6 +285,57 @@ impl Store {
                 denial_proof,
                 elapsed_ms: u64::try_from(elapsed).context("store: stored elapsed_ms negative")?,
             });
+        }
+        Ok(receipts)
+    }
+
+    /// Domain-keyed receipt read (ruling 2026-08-25): reaches BOTH scan-linked
+    /// rows and — once source-3 lands — scan-less contributed rows. This is
+    /// the accessor the nullable-scan_id design requires: a scan_id-keyed
+    /// read path can structurally never reach a NULL-scan_id row (Science's
+    /// audit catch). `scan_id` rides along as `Option<i64>`, following the
+    /// flux_observations optional-link precedent. Newest first.
+    pub async fn receipts_by_domain(
+        &self,
+        domain: &str,
+    ) -> Result<Vec<(Option<i64>, LookupReceipt)>> {
+        let rows = self
+            .client
+            .query(
+                "SELECT scan_id, control, rcode, answer_count, denial_proof, elapsed_ms
+                 FROM lookup_receipts WHERE domain = $1
+                 ORDER BY observed_at DESC, ctid",
+                &[&domain],
+            )
+            .await?;
+        let mut receipts = Vec::with_capacity(rows.len());
+        for row in rows {
+            let scan_id: Option<i64> = row.get(0);
+            let control_key_str: String = row.get(1);
+            let rcode_str: String = row.get(2);
+            let answer_count: i32 = row.get(3);
+            let proof_str: String = row.get(4);
+            let elapsed: i64 = row.get(5);
+
+            let control = control_from_key(&control_key_str).with_context(|| {
+                format!("store: unknown stored control key {control_key_str:?}")
+            })?;
+            let rcode = ReceiptRcode::from_label(&rcode_str)
+                .with_context(|| format!("store: unknown stored rcode {rcode_str:?}"))?;
+            let denial_proof = DenialProof::from_label(&proof_str)
+                .with_context(|| format!("store: unknown stored denial_proof {proof_str:?}"))?;
+            receipts.push((
+                scan_id,
+                LookupReceipt {
+                    control,
+                    rcode,
+                    answer_count: u16::try_from(answer_count)
+                        .context("store: stored answer_count out of u16 range")?,
+                    denial_proof,
+                    elapsed_ms: u64::try_from(elapsed)
+                        .context("store: stored elapsed_ms negative")?,
+                },
+            ));
         }
         Ok(receipts)
     }
@@ -836,6 +896,18 @@ mod tests {
         assert_eq!(
             with.seal, without.seal,
             "receipts must never change the seal (R-B)"
+        );
+
+        // The domain-keyed accessor reaches the same rows (and, once source-3
+        // lands, would also reach scan-less rows a scan_id-keyed read cannot).
+        let by_domain = store.receipts_by_domain("receipt.test").await.unwrap();
+        assert!(
+            by_domain.len() >= receipts.len(),
+            "domain-keyed read must reach at least the scan-linked rows"
+        );
+        assert!(
+            by_domain.iter().filter(|(sid, _)| *sid == Some(id)).count() == receipts.len(),
+            "every scan-linked receipt carries its scan_id through the domain read"
         );
     }
 }

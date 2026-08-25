@@ -29,7 +29,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use hickory_resolver::config::{ResolverConfig, ResolverOpts};
 use hickory_resolver::net::runtime::TokioRuntimeProvider;
 use hickory_resolver::TokioResolver;
-use resolution_scope_engine::analysis::analyse_domain_with_selectors;
+use resolution_scope_engine::analysis::analyse_domain_with_receipts;
 use resolution_scope_engine::truth_chain::Audience;
 
 /// The resolver vantage every verb measures from. Sealed into each verdict
@@ -301,6 +301,10 @@ async fn scan(args: ScanArgs) -> Result<()> {
     let resolver = build_resolver()?;
 
     let mut analyses = Vec::with_capacity(domains.len());
+    // Layer-4 receipts, one Vec per domain, index-paired with `analyses`.
+    // Kept OUTSIDE ScoredAnalysis: receipts are beside-the-seal provenance
+    // (R-B) and must never ride the sealed struct.
+    let mut all_receipts = Vec::with_capacity(domains.len());
     for domain in &domains {
         // Real progress only: what is being measured, from where, and how
         // long it took. Per-control progress needs an engine hook (the
@@ -312,19 +316,17 @@ async fn scan(args: ScanArgs) -> Result<()> {
             resolution_scope_engine::truth_chain::ControlId::ALL.len()
         );
         let started = Instant::now();
-        let a = analyse_domain_with_selectors(
-            &resolver,
-            domain,
-            &args.dkim_selector,
-            RESOLVER_IDENTITY,
-        )
-        .await?;
+        let (a, receipts) =
+            analyse_domain_with_receipts(&resolver, domain, &args.dkim_selector, RESOLVER_IDENTITY)
+                .await?;
         eprintln!(
-            "measured {domain} in {:.1}s — seal {}…",
+            "measured {domain} in {:.1}s — seal {}… ({} receipts)",
             started.elapsed().as_secs_f64(),
-            &resolution_scope_engine::seal::seal(&a)[..16]
+            &resolution_scope_engine::seal::seal(&a)[..16],
+            receipts.len()
         );
         analyses.push(a);
+        all_receipts.push(receipts);
     }
 
     let (body, default_path): (String, Option<&str>) = match args.format {
@@ -361,10 +363,15 @@ async fn scan(args: ScanArgs) -> Result<()> {
             match resolution_scope_store::Store::connect(&url).await {
                 Ok(mut store) => {
                     store.migrate().await?;
-                    for a in &analyses {
-                        let id = store.record_scan(a, &[]).await?;
+                    for (a, receipts) in analyses.iter().zip(all_receipts.iter()) {
+                        let id = store.record_scan(a, receipts).await?;
                         let seal = resolution_scope_engine::seal::seal(a);
-                        eprintln!("stored {} as scan #{id} (seal {}…)", a.domain, &seal[..16]);
+                        eprintln!(
+                            "stored {} as scan #{id} (+{} receipts, seal {}…)",
+                            a.domain,
+                            receipts.len(),
+                            &seal[..16]
+                        );
                     }
                 }
                 Err(e) => {

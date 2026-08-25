@@ -8,6 +8,8 @@ use hickory_resolver::net::NetError;
 use hickory_resolver::TokioResolver;
 use tracing::{debug, warn};
 
+use crate::denial_proof::{extract_denial_proof, DenialProof, LookupReceipt, ReceiptRcode};
+use crate::truth_chain::ControlId;
 use crate::TriState;
 
 // =============================================================================
@@ -50,16 +52,42 @@ pub async fn analyse_domain_with_selectors(
     dkim_selectors: &[String],
     resolver_identity: &str,
 ) -> Result<ScoredAnalysis> {
+    Ok(
+        analyse_domain_with_receipts(resolver, domain, dkim_selectors, resolver_identity)
+            .await?
+            .0,
+    )
+}
+
+/// Analyse a domain AND return the per-control lookup receipts captured at
+/// each control's primary lookup site (Layer-4 capture, SPEC §5 step 1).
+/// Receipts are beside-the-seal provenance (R-B): the ScoredAnalysis and its
+/// seal are byte-identical whether or not the caller keeps the receipts.
+pub async fn analyse_domain_with_receipts(
+    resolver: &TokioResolver,
+    domain: &str,
+    dkim_selectors: &[String],
+    resolver_identity: &str,
+) -> Result<(ScoredAnalysis, Vec<LookupReceipt>)> {
     debug!(domain, "starting analysis");
 
     let session_id: u64 = rand_session_id();
     let timestamp_local: u64 = unix_now();
 
+    let mut r_dnssec = None;
+    let mut r_spf = None;
+    let mut r_dkim = None;
+    let mut r_dmarc = None;
+    let mut r_dane = None;
+    let mut r_mta_sts = None;
+    let mut r_caa = None;
+    let mut r_cds = None;
+
     // ── DNSSEC chain ────────────────────────────────────────────────────────
     // hickory-resolver with validate=true performs AD-bit + RRSIG chain check.
     // The dnssec-ring feature (enforced by compile_error! in lib.rs) is what
     // makes this verification real rather than a no-op.
-    let dnssec_disposition = score_dnssec(resolver, domain).await;
+    let dnssec_disposition = score_dnssec(resolver, domain, &mut r_dnssec).await;
     let dnssec_chain = dnssec_disposition.chain();
 
     // ── Email controls (stub — wire up full probes in Tier 2) ───────────────
@@ -67,26 +95,35 @@ pub async fn analyse_domain_with_selectors(
     // chain() right here and nowhere else. Hand-pairing (TriState, Disposition)
     // tuples let the two verdict channels disagree — the 2026-08-19 adversarial
     // panel found three live divergences that way. Derived means impossible.
-    let spf_disposition = score_spf(resolver, domain).await;
+    let spf_disposition = score_spf(resolver, domain, &mut r_spf).await;
     let spf = spf_disposition.chain();
     // The selector sweep is now wired: probe the 81 defaults (plus any
     // caller-supplied selector via analyse_domain_with_selectors). The honest
     // dispositions are Verified / KeyMismatch / NotFoundDefaults — no longer
     // a hardcoded NotProbed stub.
-    let dkim_disposition = score_dkim(resolver, domain, dkim_selectors).await;
+    let dkim_disposition = score_dkim(resolver, domain, dkim_selectors, &mut r_dkim).await;
     let dkim = dkim_disposition.chain();
-    let dmarc_disposition = score_dmarc(resolver, domain).await;
+    let dmarc_disposition = score_dmarc(resolver, domain, &mut r_dmarc).await;
     let dmarc = dmarc_disposition.chain();
-    let (dane_disposition, tlsa_zone) = score_dane(resolver, domain).await;
+    let (dane_disposition, tlsa_zone) = score_dane(resolver, domain, &mut r_dane).await;
     let dane = dane_disposition.chain();
-    let mta_sts_disposition = score_mta_sts(resolver, domain).await;
+    let mta_sts_disposition = score_mta_sts(resolver, domain, &mut r_mta_sts).await;
     let mta_sts = mta_sts_disposition.chain();
-    let caa_disposition = score_caa(resolver, domain).await;
+    let caa_disposition = score_caa(resolver, domain, &mut r_caa).await;
     let caa = caa_disposition.chain();
-    let cds_disposition = score_cds_cdnskey(resolver, domain).await;
+    let cds_disposition = score_cds_cdnskey(resolver, domain, &mut r_cds).await;
     let cds_cdnskey = cds_disposition.chain();
 
-    Ok(ScoredAnalysis {
+    // ControlId declaration order — one receipt per control that yielded one
+    // (a transport error outside the vocabulary yields none, loudly logged).
+    let receipts: Vec<LookupReceipt> = [
+        r_dnssec, r_spf, r_dkim, r_dmarc, r_dane, r_mta_sts, r_caa, r_cds,
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+
+    let analysis = ScoredAnalysis {
         domain: domain.to_string(),
         session_id,
         timestamp_local,
@@ -108,7 +145,8 @@ pub async fn analyse_domain_with_selectors(
         caa_disposition,
         cds_cdnskey,
         cds_disposition,
-    })
+    };
+    Ok((analysis, receipts))
 }
 
 // =============================================================================
@@ -189,7 +227,137 @@ fn dnssec_disposition_err(e: &NetError) -> DnssecDisposition {
     }
 }
 
-async fn score_dnssec(resolver: &TokioResolver, domain: &str) -> DnssecDisposition {
+// =============================================================================
+// Layer-4 receipt capture — the witness's record of each control's lookup
+// =============================================================================
+//
+// One receipt per control per scan (SPEC-receipt-column §1): the receipt
+// records the control's PRIMARY lookup — the entry query of its probe
+// sequence (DNSSEC=DNSKEY, SPF=apex TXT, DKIM=wildcard-sentinel TXT,
+// DMARC=_dmarc TXT, DANE=MX, MTA-STS=_mta-sts TXT, CAA=apex CAA,
+// CDS=apex CDS). Multi-lookup refinement (e.g. DANE's TLSA leg) is a carded
+// follow-up ruling, not silently decided here.
+//
+// Receipts ride BESIDE the seal (R-B): nothing here touches canonical_input,
+// and elapsed_ms is run metadata about the observer, never sealed.
+
+/// Map a wire ResponseCode into the ruled 5-token receipt vocabulary.
+/// Rcodes outside the vocabulary (FormErr, NotImp, …) return None — the
+/// receipt row is skipped rather than misfiled under a wrong token: a receipt
+/// that lies is worse than a missing receipt, and vocabulary widening is a
+/// spec ruling, not an implementation shortcut.
+fn receipt_rcode_token(rc: hickory_proto::op::ResponseCode) -> Option<ReceiptRcode> {
+    use hickory_proto::op::ResponseCode;
+    match rc {
+        ResponseCode::NoError => Some(ReceiptRcode::NoError),
+        ResponseCode::NXDomain => Some(ReceiptRcode::NxDomain),
+        ResponseCode::ServFail => Some(ReceiptRcode::ServFail),
+        ResponseCode::Refused => Some(ReceiptRcode::Refused),
+        _ => None,
+    }
+}
+
+/// Build the receipt for a failed lookup. NoRecordsFound carries the wire
+/// rcode and the authority section (the denial proof, hickory-preserved —
+/// gate measured open 2026-08-25, four probes). Timeout is the no-response
+/// failure mode (TIMEOUT token, no proof — a "response" that is the absence
+/// of a response). Other transport errors have no honest representation in
+/// the ruled vocabulary: no row, loudly logged.
+fn receipt_from_err(control: ControlId, e: &NetError, elapsed_ms: u64) -> Option<LookupReceipt> {
+    use hickory_resolver::net::DnsError;
+    match e {
+        NetError::Dns(DnsError::NoRecordsFound(nr)) => {
+            match receipt_rcode_token(nr.response_code) {
+                Some(rcode) => Some(LookupReceipt {
+                    control,
+                    rcode,
+                    answer_count: 0,
+                    denial_proof: extract_denial_proof(nr.authorities.as_deref().unwrap_or(&[])),
+                    elapsed_ms,
+                }),
+                None => {
+                    warn!(
+                        control = ?control,
+                        rcode = ?nr.response_code,
+                        "rcode outside receipt vocabulary — no receipt row"
+                    );
+                    None
+                }
+            }
+        }
+        NetError::Timeout => Some(LookupReceipt {
+            control,
+            rcode: ReceiptRcode::Timeout,
+            answer_count: 0,
+            denial_proof: DenialProof::None,
+            elapsed_ms,
+        }),
+        _ => {
+            warn!(
+                control = ?control,
+                error = %e,
+                "transport error not representable in receipt vocabulary — no receipt row"
+            );
+            None
+        }
+    }
+}
+
+/// A positive answer carries no denial to grade: NOERROR, the answer count,
+/// proof `none`. (hickory delivers NODATA as Err(NoRecordsFound), so the Ok
+/// arm always has answers.)
+fn receipt_from_answers(control: ControlId, answers: usize, elapsed_ms: u64) -> LookupReceipt {
+    LookupReceipt {
+        control,
+        rcode: ReceiptRcode::NoError,
+        answer_count: answers.min(u16::MAX as usize) as u16,
+        denial_proof: DenialProof::None,
+        elapsed_ms,
+    }
+}
+
+/// The primary-lookup capture shim: run the lookup, fill the control's
+/// receipt slot from the outcome, hand the result back untouched. The
+/// disposition path is byte-identical with or without the capture.
+async fn observed_lookup(
+    resolver: &TokioResolver,
+    control: ControlId,
+    name: &str,
+    rt: hickory_proto::rr::RecordType,
+    out: &mut Option<LookupReceipt>,
+) -> core::result::Result<hickory_resolver::lookup::Lookup, NetError> {
+    let started = std::time::Instant::now();
+    let res = resolver.lookup(name, rt).await;
+    let elapsed_ms = started.elapsed().as_millis() as u64;
+    *out = match &res {
+        Ok(l) => Some(receipt_from_answers(control, l.answers().len(), elapsed_ms)),
+        Err(e) => receipt_from_err(control, e, elapsed_ms),
+    };
+    res
+}
+
+/// TXT-flavoured twin of [`observed_lookup`].
+async fn observed_txt_lookup(
+    resolver: &TokioResolver,
+    control: ControlId,
+    name: &str,
+    out: &mut Option<LookupReceipt>,
+) -> core::result::Result<hickory_resolver::lookup::Lookup, NetError> {
+    let started = std::time::Instant::now();
+    let res = resolver.txt_lookup(name).await;
+    let elapsed_ms = started.elapsed().as_millis() as u64;
+    *out = match &res {
+        Ok(l) => Some(receipt_from_answers(control, l.answers().len(), elapsed_ms)),
+        Err(e) => receipt_from_err(control, e, elapsed_ms),
+    };
+    res
+}
+
+async fn score_dnssec(
+    resolver: &TokioResolver,
+    domain: &str,
+    receipt: &mut Option<LookupReceipt>,
+) -> DnssecDisposition {
     // DNSSEC is measured by the zone's DNSKEY material, NOT by A/AAAA address
     // existence. A zone can publish DNSKEY + RRSIG (sign) while hosting no
     // web content yet — the island-of-security case (resolutionscope.com/.dev:
@@ -211,7 +379,15 @@ async fn score_dnssec(resolver: &TokioResolver, domain: &str) -> DnssecDispositi
     // anchor; Indeterminate is genuinely "couldn't measure", never "absent".
     use hickory_proto::rr::RecordType;
 
-    match resolver.lookup(domain, RecordType::DNSKEY).await {
+    match observed_lookup(
+        resolver,
+        ControlId::Dnssec,
+        domain,
+        RecordType::DNSKEY,
+        receipt,
+    )
+    .await
+    {
         Ok(resp) => {
             let answers = resp.answers();
             dnssec_disposition_from_answer(
@@ -252,11 +428,15 @@ fn dnssec_disposition_from_answer(
     }
 }
 
-async fn score_spf(resolver: &TokioResolver, domain: &str) -> SpfDisposition {
+async fn score_spf(
+    resolver: &TokioResolver,
+    domain: &str,
+    receipt: &mut Option<LookupReceipt>,
+) -> SpfDisposition {
     // SPF is a TXT record at the apex beginning with "v=spf1". The qualifier
     // (-all hardfail vs ~all softfail) is the deployed-but-not-enforcing
     // distinction: ~all is advisory, -all is enforced.
-    match resolver.txt_lookup(domain).await {
+    match observed_txt_lookup(resolver, ControlId::Spf, domain, receipt).await {
         Ok(rdata) => {
             let mut spf_records: Vec<String> = Vec::new();
             for rec in rdata.answers() {
@@ -293,12 +473,16 @@ fn spf_disposition_from_records(spf_records: &[String]) -> SpfDisposition {
     }
 }
 
-async fn score_dmarc(resolver: &TokioResolver, domain: &str) -> DmarcDisposition {
+async fn score_dmarc(
+    resolver: &TokioResolver,
+    domain: &str,
+    receipt: &mut Option<LookupReceipt>,
+) -> DmarcDisposition {
     // DMARC policy at _dmarc.<domain> TXT "v=DMARC1; p=...". p=none is
     // deployed-but-not-enforcing (monitor only), p=quarantine is intermediate,
     // p=reject is enforced. Same shape as MtaStsDisposition::NotEnforced.
     let dmarc_domain = format!("_dmarc.{}", domain);
-    match resolver.txt_lookup(dmarc_domain.as_str()).await {
+    match observed_txt_lookup(resolver, ControlId::Dmarc, dmarc_domain.as_str(), receipt).await {
         Ok(rdata) => {
             let mut dmarc_records: Vec<String> = Vec::new();
             for rec in rdata.answers() {
@@ -586,6 +770,7 @@ async fn score_dkim(
     resolver: &TokioResolver,
     domain: &str,
     extra_selectors: &[String],
+    receipt: &mut Option<LookupReceipt>,
 ) -> DkimDisposition {
     // Wildcard detection FIRST (2026-08-21 ruling): if a nonexistent selector
     // name resolves to TXT, the domain publishes `*._domainkey` and the sweep
@@ -593,10 +778,11 @@ async fn score_dkim(
     // honest NotFoundDefaults uncertainty is structurally unreachable. That is
     // its own disposition, not a key verdict.
     let sentinel = format!("{}.{}", WILDCARD_PROBE_SELECTOR, domain);
-    let sentinel_probe: DkimSelectorProbe = match resolver.txt_lookup(&sentinel).await {
-        Ok(rdata) => Ok(dkim_txt_chunks(rdata.answers())),
-        Err(e) => Err(record_absence_verdict(&e, domain)),
-    };
+    let sentinel_probe: DkimSelectorProbe =
+        match observed_txt_lookup(resolver, ControlId::Dkim, &sentinel, receipt).await {
+            Ok(rdata) => Ok(dkim_txt_chunks(rdata.answers())),
+            Err(e) => Err(record_absence_verdict(&e, domain)),
+        };
     if dkim_wildcard_detected(&sentinel_probe) {
         return DkimDisposition::Wildcard;
     }
@@ -895,7 +1081,11 @@ fn dane_host_zone_requires_dnssec(d: DnssecDisposition) -> bool {
     matches!(d, DnssecDisposition::Unsigned | DnssecDisposition::NoZone)
 }
 
-async fn score_dane(resolver: &TokioResolver, domain: &str) -> (DaneDisposition, TlsaZone) {
+async fn score_dane(
+    resolver: &TokioResolver,
+    domain: &str,
+    receipt: &mut Option<LookupReceipt>,
+) -> (DaneDisposition, TlsaZone) {
     // DANE for SMTP (RFC 7672): TLSA at _25._tcp.<mx-host> for each MX target.
     // NOT _443._tcp.<domain> — that is HTTPS DANE (RFC 6698 for browsers), the
     // wrong surface for an email-security instrument. A mail domain may host no
@@ -922,7 +1112,7 @@ async fn score_dane(resolver: &TokioResolver, domain: &str) -> (DaneDisposition,
     // operator's gap).
     use hickory_proto::rr::RecordType;
 
-    match resolver.lookup(domain, RecordType::MX).await {
+    match observed_lookup(resolver, ControlId::Dane, domain, RecordType::MX, receipt).await {
         Ok(mx) => {
             let exchanges: Vec<hickory_proto::rr::Name> = mx
                 .answers()
@@ -961,7 +1151,9 @@ async fn score_dane(resolver: &TokioResolver, domain: &str) -> (DaneDisposition,
                     // party); the host-zone gate reports DnssecRequired.
                     for host in &hosts {
                         if let Some(apex) = zone_apex_of(resolver, host).await {
-                            let d = score_dnssec(resolver, &apex).await;
+                            // Internal sub-measurement of the MX host's zone —
+                            // not the control's primary lookup; no receipt slot.
+                            let d = score_dnssec(resolver, &apex, &mut None).await;
                             if dane_host_zone_requires_dnssec(d) {
                                 warn!(
                                     domain,
@@ -1011,7 +1203,11 @@ async fn score_dane(resolver: &TokioResolver, domain: &str) -> (DaneDisposition,
     }
 }
 
-async fn score_mta_sts(resolver: &TokioResolver, domain: &str) -> MtaStsDisposition {
+async fn score_mta_sts(
+    resolver: &TokioResolver,
+    domain: &str,
+    receipt: &mut Option<LookupReceipt>,
+) -> MtaStsDisposition {
     // MTA-STS (RFC 8461) is a two-step protocol:
     //   1. Discovery: _mta-sts.<domain> TXT ("v=STSv1; id=...") signals that a
     //      policy MAY be published.
@@ -1025,7 +1221,14 @@ async fn score_mta_sts(resolver: &TokioResolver, domain: &str) -> MtaStsDisposit
     let mta_sts_domain = format!("_mta-sts.{}", domain);
 
     // ── Step 1: discovery TXT ────────────────────────────────────────────────
-    let has_hint = match resolver.txt_lookup(mta_sts_domain.as_str()).await {
+    let has_hint = match observed_txt_lookup(
+        resolver,
+        ControlId::MtaSts,
+        mta_sts_domain.as_str(),
+        receipt,
+    )
+    .await
+    {
         Ok(rdata) => rdata.answers().iter().any(|rec| {
             matches!(&rec.data, hickory_proto::rr::RData::TXT(txt)
                 if txt.txt_data.iter().any(|s| s.starts_with(b"v=STSv1")))
@@ -1207,7 +1410,11 @@ fn cds_deletion_requested(records: &[hickory_proto::rr::Record]) -> bool {
     })
 }
 
-async fn score_caa(resolver: &TokioResolver, domain: &str) -> CaaDisposition {
+async fn score_caa(
+    resolver: &TokioResolver,
+    domain: &str,
+    receipt: &mut Option<LookupReceipt>,
+) -> CaaDisposition {
     // CAA record lookup.
     // RecordType::CAA = 257, confirmed present in hickory 0.26 (hickory_rr_types.md).
     //
@@ -1215,7 +1422,7 @@ async fn score_caa(resolver: &TokioResolver, domain: &str) -> CaaDisposition {
     // Absent = no CAA policy (any CA can issue) — informatively absent, not a failure.
     use hickory_proto::rr::RecordType;
 
-    match resolver.lookup(domain, RecordType::CAA).await {
+    match observed_lookup(resolver, ControlId::Caa, domain, RecordType::CAA, receipt).await {
         Ok(resp) => {
             if answers_present(resp.answers()) {
                 if caa_fully_restricted(resp.answers()) {
@@ -1236,7 +1443,11 @@ async fn score_caa(resolver: &TokioResolver, domain: &str) -> CaaDisposition {
     }
 }
 
-async fn score_cds_cdnskey(resolver: &TokioResolver, domain: &str) -> CdsDisposition {
+async fn score_cds_cdnskey(
+    resolver: &TokioResolver,
+    domain: &str,
+    receipt: &mut Option<LookupReceipt>,
+) -> CdsDisposition {
     // CDS (type 59) and CDNSKEY (type 60) are published at the child zone apex
     // to signal an ongoing or pending DS rollover to the parent (RFC 7344).
     // Both types confirmed present in hickory 0.26 (hickory_rr_types.md).
@@ -1251,30 +1462,31 @@ async fn score_cds_cdnskey(resolver: &TokioResolver, domain: &str) -> CdsDisposi
     use hickory_proto::rr::RecordType;
 
     // ── CDS (type 59) ────────────────────────────────────────────────────────
-    let cds_absent = match resolver.lookup(domain, RecordType::CDS).await {
-        Ok(resp) => {
-            if answers_present(resp.answers()) {
-                return if cds_deletion_requested(resp.answers()) {
-                    CdsDisposition::DeletionRequested // null CDS — DS removal (RFC 8078 §4)
+    let cds_absent =
+        match observed_lookup(resolver, ControlId::Cds, domain, RecordType::CDS, receipt).await {
+            Ok(resp) => {
+                if answers_present(resp.answers()) {
+                    return if cds_deletion_requested(resp.answers()) {
+                        CdsDisposition::DeletionRequested // null CDS — DS removal (RFC 8078 §4)
+                    } else {
+                        CdsDisposition::Published // CDS record found
+                    };
+                }
+                true // empty answer section → absent, check CDNSKEY
+            }
+            Err(e) => {
+                if e.is_nx_domain() {
+                    return CdsDisposition::NoZone; // no zone
+                }
+                if e.is_no_records_found() {
+                    true // definitively absent
                 } else {
-                    CdsDisposition::Published // CDS record found
-                };
+                    // Transient/servfail on CDS — still worth checking CDNSKEY
+                    warn!(domain, error = %e, "CDS lookup error, falling through to CDNSKEY");
+                    false // not definitively absent
+                }
             }
-            true // empty answer section → absent, check CDNSKEY
-        }
-        Err(e) => {
-            if e.is_nx_domain() {
-                return CdsDisposition::NoZone; // no zone
-            }
-            if e.is_no_records_found() {
-                true // definitively absent
-            } else {
-                // Transient/servfail on CDS — still worth checking CDNSKEY
-                warn!(domain, error = %e, "CDS lookup error, falling through to CDNSKEY");
-                false // not definitively absent
-            }
-        }
-    };
+        };
 
     // ── CDNSKEY (type 60) ────────────────────────────────────────────────────
     match resolver.lookup(domain, RecordType::CDNSKEY).await {
