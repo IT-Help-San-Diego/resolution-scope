@@ -781,3 +781,130 @@ mod tests {
         assert_eq!(o.vantage, FluxVantage::ProxiedEdge, "got {o:?}");
     }
 }
+
+// Serde-contract pins for the flux vocabulary (salvage S2 from the 2026-08-25
+// SciSpace wave, landed with the struct tests adapted to the real field types).
+// The project constraint "no serde(rename)/rename_all/alias anywhere" means
+// variant names ARE the serialized identity; these tests make that mechanical.
+// The negative-casing guard is the tripwire for the alias-normalization hazard
+// recorded beside record_scan in the store.
+#[cfg(test)]
+mod serde_roundtrip_tests {
+    use super::*;
+
+    /// Every variant, no wildcard: adding a FluxVantage variant without
+    /// extending this list leaves it untested, and the store's exhaustive
+    /// vantage_label match already breaks the build loudly.
+    fn expected_json_values() -> Vec<(&'static str, FluxVantage)> {
+        vec![
+            ("\"Observable\"", FluxVantage::Observable),
+            ("\"ProxiedEdge\"", FluxVantage::ProxiedEdge),
+            ("\"SharedCloudOnly\"", FluxVantage::SharedCloudOnly),
+            ("\"NoAddresses\"", FluxVantage::NoAddresses),
+            ("\"AsnUnresolved\"", FluxVantage::AsnUnresolved),
+        ]
+    }
+
+    #[test]
+    fn all_vantage_variants_serialize_as_bare_variant_name() {
+        for (expected_json, variant) in expected_json_values() {
+            let serialized = serde_json::to_string(&variant).unwrap();
+            assert_eq!(
+                serialized, expected_json,
+                "FluxVantage::{variant:?} serialized as {serialized} — a serde rename crept in"
+            );
+        }
+    }
+
+    #[test]
+    fn all_vantage_variants_roundtrip() {
+        for (json_str, expected_variant) in expected_json_values() {
+            let back: FluxVantage = serde_json::from_str(json_str).unwrap();
+            assert_eq!(back, expected_variant);
+            let json = serde_json::to_string(&back).unwrap();
+            assert_eq!(json, json_str);
+        }
+    }
+
+    #[test]
+    fn negative_casing_variants_do_not_deserialize() {
+        // No serde(alias) may exist: a wrong-case spelling must FAIL, never
+        // silently normalize (the deserialize-then-reserialize rewrite hazard).
+        for wrong in [
+            "\"observable\"",
+            "\"proxiedEdge\"",
+            "\"proxied_edge\"",
+            "\"OBSERVABLE\"",
+            "\"shared_cloud_only\"",
+            "\"noAddresses\"",
+            "\"no_addresses\"",
+            "\"asn_unresolved\"",
+            "\"asnUnresolved\"",
+        ] {
+            assert!(
+                serde_json::from_str::<FluxVantage>(wrong).is_err(),
+                "{wrong} must NOT deserialize — no serde(alias) allowed"
+            );
+        }
+    }
+
+    #[test]
+    fn flux_assessment_roundtrips_verbatim() {
+        for (variant, expected) in [
+            (
+                FluxAssessment::InsufficientHistory,
+                "\"InsufficientHistory\"",
+            ),
+            (FluxAssessment::Stable, "\"Stable\""),
+            (FluxAssessment::Transient, "\"Transient\""),
+            (FluxAssessment::Dispersing, "\"Dispersing\""),
+        ] {
+            let json = serde_json::to_string(&variant).unwrap();
+            assert_eq!(
+                json, expected,
+                "FluxAssessment::{variant:?} rename detected"
+            );
+            let back: FluxAssessment = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, variant);
+        }
+    }
+
+    #[test]
+    fn full_observation_struct_roundtrips() {
+        // Adapted from the SciSpace draft: origin_asns is BTreeSet<String>
+        // in this codebase (Cymru origin names), not numeric ASNs.
+        let obs = FluxObservation {
+            origin_asns: ["13335", "8075"].iter().map(|s| s.to_string()).collect(),
+            excluded_asns: vec![("54113".to_string(), ExclusionReason::ProxyEdge)],
+            min_ttl: Some(300),
+            unresolved_addresses: 0,
+            vantage: FluxVantage::Observable,
+        };
+        let json = serde_json::to_string(&obs).unwrap();
+        assert!(
+            json.contains("\"Observable\""),
+            "verbatim vantage missing: {json}"
+        );
+        assert!(
+            json.contains("\"ProxyEdge\""),
+            "verbatim exclusion reason missing: {json}"
+        );
+        let back: FluxObservation = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, obs);
+    }
+
+    #[test]
+    fn observation_with_no_addresses_roundtrips() {
+        let obs = FluxObservation {
+            origin_asns: std::collections::BTreeSet::new(),
+            excluded_asns: Vec::new(),
+            min_ttl: None,
+            unresolved_addresses: 0,
+            vantage: FluxVantage::NoAddresses,
+        };
+        let json = serde_json::to_string(&obs).unwrap();
+        assert!(json.contains("\"NoAddresses\""));
+        let back: FluxObservation = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.vantage, FluxVantage::NoAddresses);
+    }
+}
