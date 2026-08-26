@@ -256,12 +256,29 @@ fn wrap_indent(
         .collect()
 }
 
-fn state_icon(s: TriState, pal: Palette) -> (&'static str, Color) {
+/// The machine's own state name, colored by severity (the judgment) — never by
+/// presence. A green "PRESENT" beside a red "HIGH" would be the same
+/// contradiction the PASS/FAIL word was, in a second channel.
+fn state_icon(s: TriState, sev: Severity, pal: Palette) -> (&'static str, Color) {
+    let word = match s {
+        TriState::Present => "PRESENT",
+        TriState::Absent => "ABSENT",
+        TriState::Indet => "INDET",
+        TriState::NotApplicable => "N/A",
+    };
+    (word, severity_fg(sev, pal))
+}
+
+/// The single judgment-color mapping, shared by the severity label
+/// (`severity_style`) and the state word (`state_icon`), so the two never
+/// disagree on a row.
+fn severity_fg(s: Severity, pal: Palette) -> Color {
     match s {
-        TriState::Present => ("PASS", pal.pass),
-        TriState::Absent => ("FAIL", pal.fail),
-        TriState::Indet => (" ?  ", pal.warn),
-        TriState::NotApplicable => ("N/A ", pal.muted),
+        Severity::Critical | Severity::High => pal.fail,
+        Severity::Medium => pal.warn,
+        Severity::Low => pal.fg,
+        Severity::Ok => pal.pass,
+        Severity::Unmeasured | Severity::NotApplicable => pal.muted,
     }
 }
 
@@ -289,8 +306,8 @@ fn report_for(model: &[ControlReport; 8], c: ControlId) -> &ControlReport {
 /// cursor. Tier and order come from the model; the scores from the shared
 /// Tally; the selected row expands to attribution + consequence.
 /// Columns taken by a summary row before its measured label: cursor(2) +
-/// severity(10) + " " + name(12) + " " + glyph(4) + " " + " ".
-const ROW_PREFIX: usize = 32;
+/// severity(10) + " " + name(12) + " " + glyph(7) + " " + " ".
+const ROW_PREFIX: usize = 35;
 
 fn render_summary(
     model: &[ControlReport; 8],
@@ -331,7 +348,7 @@ fn render_summary(
             } else {
                 Style::default()
             };
-            let (icon, icon_color) = state_icon(rep.tri, pal);
+            let (icon, icon_color) = state_icon(rep.tri, rep.severity, pal);
             let row_start = lines.len();
             // The measured label wraps under itself (hanging indent at the
             // row prefix) instead of clipping at the terminal edge.
@@ -348,7 +365,7 @@ fn render_summary(
                     row_bg.fg(pal.fg).add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
-                    format!(" {icon} "),
+                    format!(" {:<7} ", icon),
                     row_bg.fg(icon_color).add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(format!(" {first_chunk}"), row_bg.fg(pal.muted)),
@@ -449,7 +466,7 @@ fn render_controls(
     let label = Style::default().fg(pal.accent);
     for c in controls {
         let rep = report_for(model, *c);
-        let (icon, icon_color) = state_icon(rep.tri, pal);
+        let (icon, icon_color) = state_icon(rep.tri, rep.severity, pal);
         // Same column order as the summary rows: severity, control, glyph.
         lines.push(Line::from(vec![
             Span::styled(
@@ -461,7 +478,7 @@ fn render_controls(
                 Style::default().fg(pal.fg).add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                format!(" {icon}"),
+                format!(" {:<7}", icon),
                 Style::default().fg(icon_color).add_modifier(Modifier::BOLD),
             ),
         ]));

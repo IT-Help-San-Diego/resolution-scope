@@ -234,7 +234,7 @@ fn render_text_surface(analyses: &[ScoredAnalysis], audience: Audience, opts: Te
             }
             for rep in &rows {
                 s.push_str(&format!(
-                    "  {:<10} {:<12} {:<4} {}\n",
+                    "  {:<10} {:<12} {:<7} {}\n",
                     rep.severity.label(),
                     rep.control.name(),
                     tri_icon(rep.tri),
@@ -554,15 +554,14 @@ pub fn weighted_label(model: &[ControlReport; 8]) -> String {
     }
 }
 
-/// The tri-state glyph, padded to a fixed 4 columns so rows align on every
-/// fixed-width surface. Presence words, not verdict words: the severity
-/// label beside them carries the consequence.
+/// The machine's own state name (`TriState`'s `Display`), never a verdict word:
+/// the severity label beside it carries the consequence.
 pub fn tri_icon(t: TriState) -> &'static str {
     match t {
-        TriState::Present => "PASS",
-        TriState::Absent => "FAIL",
-        TriState::Indet => " ?  ",
-        TriState::NotApplicable => "N/A ",
+        TriState::Present => "PRESENT",
+        TriState::Absent => "ABSENT",
+        TriState::Indet => "INDET",
+        TriState::NotApplicable => "N/A",
     }
 }
 

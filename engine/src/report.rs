@@ -88,12 +88,12 @@ pub fn render_text(a: &ScoredAnalysis) -> String {
 
 fn row(label: &str, t: TriState, measured: &str) -> String {
     let symbol = match t {
-        TriState::Present => "PASS",
-        TriState::Absent => "FAIL",
-        TriState::Indet => "?   ",
-        TriState::NotApplicable => "N/A ",
+        TriState::Present => "PRESENT",
+        TriState::Absent => "ABSENT",
+        TriState::Indet => "INDET",
+        TriState::NotApplicable => "N/A",
     };
-    format!("{:<16}  {}     {}\n", label, symbol, measured)
+    format!("{:<16}  {:<7}  {}\n", label, symbol, measured)
 }
 
 #[cfg(test)]

@@ -72,14 +72,14 @@ Seal      : <span class="seal">1c4b45c5c310ac3441d1bf75ddfc8e7914e0ae20ea36fa6dd
 
 Control         Score    Measured
 ──────────────  ───────  ────────
-DNSSEC            <span class="pass">PASS</span>     signed + delegated — chain validates from the root
-SPF               <span class="pass">PASS</span>     hardfail (-all) — enforced
-DKIM              <span class="indet">?</span>        wildcard *._domainkey — the selector sweep proves nothing
-DMARC             <span class="pass">PASS</span>     reject (p=reject) — enforced
+DNSSEC            <span class="pass">PRESENT</span>  signed + delegated — chain validates from the root
+SPF               <span class="pass">PRESENT</span>  hardfail (-all) — enforced
+DKIM              <span class="indet">INDET</span>    wildcard *._domainkey — the selector sweep proves nothing
+DMARC             <span class="pass">PRESENT</span>  reject (p=reject) — enforced
 DANE              <span class="na">N/A</span>      no mail declared (null MX, RFC 7505)
-MTA-STS           <span class="fail">FAIL</span>     record absent — zone exists, no MTA-STS
-CAA               <span class="pass">PASS</span>     wildcard-fully-restricted — issuewild ";"
-CDS/CDNSKEY       <span class="fail">FAIL</span>     not published — zone exists, no CDS/CDNSKEY
+MTA-STS           <span class="fail">ABSENT</span>   record absent — zone exists, no MTA-STS
+CAA               <span class="pass">PRESENT</span>  wildcard-fully-restricted — issuewild ";"
+CDS/CDNSKEY       <span class="na">ABSENT</span>    not published — zone exists, no CDS/CDNSKEY
 
 Coverage Score : 4/6 (66%)  |  unmeasured: 1  |  not-applicable: 1
 Risk-Weighted  : 71%  (scoring v1)
