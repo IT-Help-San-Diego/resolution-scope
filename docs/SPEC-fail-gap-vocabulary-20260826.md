@@ -76,7 +76,9 @@ arithmetic.
 
 - The three word maps take `(tri, severity)` instead of `tri` alone; single producer
   per surface, pinned identical across surfaces. `Absent` splits:
-  `Low → "GAP"`, otherwise `"FAIL"`.
+  `Low → "GAP"`, otherwise `"FAIL"`. `Present` splits symmetrically:
+  `Ok → "PASS"`, above-Ok → the board's weak-word (the four rows in §2's table);
+  leaving either split out ships half the fix (§2).
 - Membership is the same Low census the ADVISORY tier keys on (exactly four arms in
   the **54-row** table — verified by machine extraction 2026-08-26: CDS `NotPublished`,
   CAA `NotConfigured`, DANE `NotConfigured`, DANE `NoMx`) — so **tier and word agree by

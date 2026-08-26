@@ -911,6 +911,7 @@ mod tests {
             SpfDisposition::HardFail,
             SpfDisposition::SoftFail,
             SpfDisposition::OtherPolicy,
+            SpfDisposition::PositiveAll,
             SpfDisposition::NotConfigured,
             SpfDisposition::NoMail,
             SpfDisposition::TransientError,
@@ -924,6 +925,8 @@ mod tests {
             DkimDisposition::NoMailDomain,
             DkimDisposition::TransientError,
             DkimDisposition::KeyMismatch,
+            DkimDisposition::Revoked,
+            DkimDisposition::Wildcard,
         ] {
             v.push(dkim_report(d));
         }
@@ -961,6 +964,8 @@ mod tests {
             v.push(mta_sts_report(d));
         }
         for d in [
+            CaaDisposition::FullyRestricted,
+            CaaDisposition::WildcardFullyRestricted,
             CaaDisposition::Configured,
             CaaDisposition::NotConfigured,
             CaaDisposition::NoZone,
@@ -970,6 +975,7 @@ mod tests {
         }
         for d in [
             CdsDisposition::Published,
+            CdsDisposition::DeletionRequested,
             CdsDisposition::NotPublished,
             CdsDisposition::NoZone,
             CdsDisposition::TransientError,
@@ -986,7 +992,7 @@ mod tests {
         let reports = all_dispositions();
         assert_eq!(
             reports.len(),
-            48,
+            54,
             "disposition census changed — update this test's inventory"
         );
         for r in &reports {
