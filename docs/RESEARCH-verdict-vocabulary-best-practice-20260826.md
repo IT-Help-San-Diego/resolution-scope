@@ -130,14 +130,26 @@ removed, not replaced.
 copy carry the judgment. This is not a new vocabulary and not a copywriting choice — it
 is the removal of an authored judgment that contradicts the standard the tool cites.
 
-## 6. Sources
+## 6. Sources (with per-source provenance)
 
-- RFC 4033 §5 (verbatim, from `~/Documents/rfc-corpus/rfc4033.txt`).
-- BIND 9 DNSSEC Guide (bind9.readthedocs.io) — "resolves Secure and Insecure; only Bogus
-  and Indeterminate result in a SERVFAIL."
-- DNSViz (dnsviz.net) — DNSSEC chain reported in RFC 4033 states.
-- blocky resolver documentation — the same four states with per-state semantics.
-- internet.nl — numeric grade + band; no per-control verdict word.
-- Hardenize — measured policy value as the substantive report content.
-- `types/src/tristate.rs` — the `Display` impl already emits PRESENT/ABSENT/INDET/
-  NOT-APPLICABLE.
+**The standards argument is self-sufficient and checkable** — a reader can re-derive it
+from RFC 4033 §5 alone, which is why the decision does not rest on the tool survey.
+
+| source | what it supports | provenance |
+|---|---|---|
+| **RFC 4033 §5** | the four states; PASS/FAIL appear zero times | **verified** — quoted from `~/Documents/rfc-corpus/rfc4033.txt`, and independently re-verified by the Science lane against rfc-editor.org this session |
+| **BIND 9 DNSSEC Guide** | "resolves Secure and Insecure; only Bogus and Indeterminate result in a SERVFAIL" | **fetched** — bind9.readthedocs.io, search-result text |
+| **DNSViz** | DNSSEC chain in RFC 4033 states | **recalled, not fetched** — dnsviz.net page was loaded but the state legend was behind a client-side loader; NOT independently confirmed this session |
+| **blocky** | the same four states with per-state semantics | **fetched** — 0xerr0r.github.io/blocky config docs, search-result text |
+| **internet.nl** | numeric grade + band, no per-control verdict word | **recalled, not fetched** — page loaded but the example-domain test errored, so no result bands were observed this session |
+| **Hardenize** | "Test passed" + measured policy value as the content | **fetched** — hardenize.com public report, DMARC section observed |
+| `types/src/tristate.rs` | `Display` emits PRESENT/ABSENT/INDET/NOT-APPLICABLE | **verified** — read from source |
+
+**Explicit limit:** the generalisation "no tool invents a per-control verdict word" rests
+on the five tool rows, two of which (DNSViz, internet.nl) are **recalled, not fetched**
+this session and therefore unverified by any lane. They are almost certainly correct —
+DNSViz is famous for exactly the RFC 4033 vocabulary — but a claim a reader can't
+re-derive should be marked as such, not listed beside a verbatim quote. **The decision
+does not depend on them**: the RFC 4033 §5 argument (broken-vs-absent get different words;
+PASS/FAIL collapse them) carries the recommendation on its own, and that argument is
+verified.
