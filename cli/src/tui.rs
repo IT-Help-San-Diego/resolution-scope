@@ -911,8 +911,7 @@ fn framing_desc(a: Audience) -> &'static str {
 /// at 9 so it never renumbers). `⇥` (the tab key) switches domain — not to be
 /// confused with the number "tabs", which are sections. These glyphs are
 /// navigation chrome, never measurement: the seal and verdicts stay pure ASCII.
-const HELP_LINE: &str =
-    "①-⑨│ ↑↓/jk│ ⏎ open│ ⎋ back│ m mode│ r rescan│ ⇥ next│ d new│ q";
+const HELP_LINE: &str = "①-⑨│ ↑↓/jk│ ⏎ open│ ⎋ back│ m mode│ r rescan│ ⇥ next│ d new│ q";
 
 fn render_header(f: &mut Frame, area: Rect, app: &App) {
     let p = app.pal;
@@ -1753,7 +1752,10 @@ mod tests {
             HELP_LINE.contains('\u{2460}'),
             "enclosed ① missing: {HELP_LINE:?}"
         );
-        assert!(!HELP_LINE.contains("[enter]"), "bracketed [enter] should be ⏎");
+        assert!(
+            !HELP_LINE.contains("[enter]"),
+            "bracketed [enter] should be ⏎"
+        );
         assert!(!HELP_LINE.contains("[esc]"), "bracketed [esc] should be ⎋");
     }
 
