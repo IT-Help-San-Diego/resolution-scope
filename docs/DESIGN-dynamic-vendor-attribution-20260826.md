@@ -19,10 +19,21 @@ work (host-identity attribution), already carded.
 
 2. **There is no hardcoded vendor capability claim in the engine.** Grep over
    `engine/src/` + `cli/src/` for `route 53 | route53 | amazon | cloudflare | cannot |
-   does not support | not supported` returns **zero** verdict-affecting matches. The only
-   `cloudflare` hits are the test-resolver config and a doc comment. The tool has never
-   said "your provider can't do this" — it says what it *measured about your domain*:
-   `not published — zone exists, no CDS/CDNSKEY`.
+   does not support | not supported` returns **zero verdict-affecting matches**. The only
+   `cloudflare` hits are the test-resolver config, a DKIM selector, and doc comments. The
+   tool has never said "your provider can't do this" — it says what it *measured about
+   your domain*: `not published — zone exists, no CDS/CDNSKEY`.
+
+   **Boundary case that must be named, or this sentence gets quoted wrong:**
+   `engine/src/asn_classification.rs` IS a hardcoded vendor-adjacent table (Cloudflare /
+   Akamai / Fastly / Sucuri / Imperva / KeyCDN = `ProxyEdge`; Amazon / Google / Microsoft
+   = `SharedCloudAmbiguous`). So the precise claim is **"zero *capability* tables affect
+   *verdicts*"** — NOT "zero vendor tables exist." The ASN table is a network-*role*
+   table: slow-changing BGP facts that feed the flux vantage only, never a control
+   verdict, never the seal, and its comments deliberately fail toward *measurable*
+   (unknown ASN → measurable, not "not observable"). It is the governed exception —
+   and the one list a future session must keep honest. Maintenance rule: role rows are
+   dated, and a row nobody can re-source gets removed, not trusted.
 
 3. **The one attribution the engine *does* carry is a measurement, not a capability
    claim.** `tlsa_zone` (DANE) is derived by `classify_tlsa_zone(domain_apex,
@@ -38,11 +49,24 @@ work (host-identity attribution), already carded.
    zones, measured 2026-08-26"), not as an eternal fact. A dated measurement is already
    dynamic: it expires on its own face the moment it is re-measured.
 
-5. **Golden fixtures are frozen measurements, not capability assertions.**
-   `golden_cloudflare_com` pins "cloudflare.com → Present" — i.e. *this is what
-   cloudflare.com looked like when captured*. When a producer changes, the fixture is
-   re-captured (the DS-producer-defect arc already established the re-capture discipline:
-   fixtures are never hand-edited toward reality, they are re-measured with a build stamp).
+5. **Golden fixtures are the one live-assertion hazard — corrected (2026-08-26).** The
+   earlier version of this doc wrongly claimed they are "frozen measurements." Measured:
+   they are NOT. `macro_rules! golden_fixture_test` (`engine/src/analysis.rs:1702`)
+   builds a LIVE resolver (`make_test_resolver()`, real Cloudflare DoT) and calls
+   `analyse_domain()` against the real internet, then asserts a hardcoded
+   `TriState::Present` for `cloudflare.com`, `example.com`, `ietf.org`,
+   `whitehouse.gov` — all `#[ignore]`d. That inverts the safety argument: a frozen
+   capture self-heals by irrelevance (never consults the world); a live assertion with a
+   hardcoded expectation is a standing claim about four third-party zones that goes false
+   the day any of them changes DNSSEC posture, and the failure reads as *our* defect.
+   The `#[ignore]` makes it worse — "wired but never fires" in CI. **Fix (the principle
+   applied verbatim, carded not yet built):** record the observation date beside each
+   expectation so a failure reads "the world changed since <date>", or make them true
+   frozen captures against recorded responses — which is what this doc originally
+   (wrongly) assumed they were. Note the tree already anticipates this class: the
+   `#[ignore]`d island test at analysis.rs:3142 carries a comment that it "DIES the day
+   resolutionscope.com's DS lands" — the pattern is known, just not yet applied to the
+   golden fixtures.
 
 ## The one thing that IS worth building (the 20%)
 
