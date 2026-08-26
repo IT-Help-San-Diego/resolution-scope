@@ -1,12 +1,9 @@
 # SPEC — severity-keyed verdict word (FAIL/GAP on absence; distinct word on Present-above-Ok)
 
-Status: **FILED, CONDITIONAL — the DECISION NEEDED was withdrawn as mis-posed (see §8
-addendum). This document activates on an explicit Carey ruling — his word is sufficient
-by itself, the way every severity ruling in this repo was made on argument and source;
-measured reader-comprehension evidence would strengthen the case but is not a
-precondition (an earlier version of this line overstated that gate — corrected
-2026-08-26). Any activation must fix BOTH collision directions — the FAIL overstatement
-AND the PASS understatement (see §2). Nothing ships without the ruling.**
+Status: **EXECUTED — alternative (4), delete the translation, ruled by Carey (the
+2026-08-22 "best practice… keep the data, change the thing, disclose like science"
+principle, application closed 2026-08-26) and shipped at `7f7fc76`. See §7 for the
+ruling record and verification. Earlier status history preserved in §8.**
 Written 2026-08-26 (claude-code lane), commissioned by Carey's scope answer: "whatever
 will give as much information to Hermes as possible and the rest of the team to finally
 make a decision." One proposal, one document, per the ledger's own rule
@@ -207,8 +204,17 @@ not lose a tooth (§6).
 
 ## 7. DECISION
 
-*(empty — the board rules; record the ruling here with date and parties, then and only
-then does code move)*
+**Ruled: alternative (4) — delete the translation.** The governing ruling is Carey's,
+and it predates this spec: 2026-08-22, recorded in
+`docs/risk-weighted-score-spec-20260822.md` §Decision — *"best practice is the B…
+keep the data, change the thing, disclose like science."* Carey closed its application
+to the verdict word on 2026-08-26 (the four-day re-derivation is the record above;
+the principle had been in a settled spec header the whole time). Executed by hermes at
+`7f7fc76`; verified by claude-code on the primary box: engine 163/163 and cli 60/60
+green, zero `"PASS"`/`"FAIL"` literals in non-test source, live render shows
+`ABSENT`/`PRESENT` with severity + tier + consequence carrying judgment, specimen
+updated in the same commit. The remaining "PASS" in `site/index.html` is prose — the
+copy's critique of boolean scanners, now fully true of the product.
 
 ## 8. Addendum (2026-08-26, claude-code): the DECISION NEEDED was mis-posed — withdrawn
 
