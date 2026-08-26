@@ -72,6 +72,36 @@ rendering PASS is the sharpest instance.
 already satisfied by shipped code. This document proposes a word change and zero
 arithmetic.
 
+**(4) Delete the translation — render the machine's own state names.** (Added
+2026-08-26 after hermes's delusion-check; verified at the tree by claude-code.)
+`TriState::Display` already prints `PRESENT / ABSENT / INDET / NOT-APPLICABLE` —
+the vocabulary the store, the JSON, and the seal spelling already speak. The only
+places "PASS"/"FAIL" exist are the three report-surface match arms translating that
+honest state into a judgment word. Deleting the translation:
+
+- fixes BOTH collision directions with **zero invented vocabulary** — `?all` SPF and
+  `DeletionRequested` render `PRESENT` + HIGH (judgment lives in severity, where it
+  belongs); CDS renders `ABSENT` + LOW under ADVISORY;
+- fixes the case no word-swap ever touched: google.com's unsigned DNSSEC renders
+  `ABSENT` + HIGH in FINDINGS — the tool stops claiming the most competent operators
+  on earth are "FAILING";
+- is ruling-compatible in the strongest sense: the 08-21 rejection was "words denying
+  arithmetic," and `ABSENT` *is* the word the arithmetic counts — display equals
+  sealed state verbatim, eliminating the display-vs-state defect class by
+  construction rather than managing it;
+- matches the industry pattern (DNSViz prints RFC 4033 §5 states — secure / insecure /
+  bogus / indeterminate — and never "FAIL" for merely-unsigned; internet.nl and the
+  DMARC tools report the standard's own vocabulary and let grade/color judge).
+
+Costs, named: PASS/FAIL is instantly legible to lay readers — `ABSENT` asks them to
+read severity/tier/consequence for judgment, which is the three-layer design's intent
+but is a real legibility trade; column formats change (`PRESENT` is 7 chars); whether
+`INDET`/`NOT-APPLICABLE` keep their fixed abbreviations (`?`, `N/A`) is an
+implementation detail — an abbreviation of the state's name is not an invented
+verdict. If (4) is ruled: acceptance = no literal PASS/FAIL on any surface; row word
+== the tri-state's Display name (or its fixed abbreviation); JSON/scores/seal
+byte-unchanged; specimen recaptured; existing pins updated.
+
 ## 3. Mechanism (if ruled YES)
 
 - The three word maps take `(tri, severity)` instead of `tri` alone; single producer
@@ -129,7 +159,9 @@ notice that Reading B's own escape hatch is the RWS that already ships.
 (machine state — then one state should keep one word, leave it), or a rendering of
 the *finding's demand on the operator* (then the word should track severity, as the
 tier now does)? Placement already answered this for geometry; the board answers it
-for vocabulary.
+for vocabulary. **Alternative (4) dissolves the dichotomy**: if the word is a
+rendering of machine state, render the machine's own name for it (`ABSENT`), not a
+judgment-flavored translation of it — then neither reading can produce a lie.
 
 ## 5. What this amends, named verbatim — and what it preserves
 
