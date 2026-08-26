@@ -1,8 +1,12 @@
 # SPEC — severity-keyed verdict word (FAIL → GAP for Low absences)
 
 Status: **FILED, CONDITIONAL — the DECISION NEEDED was withdrawn as mis-posed (see §8
-addendum). This document activates only if measured reader-comprehension evidence
-arrives, and then must fix BOTH collision directions. Nothing ships without a ruling.**
+addendum). This document activates on an explicit Carey ruling — his word is sufficient
+by itself, the way every severity ruling in this repo was made on argument and source;
+measured reader-comprehension evidence would strengthen the case but is not a
+precondition (an earlier version of this line overstated that gate — corrected
+2026-08-26). Any activation must fix BOTH collision directions. Nothing ships without
+the ruling.**
 Written 2026-08-26 (claude-code lane), commissioned by Carey's scope answer: "whatever
 will give as much information to Hermes as possible and the rest of the team to finally
 make a decision." One proposal, one document, per the ledger's own rule
