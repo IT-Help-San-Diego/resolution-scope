@@ -12,7 +12,7 @@
 //! engine measures the eight controls inside one call, so until it exposes
 //! per-control events the honest state is "measuring … {elapsed}s".
 //!
-//! Keyboard: `1`-`7` jump between tabs (7 = the seal). `q` / Ctrl-C quit.
+//! Keyboard: `1`-`6` + `9` jump between tabs (9 = the seal; 7/8 reserved). `q` / Ctrl-C quit.
 //! `m` flips framing. `j`/`k` or `↑`/`↓` select (summary) or scroll (detail).
 //! `Enter` opens the selected control; `Esc`/`Backspace` return to the summary.
 //! `r` re-measures. `Tab`/`Shift-Tab` cycle domains. `d` adds a domain.
@@ -438,7 +438,7 @@ fn render_summary(
     lines.push(Line::from(""));
     lines.extend(wrap_indent(
         "  ",
-        "enter: open the selected control \u{00b7} 7: the seal and how to re-derive it \u{00b7} j/k past the ends scroll",
+        "enter: open the selected control \u{00b7} 9: the seal and how to re-derive it \u{00b7} j/k past the ends scroll",
         width,
         note_style,
         note_style,
@@ -913,7 +913,7 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
             Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
         ),
         Span::styled("\u{2502} ", muted),
-        Span::styled(framing_word(app.audience), Style::default().fg(p.warn)),
+        Span::styled(framing_word(app.audience), Style::default().fg(p.accent).add_modifier(Modifier::BOLD)),
         Span::styled(
             format!(
                 " \u{2502} domain {}/{} ",
@@ -975,7 +975,7 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
                     format!("{}\u{2026}", obs.seal_prefix()),
                     Style::default().fg(p.fg),
                 ),
-                Span::styled(" (7)", muted),
+                Span::styled(" (9)", muted),
             ])
         }
         ScanState::Failed { domain, error } => Line::from(Span::styled(
