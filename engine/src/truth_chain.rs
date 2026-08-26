@@ -234,11 +234,16 @@ fn rfc_requirement(control: ControlId) -> &'static str {
              certificates for the domain; CAs are required to honor them."
         }
         ControlId::Cds => {
-            // Status comes from the RFC index, NOT the document header: RFC 7344
-            // was Informational at publication (2014), but is now Proposed
-            // Standard via RFC 8078/9615/9975 (Updates: 7344). The load-bearing
-            // fact is §6's SHOULD — the parent is recommended, not obligated.
-            "Optional (RFC 7344, now Standards Track via RFC 8078/9615/9975). CDS/CDNSKEY at the apex \
+            // RFC 7344's CURRENT status is Informational (rfc-editor info page,
+            // re-verified live 2026-08-26 — "Updates" does not change the
+            // updated document's own category). The MECHANISM gained
+            // Standards-Track coverage through its updaters (8078/9615/9975).
+            // Sibling-row hazard, recorded: RFC 7477 (CSYNC) IS Proposed
+            // Standard — do not read one's status off the other's index row.
+            // The load-bearing fact either way is §6's SHOULD: the parent is
+            // recommended, never obligated.
+            "Optional (RFC 7344, Informational; extended by Standards-Track updates \
+             RFC 8078/9615/9975). CDS/CDNSKEY at the apex \
              signal automated DS maintenance to the parent zone; the parent MAY act on it but is \
              not normatively required to (§6 SHOULD, not MUST)."
         }
