@@ -913,7 +913,10 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
             Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
         ),
         Span::styled("\u{2502} ", muted),
-        Span::styled(framing_word(app.audience), Style::default().fg(p.accent).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            framing_word(app.audience),
+            Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
+        ),
         Span::styled(
             format!(
                 " \u{2502} domain {}/{} ",
