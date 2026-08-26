@@ -91,14 +91,19 @@ operator-side machinery, not owner action.
 
 ## 4. Document-status precision (the instrument's copy nuance)
 
-**L17** — RFC 7344 front matter: "not an Internet Standards Track specification;
-it is published for informational purposes." The Arm-2 correction (@f946cd8)
-recorded this against a "Standards Track" over-claim, correctly. **The fuller
-truth after 8078:** the *document* 7344 is Informational; the *mechanism* was
-elevated by 8078 (Standards Track, Updates 7344) and again by 9615. Our Published
-copy says "RFC 7344 is Informational" — true as stated, and the load-bearing
-half (the parent is never obligated) survives via L9's OPTIONAL either way.
-Precision candidate for a future copy pass, not a defect.
+**L17** — **CORRECTED 2026-08-26 after a four-bounce dispute — SETTLED, three
+authorities, do not re-litigate:** RFC 7344's current status is **PROPOSED
+STANDARD**. RFC 8078 §6.1 ("Promoting RFC 7344 to Standards Track") says
+verbatim: "[RFC7344] was published as Informational; **this document elevates
+RFC 7344 to Standards Track**" — confirmed by rfc-index.xml `<current-status>`
+and datatracker `std_level`. **The trap that caused every wrong bounce,
+including this lane's:** RFC text is immutable, so 7344's own front-matter
+boilerplate says "not an Internet Standards Track specification" *forever* —
+reading status from a document's frozen internal text (or from a summarizer
+blending it with the status field) is the error class. Status claims cite the
+index's status field or an updater's explicit elevation text, nothing else.
+The load-bearing operational fact was never in dispute: the parent is
+recommended, not obligated (§6 SHOULD + L9's OPTIONAL).
 
 ## 5. Consumption reality — who actually listens
 

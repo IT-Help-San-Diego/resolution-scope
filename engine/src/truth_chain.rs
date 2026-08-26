@@ -700,7 +700,7 @@ fn cds_report(d: CdsDisposition) -> ControlReport {
         CdsDisposition::NotPublished => (
             "not published — zone exists, no CDS/CDNSKEY",
             Severity::Low,
-            "DS updates at the parent are manual. If your keys change and the parent DS is not updated in step, the domain stops resolving (SERVFAIL) for every validating resolver until it is fixed. Publishing CDS/CDNSKEY lets a supporting parent maintain the DS automatically. This is an availability control: it protects you from your own key changes, not from an attacker.",
+            "DS updates at the parent are manual. If your keys change and the parent DS is not updated in step, the domain stops resolving (SERVFAIL) for every validating resolver until it is fixed. Publishing CDS/CDNSKEY lets a supporting parent maintain the DS automatically. This is an availability control: it protects you from your own key changes, not from an attacker. Remediation: publish CDS and CDNSKEY records matching your DS at your DNS operator; if your operator provides no way to create them, the remediation is procedural — write the registrar DS step into your key-change runbook.",
             "Manual DS maintenance: a future key rollover may leave a stale DS (bogus zone) or a dropped chain.",
         ),
         CdsDisposition::NoZone => (
