@@ -901,16 +901,18 @@ fn framing_desc(a: Audience) -> &'static str {
 
 /// Header help line. One string, sized to fit an 80-column terminal.
 ///
-/// Keycap convention (the `less`/`vim`/`mc` rule): a single letter IS its key
-/// (`m` = mode), a multi-char or composite key is bracketed (`[enter]`,
-/// `[1-9]`, `[↑↓]`), and the action word follows the key. Number keys jump to
-/// a tab — 1-6 are the controls, 7 and 8 open a "reserved by the future" slot,
-/// 9 is the seal (fixed at 9 so it never renumbers). `[↑↓]/jk` is the arrow
-/// affordance with j/k as the ASCII floor (a stripped-font terminal still has
-/// j/k). `tab` (the key) switches domain — not to be confused with the number
-/// "tabs", which are sections.
+/// Keycap convention (Apple's menu-glyph rule, support.apple.com/en-us/102650):
+/// special keys are their Apple glyph — `⎋` escape, `⏎` return/enter, `⇥` tab —
+/// number keys are enclosed digits `①-⑨` (the keycap look without color emoji,
+/// so they survive a 256-color / headless terminal), arrows are bare `↑↓` with
+/// `jk` as the ASCII floor, and a single letter IS its key (`m`, `r`, `d`, `q`).
+/// The action word follows the key. Number keys jump to a tab — 1-6 are the
+/// controls, 7 and 8 open a "reserved by the future" slot, 9 is the seal (fixed
+/// at 9 so it never renumbers). `⇥` (the tab key) switches domain — not to be
+/// confused with the number "tabs", which are sections. These glyphs are
+/// navigation chrome, never measurement: the seal and verdicts stay pure ASCII.
 const HELP_LINE: &str =
-    "[1-9]│ [↑↓]/jk│ [enter] open│ [esc] back│ m mode│ r rescan│ tab next│ d new│ q";
+    "①-⑨│ ↑↓/jk│ ⏎ open│ ⎋ back│ m mode│ r rescan│ ⇥ next│ d new│ q";
 
 fn render_header(f: &mut Frame, area: Rect, app: &App) {
     let p = app.pal;
@@ -1732,6 +1734,27 @@ mod tests {
             HELP_LINE.chars().count() <= 80,
             "help line must fit an 80-col terminal"
         );
+        // Apple key glyphs (support.apple.com/en-us/102650) + enclosed digits:
+        // the keycap convention is pinned so it cannot silently revert to
+        // bracketed ASCII.
+        assert!(
+            HELP_LINE.contains('\u{238b}'),
+            "escape glyph ⎋ missing: {HELP_LINE:?}"
+        );
+        assert!(
+            HELP_LINE.contains('\u{23ce}'),
+            "return glyph ⏎ missing: {HELP_LINE:?}"
+        );
+        assert!(
+            HELP_LINE.contains('\u{21e5}'),
+            "tab glyph ⇥ missing: {HELP_LINE:?}"
+        );
+        assert!(
+            HELP_LINE.contains('\u{2460}'),
+            "enclosed ① missing: {HELP_LINE:?}"
+        );
+        assert!(!HELP_LINE.contains("[enter]"), "bracketed [enter] should be ⏎");
+        assert!(!HELP_LINE.contains("[esc]"), "bracketed [esc] should be ⎋");
     }
 
     #[tokio::test]
