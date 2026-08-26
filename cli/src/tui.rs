@@ -887,6 +887,18 @@ fn framing_word(a: Audience) -> &'static str {
     }
 }
 
+/// The descriptive tail shown after the framing word when there is width to
+/// spare: it names who the verb serves, in the plain register — blue is the
+/// owner's cost and fix, red is the adversary's vantage (the hacker/assessor
+/// register, not just the federal one). Kept out of `framing_word` so the
+/// short form stays the canonical label (tests pin it).
+fn framing_desc(a: Audience) -> &'static str {
+    match a {
+        Audience::BlueTeam => " \u{00b7} what it costs you, what to fix",
+        Audience::RedTeam => " \u{00b7} the attacker's view",
+    }
+}
+
 /// Header help line. One string, sized to fit an 80-column terminal.
 ///
 /// Keycap convention (the `less`/`vim`/`mc` rule): a single letter IS its key
@@ -907,6 +919,16 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
     // both modes; the palette carries the epistemic state (blue defend /
     // red assess).
     let mark = "\u{1f989}";
+    let roomy = usize::from(area.width) >= 96;
+    let frame_text = if roomy {
+        format!(
+            "{}{}",
+            framing_word(app.audience),
+            framing_desc(app.audience)
+        )
+    } else {
+        framing_word(app.audience).to_string()
+    };
     let line1 = Line::from(vec![
         Span::styled(
             format!("{mark} RESOLUTION SCOPE "),
@@ -914,7 +936,7 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
         ),
         Span::styled("\u{2502} ", muted),
         Span::styled(
-            framing_word(app.audience),
+            frame_text,
             Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
         ),
         Span::styled(
