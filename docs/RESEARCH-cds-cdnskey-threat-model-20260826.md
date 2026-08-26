@@ -100,10 +100,14 @@ CDS/CDNSKEY is a **two-party mechanism**: the *child* (DNS host) publishes; the 
 - **Cloudflare Registrar** consumes its own CDS/CDNSKEY ("One-Click DNSSEC": "When
   Cloudflare is your registrar, we can automatically apply DNSSEC through our support for
   CDS and CDNSKEY… Cloudflare Registrar automatically scans available DS records").
-- **The gTLDs do not.** No generic CDS-scanning service exists at `.com` (Verisign) — I
-  found none, and the Chung et al. finding ("only the .cz registry" among major
-  registries) plus Cloudflare's own "registrars *that support* RFC 8078" qualifier both
-  point the same way. This is the **bottleneck**.
+- **The gTLDs are UNMEASURED, not measured-absent.** I have NOT read Verisign (.com) or
+  Radix (.tech) registry policy. The Chung et al. finding ("only the .cz registry" among
+  major registries, 2017) plus Cloudflare's "registrars *that support* RFC 8078" qualifier
+  both *point* toward gTLD non-consumption — but a live counterexample weakens the flat
+  claim: `cloudflare.com` is a `.com` zone, publishes a CDS, and that CDS digest is
+  byte-identical to its parent DS (measured 2026-08-26). That does NOT prove .com consumed
+  it, but it falsifies "`.com` never consumes." **Correction (Science, 2026-08-26): do not
+  assert gTLD non-consumption until someone reads the registry policy.**
 
 ## 4. The Dutch / internet.nl answer
 
@@ -120,21 +124,25 @@ CDS/CDNSKEY is a **two-party mechanism**: the *child* (DNS host) publishes; the 
 
 Not uniquely. Three layers, none of which reduce to "Amazon is dumb":
 
-1. **The mechanism is two-party, and the gTLD parent doesn't consume it.** Publishing CDS
-   on a Route 53 zone for a `.com` domain would be shouting into a void — Verisign doesn't
-   run a CDS scanner. Cloudflare "gets away with" CDS-at-rest because it is *vertically
-   integrated*: it is both the DNS host AND a registrar that consumes its own CDS. Amazon
-   Registrar could consume CDS for domains registered at Amazon, but most of the .com
-   world sits on a parent that never scans.
+1. **The mechanism is two-party, and the registry-consume half is UNMEASURED (corrected).**
+   Publishing CDS on a Route 53 zone whose parent never consumes it *would* be shouting
+   into a void — but I have not read the relevant registry policy to confirm that, and
+   `.com` has a live counterexample (cloudflare.com's CDS matches its DS). What IS
+   measured: Route 53 the *DNS host* publishes no CDS/CDNSKEY (AWS DNSSEC chapter, 0
+   mentions across 6 pages). That host-side absence alone makes the finding un-fixable by
+   owner action, independent of the registry question. Cloudflare "gets away with"
+   CDS-at-rest because it is *vertically integrated* — it is both the DNS host AND a
+   registrar that consumes its own CDS.
 2. **Amazon's DNSSEC model is deliberately manual-DS.** The KSK lives in AWS KMS as a
    customer-managed key; the chain-of-trust step is "paste this DS at your registrar."
    That's a product design choice, not an unfinished feature — but it is the pre-7344
    manual process, frozen in place.
-3. **It's ecosystem immaturity, concentrated in the gTLD world.** The leaders are the
-   European ccTLDs (registry-side) and Cloudflare (publisher-side, because vertical
+3. **It's ecosystem immaturity, with the consumer half unmeasured.** The measured leaders
+   are the European ccTLDs (registry-side) and Cloudflare (publisher-side, because vertical
    integration). Amazon lags on the *publish* side (it doesn't even emit CDS at rest,
-   which costs nothing and works whenever a parent *does* scan), but the bigger gap is
-   the gTLD registries that consume nothing.
+   which costs nothing and works whenever a parent *does* scan). The registry-side
+   consumption map — who actually polls CDS, per TLD — is a research gap, not a settled
+   "gTLDs consume nothing" fact.
 
 So: **not a flag of Amazon stupidity — a flag of gTLD-ecosystem immaturity, with Amazon
 one step behind Cloudflare on the child side too.** If anything, the "stupidity" signal
@@ -147,10 +155,11 @@ every zone the moment a parent starts scanning.
 - Its CDS "not published" is a **Low** severity operational-resilience finding: when the
   KSK eventually rolls, the DS update is a manual registrar step that can break the chain
   — the exact failure class behind the .de/.al/NASA/slack incidents.
-- **It cannot be fixed on Route 53 today** (no CDS/CDNSKEY emission, and the `.com`
-  parent wouldn't consume it anyway). The correct remediation is: (a) accept with
-  attribution, and (b) runbook the registrar-DS step for any future KSK change — or move
-  to a CDS-publishing host, disproportionate for a Low alone.
+- **It cannot be fixed on Route 53 today** (the host publishes no CDS/CDNSKEY — AWS
+  DNSSEC chapter measured, 0 mentions). The registry-consume side for `.tech` (Radix) is
+  unmeasured. The correct remediation is: (a) accept with attribution, and (b) runbook
+  the registrar-DS step for any future KSK change — or move to a CDS-publishing host,
+  disproportionate for a Low alone.
 
 ## 7. Design implication (the thing this surfaces, unexecuted)
 
