@@ -170,8 +170,8 @@ fn controls_for_tab(tab: usize) -> (&'static str, &'static [ControlId]) {
 
 /// Map a number key to a tab index. Keys 1..=TAB_SEAL are the summary + control
 /// groups (indices 0..=TAB_SEAL-1); key `SEAL_KEY` (9) is the seal (index
-/// `TAB_SEAL`). 7 and 8 — and anything else — are reserved/no-op until a future
-/// control claims them. The seal's key is fixed at 9 so it never renumbers.
+/// `TAB_SEAL`). Keys 7 and 8 are handled upstream as reserved slots (see
+/// `handle_input`), not here. The seal's key is fixed at 9 so it never renumbers.
 fn tab_for_key(n: u32) -> Option<usize> {
     if n == SEAL_KEY {
         return Some(TAB_SEAL);
@@ -180,6 +180,16 @@ fn tab_for_key(n: u32) -> Option<usize> {
         return Some((n - 1) as usize);
     }
     None
+}
+
+/// The label for the currently-selected section: the active tab, or a reserved
+/// slot ("7:reserved") when the user pressed a reserved key.
+fn section_label(app: &App) -> String {
+    if let Some(n) = app.reserved_slot {
+        format!("{n}:reserved")
+    } else {
+        TAB_LABELS[app.selected_tab].to_string()
+    }
 }
 
 // ── text layout helpers ────────────────────────────────────────────
@@ -604,7 +614,9 @@ enum InputMode {
 
 /// The measurement state for the current domain. `Measuring` is a REAL
 /// state: the engine call is in flight on the runtime and the elapsed time
-/// is measured, not animated.
+/// is measured, not animated. (Only the `Done` payload is cacheable — see
+/// `DoneScan`, what `App::results` stores; `Measuring` holds a non-`Clone`
+/// `JoinHandle` and can never be cached.)
 enum ScanState {
     Idle,
     Measuring {
@@ -623,6 +635,16 @@ enum ScanState {
     },
 }
 
+/// The cacheable payload of a finished scan — the `Done` variant minus the
+/// non-`Clone` `JoinHandle` (which only exists while `Measuring`). `Clone` is
+/// safe here: `ScoredAnalysis` is `Clone`, `Duration`/`Instant` are `Copy`.
+#[derive(Clone)]
+struct DoneScan {
+    result: ScoredAnalysis,
+    took: Duration,
+    at: Instant,
+}
+
 struct App {
     audience: Audience,
     pal: Palette,
@@ -632,9 +654,18 @@ struct App {
     dkim_selector: Vec<String>,
     current_domain: usize,
     scan: ScanState,
+    /// Completed scans per domain, keyed by domain name. Switching domains
+    /// (Tab / Shift-Tab / adding a domain) shows the cached result WITHOUT
+    /// re-measuring; `r` is the only re-scan. Without this cache, Tab re-ran
+    /// the engine every switch (the 2026-08-25 live bug: "tab launches them
+    /// again, not tabbing between them").
+    results: std::collections::HashMap<String, DoneScan>,
     scroll: u16,
     selected_tab: usize,
     selected_control: usize,
+    /// When `Some(n)`, the user pressed a reserved number key (7 or 8) and the
+    /// body shows "reserved by the future" instead of a control tab.
+    reserved_slot: Option<u32>,
     input_mode: InputMode,
     input_buf: String,
     input_error: Option<String>,
@@ -667,9 +698,11 @@ impl App {
             dkim_selector,
             current_domain: 0,
             scan: ScanState::Idle,
+            results: std::collections::HashMap::new(),
             scroll: 0,
             selected_tab: TAB_SUMMARY,
             selected_control: 0,
+            reserved_slot: None,
             input_mode: InputMode::Normal,
             input_buf: String::new(),
             input_error: None,
@@ -696,7 +729,8 @@ impl App {
     /// Launch the measurement on the runtime and return immediately: the
     /// dashboard keeps painting while the engine works. A previous in-flight
     /// measurement is aborted so its verdict can never land under a different
-    /// domain's name.
+    /// domain's name. This is the ONLY place a scan starts — Tab/Shift-Tab
+    /// switch to a cached result; `r` calls this.
     fn start_scan(&mut self) {
         if let ScanState::Measuring { handle, .. } = &self.scan {
             handle.abort();
@@ -718,7 +752,29 @@ impl App {
         self.selected_control = 0;
     }
 
-    /// Collect a finished measurement, if any. Called every loop tick.
+    /// Show the current domain's cached result if we already measured it this
+    /// session; otherwise measure it now. Called by the loop after the handler
+    /// has already advanced `current_domain` (Tab/Shift-Tab/add). This is the
+    /// fix for the live bug where Tab re-launched the scan every switch
+    /// instead of tabbing between already-measured domains.
+    fn show_current_or_scan(&mut self) {
+        let name = self.current_domain_name().to_string();
+        if let Some(cached) = self.results.get(&name) {
+            self.scan = ScanState::Done {
+                result: cached.result.clone(),
+                took: cached.took,
+                at: cached.at,
+            };
+            self.scroll = 0;
+            self.selected_control = 0;
+        } else {
+            self.start_scan();
+        }
+    }
+
+    /// Collect a finished measurement, if any. Called every loop tick. On
+    /// completion the result is CACHED per domain so a later Tab can show it
+    /// without re-measuring.
     async fn poll_scan(&mut self) {
         let finished =
             matches!(&self.scan, ScanState::Measuring { handle, .. } if handle.is_finished());
@@ -733,12 +789,22 @@ impl App {
         } = state
         {
             let took = started.elapsed();
-            self.scan = match handle.await {
-                Ok(Ok(result)) => ScanState::Done {
-                    result,
-                    took,
-                    at: Instant::now(),
-                },
+            let completed = match handle.await {
+                Ok(Ok(result)) => {
+                    let at = Instant::now();
+                    // Cache the DONE payload (not the whole ScanState —
+                    // Measuring holds a non-Clone JoinHandle). A later Tab
+                    // shows this without re-measuring.
+                    self.results.insert(
+                        domain,
+                        DoneScan {
+                            result: result.clone(),
+                            took,
+                            at,
+                        },
+                    );
+                    ScanState::Done { result, took, at }
+                }
                 Ok(Err(e)) => ScanState::Failed {
                     domain,
                     error: e.to_string(),
@@ -748,6 +814,7 @@ impl App {
                     error: format!("measurement task failed: {e}"),
                 },
             };
+            self.scan = completed;
         }
     }
 
@@ -804,12 +871,17 @@ fn framing_word(a: Audience) -> &'static str {
 }
 
 /// Header help line. One string, sized to fit an 80-column terminal.
-/// The tab bar names the tabs; this line names the actions. Number keys jump
-/// to a tab (1-6 controls, 9 = seal; 7 and 8 are reserved — the seal is fixed
-/// at 9 so it never renumbers); `tab` (the key) switches domain. The two "tab"
-/// words are different: number = section, Tab key = domain.
+///
+/// Keycap convention (the `less`/`vim`/`mc` rule): a single letter IS its key
+/// (`m` = mode), a multi-char or composite key is bracketed (`[enter]`,
+/// `[1-9]`, `[↑↓]`), and the action word follows the key. Number keys jump to
+/// a tab — 1-6 are the controls, 7 and 8 open a "reserved by the future" slot,
+/// 9 is the seal (fixed at 9 so it never renumbers). `[↑↓]/jk` is the arrow
+/// affordance with j/k as the ASCII floor (a stripped-font terminal still has
+/// j/k). `tab` (the key) switches domain — not to be confused with the number
+/// "tabs", which are sections.
 const HELP_LINE: &str =
-    "1-6·9 tabs · j/k · enter · esc · m mode · r rescan · tab domain · d new · q quit";
+    "[1-9] [↑↓]/jk [enter] open [esc] back m mode r rescan tab domain d new q quit";
 
 fn render_header(f: &mut Frame, area: Rect, app: &App) {
     let p = app.pal;
@@ -933,10 +1005,46 @@ fn render_tabs(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(tabs, area);
 }
 
+/// The honest body for a reserved slot (keys 7 and 8): it says "reserved by
+/// the future" and WHY the seal is pinned at 9 — so the next person doesn't
+/// reclaim the slot thinking it's unused.
+fn render_reserved(n: u32, pal: Palette) -> Vec<Line<'static>> {
+    vec![
+        Line::from(Span::styled(
+            format!("slot {n} \u{2014} reserved by the future"),
+            Style::default().fg(pal.fg).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            "no control assigned yet",
+            Style::default().fg(pal.muted),
+        )),
+        Line::from(Span::styled(
+            "the seal is pinned at 9 so a new control can take 7 or 8 without renumbering it",
+            Style::default().fg(pal.muted),
+        )),
+    ]
+}
+
 fn render_content(f: &mut Frame, area: Rect, app: &App) {
     let p = app.pal;
     let width = area.width as usize;
     let mut scroll = app.scroll;
+    // Reserved slots 7 and 8 render their honest placeholder regardless of
+    // scan state — a reserved key is a reserved key, and the body must say so
+    // (empty-section honesty, no silent no-op).
+    if let Some(n) = app.reserved_slot {
+        let lines = render_reserved(n, p);
+        let widget = Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .style(Style::default().bg(p.bg))
+                    .borders(Borders::NONE),
+            )
+            .scroll((0, 0));
+        f.render_widget(widget, area);
+        return;
+    }
     let lines: Vec<Line<'static>> = match &app.scan {
         ScanState::Done { result, .. } => {
             let (lines, keep) = section_for_tab(
@@ -1065,7 +1173,7 @@ fn render_footer(f: &mut Frame, area: Rect, app: &App) {
             at.elapsed().as_secs(),
             app.current_domain + 1,
             app.domains.len(),
-            TAB_LABELS[app.selected_tab]
+            section_label(app)
         ),
         ScanState::Measuring { started, .. } => format!(
             "measuring \u{2026} {:.1}s  \u{2502}  domain {}/{}  \u{2502}  r again = ignored",
@@ -1156,9 +1264,10 @@ fn handle_input(app: &mut App, code: KeyCode, modifiers: KeyModifiers) -> Action
             }
             Action::Nothing
         }
-        // Back to the summary from any detail tab.
+        // Back to the summary from any detail tab or a reserved slot.
         (KeyCode::Esc, _) | (KeyCode::Backspace, _) => {
             app.selected_tab = TAB_SUMMARY;
+            app.reserved_slot = None;
             app.scroll = 0;
             Action::Nothing
         }
@@ -1190,9 +1299,20 @@ fn handle_input(app: &mut App, code: KeyCode, modifiers: KeyModifiers) -> Action
         }
         (KeyCode::Char(c), _) if c.is_ascii_digit() => {
             if let Some(n) = c.to_digit(10) {
-                if let Some(tab) = tab_for_key(n) {
-                    app.selected_tab = tab;
-                    app.scroll = 0;
+                match n {
+                    // Keys 7 and 8 are reserved for future controls — they open
+                    // an honest "reserved by the future" slot, not a silent no-op.
+                    7 | 8 => {
+                        app.reserved_slot = Some(n);
+                        app.scroll = 0;
+                    }
+                    _ => {
+                        if let Some(tab) = tab_for_key(n) {
+                            app.selected_tab = tab;
+                            app.reserved_slot = None;
+                            app.scroll = 0;
+                        }
+                    }
                 }
             }
             Action::Nothing
@@ -1330,10 +1450,15 @@ pub async fn run(
         };
         match action {
             Action::Quit => break,
-            // Re-measure on 'r' AND on every domain switch — Tab without a
-            // rescan rendered the previous domain's verdicts under the new
-            // domain's name (adversarial panel, 2026-08-19).
-            Action::Rescan | Action::SwitchDomain => app.start_scan(),
+            // `r` re-measures the current domain. A domain switch (Tab /
+            // Shift-Tab / add) shows the cached result if we already measured
+            // it this session, and only scans on first visit — the fix for the
+            // "Tab re-launches the scan" bug. The re-measure on EVERY switch
+            // rendered the previous domain's verdicts under the new domain's
+            // name only BEFORE the per-domain cache existed (adversarial panel,
+            // 2026-08-19); the cache makes that moot.
+            Action::Rescan => app.start_scan(),
+            Action::SwitchDomain => app.show_current_or_scan(),
             Action::Nothing => {}
         }
     }
@@ -1601,10 +1726,30 @@ mod tests {
         assert_eq!(a.selected_tab, TAB_SEAL);
         handle_input(&mut a, KeyCode::Backspace, KeyModifiers::NONE);
         assert_eq!(a.selected_tab, TAB_SUMMARY);
-        // Reserved keys (7, 8) and out-of-range digits (0) do nothing.
-        handle_input(&mut a, KeyCode::Char('7'), KeyModifiers::NONE);
-        assert_eq!(a.selected_tab, TAB_SUMMARY);
+        // Out-of-range digit 0 does nothing.
         handle_input(&mut a, KeyCode::Char('0'), KeyModifiers::NONE);
+        assert_eq!(a.selected_tab, TAB_SUMMARY);
+    }
+
+    /// Keys 7 and 8 open a "reserved by the future" slot (not a silent no-op),
+    /// and any real tab key clears it. Esc also clears it.
+    #[tokio::test]
+    async fn reserved_keys_open_a_reserved_slot() {
+        let mut a = app(&["example.com"]);
+        assert_eq!(a.reserved_slot, None);
+        handle_input(&mut a, KeyCode::Char('7'), KeyModifiers::NONE);
+        assert_eq!(a.reserved_slot, Some(7), "key 7 opens slot 7");
+        handle_input(&mut a, KeyCode::Char('8'), KeyModifiers::NONE);
+        assert_eq!(a.reserved_slot, Some(8), "key 8 opens slot 8");
+        // A real tab key clears the reserved slot and selects the tab.
+        handle_input(&mut a, KeyCode::Char('3'), KeyModifiers::NONE);
+        assert_eq!(a.reserved_slot, None);
+        assert_eq!(a.selected_tab, 2);
+        // Esc clears a reserved slot and returns to summary.
+        handle_input(&mut a, KeyCode::Char('7'), KeyModifiers::NONE);
+        assert_eq!(a.reserved_slot, Some(7));
+        handle_input(&mut a, KeyCode::Esc, KeyModifiers::NONE);
+        assert_eq!(a.reserved_slot, None);
         assert_eq!(a.selected_tab, TAB_SUMMARY);
     }
 
