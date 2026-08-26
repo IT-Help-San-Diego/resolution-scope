@@ -234,16 +234,22 @@ fn rfc_requirement(control: ControlId) -> &'static str {
              certificates for the domain; CAs are required to honor them."
         }
         ControlId::Cds => {
-            // RFC 7344's CURRENT status is Informational (rfc-editor info page,
-            // re-verified live 2026-08-26 — "Updates" does not change the
-            // updated document's own category). The MECHANISM gained
-            // Standards-Track coverage through its updaters (8078/9615/9975).
-            // Sibling-row hazard, recorded: RFC 7477 (CSYNC) IS Proposed
-            // Standard — do not read one's status off the other's index row.
-            // The load-bearing fact either way is §6's SHOULD: the parent is
-            // recommended, never obligated.
-            "Optional (RFC 7344, Informational; extended by Standards-Track updates \
-             RFC 8078/9615/9975). CDS/CDNSKEY at the apex \
+            // RFC 7344 status — SETTLED, three authorities, do not re-litigate:
+            // (1) rfc-index.xml <current-status> = PROPOSED STANDARD;
+            // (2) datatracker std_level = "ps";
+            // (3) RFC 8078 §6.1 VERBATIM: "[RFC7344] was published as
+            //     Informational; this document elevates RFC 7344 to Standards
+            //     Track."
+            // The document's own header still says "Informational" because the
+            // RFC Editor NEVER retro-edits a published RFC's header — that
+            // frozen 2014 text is the trap (it also produces the many
+            // "Informational" hits on the info page; the current-status line
+            // alongside them says Proposed Standard). Status comes from the
+            // INDEX / datatracker, never the frozen header. The load-bearing
+            // fact either way is §6's SHOULD: the parent is recommended, never
+            // obligated.
+            "Optional (RFC 7344, Proposed Standard — elevated from Informational by RFC 8078 §6.1; \
+             further updated by RFC 9615/9975). CDS/CDNSKEY at the apex \
              signal automated DS maintenance to the parent zone; the parent MAY act on it but is \
              not normatively required to (§6 SHOULD, not MUST)."
         }
