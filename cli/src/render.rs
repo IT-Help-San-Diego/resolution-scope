@@ -40,16 +40,18 @@ one that was sealed, nothing more";
 
 /// Tier labels — layout over the engine's Severity ordering.
 pub const TIER_FINDINGS: &str = "FINDINGS";
+pub const TIER_ADVISORY: &str = "ADVISORY";
 pub const TIER_HOLDING: &str = "HOLDING";
 pub const TIER_UNMEASURED: &str = "COULD NOT MEASURE";
 pub const TIER_NOT_APPLICABLE: &str = "NOT APPLICABLE";
 
-/// One-line teaching subtitle under the two verdict tiers, so a first
+/// One-line teaching subtitle under the verdict tiers, so a first
 /// reading knows which way each heading points. The other two tier names
 /// already state their meaning.
 pub fn tier_subtitle(tier: &str) -> Option<&'static str> {
     match tier {
         TIER_FINDINGS => Some("controls that need attention"),
+        TIER_ADVISORY => Some("low-severity gaps: scored, but not urgent"),
         TIER_HOLDING => Some("controls measured in their correct state"),
         _ => None,
     }
@@ -57,19 +59,27 @@ pub fn tier_subtitle(tier: &str) -> Option<&'static str> {
 
 /// Which tier a severity renders in. Pure layout: the severity itself is the
 /// engine's ruling (truth_chain.rs); this only decides the heading above it.
+/// Low is the engine's concession class (a measured gap that still docks the
+/// score but does not demand action), so it gets its own heading instead of
+/// sitting under "controls that need attention" — placement only, per
+/// policy/RULING_cds_cdnskey_20260821.md: the word, the severity, and the
+/// arithmetic are untouched.
 pub fn tier_of(s: Severity) -> &'static str {
     match s {
-        Severity::Critical | Severity::High | Severity::Medium | Severity::Low => TIER_FINDINGS,
+        Severity::Critical | Severity::High | Severity::Medium => TIER_FINDINGS,
+        Severity::Low => TIER_ADVISORY,
         Severity::Ok => TIER_HOLDING,
         Severity::Unmeasured => TIER_UNMEASURED,
         Severity::NotApplicable => TIER_NOT_APPLICABLE,
     }
 }
 
-/// The four tiers in display order, each holding its rows worst-first. A
+/// The five tiers in display order, each holding its rows worst-first. A
 /// tier with no rows is still returned (empty) so a surface can choose to
-/// print "none" rather than silently omit the heading.
-pub fn tiers(model: &[ControlReport; 8]) -> [(&'static str, Vec<ControlReport>); 4] {
+/// print "none" rather than silently omit the heading. Display order must
+/// follow the Severity declaration order so the tier concatenation equals
+/// the by_severity order — the TUI cursor walks that equality.
+pub fn tiers(model: &[ControlReport; 8]) -> [(&'static str, Vec<ControlReport>); 5] {
     let ordered = by_severity(model);
     let pick = |tier: &'static str| -> Vec<ControlReport> {
         ordered
@@ -80,6 +90,7 @@ pub fn tiers(model: &[ControlReport; 8]) -> [(&'static str, Vec<ControlReport>);
     };
     [
         (TIER_FINDINGS, pick(TIER_FINDINGS)),
+        (TIER_ADVISORY, pick(TIER_ADVISORY)),
         (TIER_HOLDING, pick(TIER_HOLDING)),
         (TIER_UNMEASURED, pick(TIER_UNMEASURED)),
         (TIER_NOT_APPLICABLE, pick(TIER_NOT_APPLICABLE)),
@@ -807,7 +818,8 @@ mod tests {
         let model = truth_chain(&a);
         let groups = tiers(&model);
         assert_eq!(groups[0].0, TIER_FINDINGS);
-        assert_eq!(groups[3].0, TIER_NOT_APPLICABLE);
+        assert_eq!(groups[1].0, TIER_ADVISORY);
+        assert_eq!(groups[4].0, TIER_NOT_APPLICABLE);
         let total: usize = groups.iter().map(|(_, r)| r.len()).sum();
         assert_eq!(total, 8, "every control lands in exactly one tier");
         for (tier, rows) in &groups {
@@ -819,8 +831,8 @@ mod tests {
                 assert!(w[0].severity <= w[1].severity);
             }
         }
-        assert!(groups[3].1.iter().all(|r| r.tri == TriState::NotApplicable));
-        assert!(groups[2].1.iter().all(|r| r.tri == TriState::Indet));
+        assert!(groups[4].1.iter().all(|r| r.tri == TriState::NotApplicable));
+        assert!(groups[3].1.iter().all(|r| r.tri == TriState::Indet));
     }
 
     #[test]
@@ -829,6 +841,7 @@ mod tests {
         let report = render_report(std::slice::from_ref(&a), Audience::BlueTeam);
         for tier in [
             TIER_FINDINGS,
+            TIER_ADVISORY,
             TIER_HOLDING,
             TIER_UNMEASURED,
             TIER_NOT_APPLICABLE,
@@ -842,6 +855,63 @@ mod tests {
         assert!(report[na_idx..].contains("(none)"));
         let html = render_html_page(&[a], Audience::BlueTeam);
         assert!(html.contains("<li class=\"none\">none</li>"));
+    }
+
+    /// The contract of the ADVISORY tier (Option 3, placement-only): its
+    /// membership is the engine's Low census and nothing else. Selection is
+    /// keyed on severity — never on control names — so a host shipping a
+    /// missing capability moves the row out on the next scan with zero
+    /// stored bits. The word FAIL, the severity, and both scores are
+    /// untouched by placement (RULING_cds_cdnskey_20260821: relabelling was
+    /// rejected; placement is display geometry).
+    #[test]
+    fn advisory_tier_is_exactly_the_low_census() {
+        // Severity → tier, exhaustively.
+        for (sev, tier) in [
+            (Severity::Critical, TIER_FINDINGS),
+            (Severity::High, TIER_FINDINGS),
+            (Severity::Medium, TIER_FINDINGS),
+            (Severity::Low, TIER_ADVISORY),
+            (Severity::Ok, TIER_HOLDING),
+            (Severity::Unmeasured, TIER_UNMEASURED),
+            (Severity::NotApplicable, TIER_NOT_APPLICABLE),
+        ] {
+            assert_eq!(tier_of(sev), tier, "{sev:?}");
+        }
+
+        // The census rows land in ADVISORY: CDS NotPublished and, on a
+        // domain that has them, CAA NotConfigured and DANE NotConfigured /
+        // NoMx — every Low arm in the 48-row table is one of these four.
+        let mut a = fixture("example.test"); // CDS NotPublished is Low
+        a.caa_disposition = CaaDisposition::NotConfigured;
+        a.caa = a.caa_disposition.chain();
+        a.dane_disposition = DaneDisposition::NotConfigured;
+        a.dane = a.dane_disposition.chain();
+        a.tlsa_zone = TlsaZone::SameZone;
+        let model = truth_chain(&a);
+        let groups = tiers(&model);
+        let advisory: Vec<_> = groups[1].1.iter().map(|r| r.control.name()).collect();
+        for name in ["CDS/CDNSKEY", "CAA", "DANE"] {
+            assert!(advisory.contains(&name), "{name} missing from ADVISORY");
+        }
+        // NoMx is the fourth census arm — same tier.
+        a.dane_disposition = DaneDisposition::NoMx;
+        a.dane = a.dane_disposition.chain();
+        let model = truth_chain(&a);
+        let groups = tiers(&model);
+        assert!(groups[1].1.iter().any(|r| r.control.name() == "DANE"));
+
+        // FINDINGS never holds a Low row; ADVISORY holds nothing else.
+        for (tier, rows) in &groups {
+            for r in rows {
+                if *tier == TIER_FINDINGS {
+                    assert_ne!(r.severity, Severity::Low);
+                }
+                if *tier == TIER_ADVISORY {
+                    assert_eq!(r.severity, Severity::Low);
+                }
+            }
+        }
     }
 
     // ── attribution and layer order ──────────────────────────────────

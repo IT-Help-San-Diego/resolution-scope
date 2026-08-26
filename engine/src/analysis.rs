@@ -1449,12 +1449,16 @@ async fn score_cds_cdnskey(
     receipt: &mut Option<LookupReceipt>,
 ) -> CdsDisposition {
     // CDS (type 59) and CDNSKEY (type 60) are published at the child zone apex
-    // to signal an ongoing or pending DS rollover to the parent (RFC 7344).
+    // as a standing declaration that the parent may maintain the DS from them
+    // (RFC 7344; RFC 8078 §2.1). NOT a rollover-in-progress signal: both
+    // resting states are RFC-sanctioned (publish-at-rest AND remove-after-sync,
+    // 7344 §4.1/§5), and absence never means "no rollover" — that misread is
+    // the banned frame (see the truth_chain pin + docs/DNS-LESSON-cds-*).
     // Both types confirmed present in hickory 0.26 (hickory_rr_types.md).
     //
     // Semantics:
-    //   Present  — at least one CDS or CDNSKEY record exists (rollover active/pending)
-    //   Absent   — neither record type has any records (no rollover in progress)
+    //   Present  — at least one CDS or CDNSKEY record exists (declaration published)
+    //   Absent   — neither record type has any records (no declaration published)
     //   Indet    — lookup error other than NXDOMAIN/NOERROR-NODATA
     //
     // We check CDS first; if present we return immediately.

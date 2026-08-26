@@ -1622,7 +1622,7 @@ mod tests {
     }
 
     #[test]
-    fn summary_subtitles_sit_under_the_two_verdict_tiers() {
+    fn summary_subtitles_sit_under_the_verdict_tiers() {
         use resolution_scope_engine::analysis::{
             CaaDisposition, CdsDisposition, DaneDisposition, DkimDisposition, DmarcDisposition,
             DnssecDisposition, MtaStsDisposition, SpfDisposition, TlsaZone,
@@ -1669,6 +1669,10 @@ mod tests {
             text[i + 1].clone()
         };
         assert_eq!(under("FINDINGS"), "  controls that need attention");
+        assert_eq!(
+            under("ADVISORY"),
+            "  low-severity gaps: scored, but not urgent"
+        );
         assert_eq!(
             under("HOLDING"),
             "  controls measured in their correct state"
