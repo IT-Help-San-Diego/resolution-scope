@@ -899,19 +899,65 @@ fn framing_desc(a: Audience) -> &'static str {
     }
 }
 
-/// Header help line. One string, sized to fit an 80-column terminal.
-///
-/// Keycap convention (Apple's menu-glyph rule, support.apple.com/en-us/102650):
-/// special keys are their Apple glyph — `⎋` escape, `⏎` return/enter, `⇥` tab —
-/// number keys are enclosed digits `①-⑨` (the keycap look without color emoji,
-/// so they survive a 256-color / headless terminal), arrows are bare `↑↓` with
-/// `jk` as the ASCII floor, and a single letter IS its key (`m`, `r`, `d`, `q`).
-/// The action word follows the key. Number keys jump to a tab — 1-6 are the
-/// controls, 7 and 8 open a "reserved by the future" slot, 9 is the seal (fixed
-/// at 9 so it never renumbers). `⇥` (the tab key) switches domain — not to be
-/// confused with the number "tabs", which are sections. These glyphs are
-/// navigation chrome, never measurement: the seal and verdicts stay pure ASCII.
-const HELP_LINE: &str = "①-⑨│ ↑↓/jk│ ⏎ open│ ⎋ back│ m mode│ r rescan│ ⇥ next│ d new│ q";
+/// Header help line. One string, sized to fit an 80-column terminal, rendered
+/// beside a colored `keys` title (the accent colour: blue in defend, red in
+/// assess). WORDS, not glyphs: the font audit proved no single terminal font
+/// carries `⎋`/`⏎`/`⇥`/`①-⑨` together (SF Mono has the digits but not the
+/// escape/tab glyphs; Menlo has escape/tab but not the digits), so a glyph
+/// "keycap" renders as tofu on the next terminal. Every key is therefore its
+/// own word — `enter`, `esc`, `tab` — and the single-letter keys that ARE
+/// their key (`m`, `r`, `d`, `q`) stay bare. `m` names the mode it flips TO
+/// (red in blue mode, blue in red mode) so the switch is legible. `↑↓` carries
+/// `jk` as the ASCII floor. Number keys jump to a tab — 1-6 are the controls,
+/// 7 and 8 open a "reserved by the future" slot, 9 is the seal (fixed at 9 so
+/// it never renumbers). `tab` (the key) switches domain — not the number
+/// "tabs". These are navigation chrome, never measurement: the seal and
+/// verdicts stay pure ASCII.
+fn help_line(a: Audience) -> String {
+    let target = match a {
+        Audience::BlueTeam => "red",
+        Audience::RedTeam => "blue",
+    };
+    format!("1-9│ ↑↓/jk│ enter open│ esc back│ m {target}│ r rescan│ tab next│ d new│ q quit")
+}
+
+/// The brand wordmark: the owl mark, then "RESOLUTION" as a left-to-right
+/// red→amber→green gradient (the word visibly *resolves* as it colours — the
+/// brand story in one line), then "SCOPE" in the mode accent. The gradient is a
+/// constant, mode-independent brand signal: resolution completing is always
+/// true, whatever the epistemic state; blue/red is carried by the TEAM word
+/// and the palette, never the brand. Indexed 256-colour steps only, so it
+/// renders identically on the headless box and a truecolor terminal.
+fn brand_spans(mark: &str, accent: Color) -> Vec<Span<'static>> {
+    const RES_GRADIENT: [Color; 10] = [
+        Color::Indexed(196), // R  red (unresolved)
+        Color::Indexed(202), // E  red-orange
+        Color::Indexed(208), // S  orange
+        Color::Indexed(214), // O  amber
+        Color::Indexed(220), // L  yellow
+        Color::Indexed(190), // U  yellow-green
+        Color::Indexed(154), // T  lime
+        Color::Indexed(82),  // I  green
+        Color::Indexed(40),  // O  green
+        Color::Indexed(40),  // N  green (resolved)
+    ];
+    let mut spans = Vec::with_capacity(12);
+    spans.push(Span::styled(
+        format!("{mark} "),
+        Style::default().fg(accent).add_modifier(Modifier::BOLD),
+    ));
+    for (ch, &color) in "RESOLUTION".chars().zip(RES_GRADIENT.iter()) {
+        spans.push(Span::styled(
+            ch.to_string(),
+            Style::default().fg(color).add_modifier(Modifier::BOLD),
+        ));
+    }
+    spans.push(Span::styled(
+        " SCOPE ",
+        Style::default().fg(accent).add_modifier(Modifier::BOLD),
+    ));
+    spans
+}
 
 fn render_header(f: &mut Frame, area: Rect, app: &App) {
     let p = app.pal;
@@ -930,29 +976,25 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
     } else {
         framing_word(app.audience).to_string()
     };
-    let line1 = Line::from(vec![
-        Span::styled(
-            format!("{mark} RESOLUTION SCOPE "),
-            Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
+    let mut line1_spans = brand_spans(mark, p.accent);
+    line1_spans.push(Span::styled("\u{2502} ", muted));
+    line1_spans.push(Span::styled(
+        frame_text,
+        Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
+    ));
+    line1_spans.push(Span::styled(
+        format!(
+            " \u{2502} domain {}/{} ",
+            app.current_domain + 1,
+            app.domains.len()
         ),
-        Span::styled("\u{2502} ", muted),
-        Span::styled(
-            frame_text,
-            Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(
-            format!(
-                " \u{2502} domain {}/{} ",
-                app.current_domain + 1,
-                app.domains.len()
-            ),
-            muted,
-        ),
-        Span::styled(
-            app.current_domain_name().to_string(),
-            Style::default().fg(p.fg).add_modifier(Modifier::BOLD),
-        ),
-    ]);
+        muted,
+    ));
+    line1_spans.push(Span::styled(
+        app.current_domain_name().to_string(),
+        Style::default().fg(p.fg).add_modifier(Modifier::BOLD),
+    ));
+    let line1 = Line::from(line1_spans);
     // The seal prefix is the point of line 2; at narrow widths the labels
     // go, the prefix stays. 80 columns is the standard terminal width.
     let wide = usize::from(area.width) >= 80;
@@ -1013,7 +1055,13 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
             muted,
         )),
     };
-    let line3 = Line::from(Span::styled(HELP_LINE, muted));
+    let line3 = Line::from(vec![
+        Span::styled(
+            "keys ",
+            Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(help_line(app.audience), muted),
+    ]);
     let widget = Paragraph::new(vec![line1, line2, line3]).block(
         Block::default()
             .style(Style::default().bg(p.header_bg))
@@ -1726,37 +1774,56 @@ mod tests {
     }
 
     #[test]
-    fn help_line_names_the_new_domain_verb() {
-        assert!(HELP_LINE.contains("d new"), "{HELP_LINE:?}");
-        assert!(!HELP_LINE.contains("d add"));
+    fn help_line_is_words_not_glyphs_and_fits_80() {
+        let blue = help_line(Audience::BlueTeam);
+        let red = help_line(Audience::RedTeam);
+        // Every key is a word (no Apple glyphs, no enclosed digits) — the font
+        // audit showed no single terminal font carries ⎋ ⏎ ⇥ ①-⑨ together.
+        assert!(blue.contains("enter open"), "{blue:?}");
+        assert!(blue.contains("esc back"), "{blue:?}");
+        assert!(blue.contains("tab next"), "{blue:?}");
+        assert!(blue.contains("q quit"), "{blue:?}");
+        assert!(blue.contains("d new"), "{blue:?}");
+        assert!(!blue.contains("d add"));
+        for g in ['\u{238b}', '\u{23ce}', '\u{21e5}', '\u{2460}'] {
+            assert!(!blue.contains(g), "glyph {g:?} must be a word: {blue:?}");
+        }
+        // `m` names the flip target.
         assert!(
-            HELP_LINE.chars().count() <= 80,
-            "help line must fit an 80-col terminal"
-        );
-        // Apple key glyphs (support.apple.com/en-us/102650) + enclosed digits:
-        // the keycap convention is pinned so it cannot silently revert to
-        // bracketed ASCII.
-        assert!(
-            HELP_LINE.contains('\u{238b}'),
-            "escape glyph ⎋ missing: {HELP_LINE:?}"
-        );
-        assert!(
-            HELP_LINE.contains('\u{23ce}'),
-            "return glyph ⏎ missing: {HELP_LINE:?}"
-        );
-        assert!(
-            HELP_LINE.contains('\u{21e5}'),
-            "tab glyph ⇥ missing: {HELP_LINE:?}"
+            blue.contains("m red"),
+            "blue mode's m flips to red: {blue:?}"
         );
         assert!(
-            HELP_LINE.contains('\u{2460}'),
-            "enclosed ① missing: {HELP_LINE:?}"
+            red.contains("m blue"),
+            "red mode's m flips to blue: {red:?}"
+        );
+        // Fits an 80-col terminal beside the colored `keys` title (5 cols).
+        assert!(
+            blue.chars().count() + 5 <= 80,
+            "blue help line + title over 80: {blue:?}"
         );
         assert!(
-            !HELP_LINE.contains("[enter]"),
-            "bracketed [enter] should be ⏎"
+            red.chars().count() + 5 <= 80,
+            "red help line + title over 80: {red:?}"
         );
-        assert!(!HELP_LINE.contains("[esc]"), "bracketed [esc] should be ⎋");
+    }
+
+    #[test]
+    fn brand_gradient_resolves_red_to_green() {
+        let spans = brand_spans("\u{1f989}", Color::Indexed(33));
+        // owl+space, 10 letters, " SCOPE "
+        assert_eq!(spans.len(), 12, "mark + 10 letters + SCOPE");
+        let letters: Vec<Color> = spans[1..=10]
+            .iter()
+            .map(|s| s.style.fg.expect("letter has fg"))
+            .collect();
+        assert_eq!(letters.len(), 10);
+        assert_eq!(letters[0], Color::Indexed(196), "R starts red (unresolved)");
+        assert_eq!(letters[9], Color::Indexed(40), "N ends green (resolved)");
+        assert_eq!(letters[8], Color::Indexed(40), "last two letters are green");
+        assert_ne!(letters[0], letters[9], "gradient is not solid");
+        // "SCOPE" carries the mode accent, unchanged.
+        assert_eq!(spans[11].style.fg, Some(Color::Indexed(33)));
     }
 
     #[tokio::test]
@@ -2025,5 +2092,57 @@ mod tests {
             .map(|l| l.spans[1].content.to_string())
             .collect();
         assert_eq!(joined.join(" "), text);
+    }
+
+    #[tokio::test]
+    #[ignore = "manual: dump a rendered cell-grid for a real scan"]
+    async fn dump_tui_cells_to_json() {
+        use ratatui::backend::TestBackend;
+        use std::time::{Duration, Instant};
+
+        let domain = "it-help.tech".to_string();
+        let result = analyse_domain_with_selectors(&test_resolver(), &domain, &[], "cloudflare")
+            .await
+            .expect("scan it-help.tech");
+
+        let mut app = App::new(
+            test_resolver(),
+            "cloudflare",
+            vec![domain],
+            vec![],
+            Audience::BlueTeam,
+        );
+        app.scan = ScanState::Done {
+            result,
+            took: Duration::from_secs(10),
+            at: Instant::now(),
+        };
+
+        let (w, h) = (100u16, 40u16);
+        let backend = TestBackend::new(w, h);
+        let mut term = Terminal::new(backend).expect("terminal");
+        term.draw(|f| render_ui(f, &mut app)).expect("draw");
+        let buf = term.backend().buffer().clone();
+
+        let mut rows = Vec::with_capacity(h as usize);
+        for y in 0..h {
+            let mut row = Vec::with_capacity(w as usize);
+            for x in 0..w {
+                let cell = &buf[(x, y)];
+                row.push(serde_json::json!({
+                    "s": cell.symbol(),
+                    "fg": format!("{:?}", cell.fg),
+                    "bg": format!("{:?}", cell.bg),
+                }));
+            }
+            rows.push(row);
+        }
+        let out = serde_json::json!({ "w": w, "h": h, "cells": rows });
+        std::fs::write(
+            "/tmp/rescope_cells.json",
+            serde_json::to_string_pretty(&out).unwrap(),
+        )
+        .unwrap();
+        eprintln!("wrote /tmp/rescope_cells.json");
     }
 }
