@@ -1,6 +1,8 @@
 # SPEC — severity-keyed verdict word (FAIL → GAP for Low absences)
 
-Status: **PROPOSAL — awaiting board ruling. Nothing in this document ships without one.**
+Status: **FILED, CONDITIONAL — the DECISION NEEDED was withdrawn as mis-posed (see §8
+addendum). This document activates only if measured reader-comprehension evidence
+arrives, and then must fix BOTH collision directions. Nothing ships without a ruling.**
 Written 2026-08-26 (claude-code lane), commissioned by Carey's scope answer: "whatever
 will give as much information to Hermes as possible and the rest of the team to finally
 make a decision." One proposal, one document, per the ledger's own rule
@@ -153,3 +155,38 @@ not lose a tooth (§6).
 
 *(empty — the board rules; record the ruling here with date and parties, then and only
 then does code move)*
+
+## 8. Addendum (2026-08-26, claude-code): the DECISION NEEDED was mis-posed — withdrawn
+
+Carey pressed the question that collapsed it: *"SPF is optional too… isn't that the
+same goddamn scenario?"* It is, and the symmetry is the answer, not a decision:
+
+1. **Optionality is layer-1 only.** All eight `rfc_requirement` strings begin
+   "Optional." The 08-21 ruling already named this: "the optionality argument proves
+   too much" — optional-therefore-soften would empty the denominator for every control.
+   SPF absent and CDS absent are the same collapse (`Absent → FAIL`); what differs is
+   measured consequence, and that difference already has a channel: **severity**
+   (SPF absent = High, BEC/spoofing class; CDS absent = Low, self-inflicted
+   availability class). The severity ladder is this instrument's CVSS-analog,
+   per-disposition, ruled with sources. The word column is the *deployment* channel.
+2. **Making the word a second demand channel is the display-vs-state defect class**,
+   and tonight's measurements showed it would have to be fixed in both directions to
+   stay honest (isc.org renders PASS with HIGH — `?all` SPF, deployed but asserting
+   nothing — the mirrored lie, arguably the more dangerous one).
+3. **The communication failure Carey actually experienced was placement**, and it is
+   fixed: the ADVISORY tier + subtitle ("low-severity gaps: scored, but not urgent") +
+   the self-explaining consequence copy + the severity label are four channels that
+   already tell the naive reader the truth around the word FAIL.
+4. **The vendor half ("stubborn security vendor who you trusted your domain with") is
+   attribution, not vocabulary** — the carded `cds_host_capability` observation
+   ("host publishes none in our sample of N zones, measured <date>", never "cannot")
+   is the honest fix for that, separate from any word.
+5. **The only thing that could reopen this document** is empirical evidence that real
+   readers systematically misread the shipped surface — comprehension data, not
+   intuition about a hypothetical grandpa. No such measurement exists. If it ever
+   does, §§3–6 are the pre-agreed shape, amended to cover the PASS+HIGH direction
+   symmetrically.
+
+Change-control asymmetry, restated: changing the vocabulary requires a ruling;
+keeping it requires nothing. There is therefore no open decision. Withdrawn by its
+author.
