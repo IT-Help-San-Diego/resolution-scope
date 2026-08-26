@@ -843,7 +843,7 @@ impl App {
 
 // ── rendering ──────────────────────────────────────────────────────
 
-fn render_ui(f: &mut Frame, app: &App) {
+fn render_ui(f: &mut Frame, app: &mut App) {
     let p = app.pal;
     f.render_widget(Block::default().style(Style::default().bg(p.bg)), f.area());
 
@@ -881,7 +881,7 @@ fn framing_word(a: Audience) -> &'static str {
 /// j/k). `tab` (the key) switches domain — not to be confused with the number
 /// "tabs", which are sections.
 const HELP_LINE: &str =
-    "[1-9] [↑↓]/jk [enter] open [esc] back m mode r rescan tab domain d new q quit";
+    "[1-9]│ [↑↓]/jk│ [enter] open│ [esc] back│ m mode│ r rescan│ tab next│ d new│ q";
 
 fn render_header(f: &mut Frame, area: Rect, app: &App) {
     let p = app.pal;
@@ -1026,7 +1026,7 @@ fn render_reserved(n: u32, pal: Palette) -> Vec<Line<'static>> {
     ]
 }
 
-fn render_content(f: &mut Frame, area: Rect, app: &App) {
+fn render_content(f: &mut Frame, area: Rect, app: &mut App) {
     let p = app.pal;
     let width = area.width as usize;
     let mut scroll = app.scroll;
@@ -1133,6 +1133,15 @@ fn render_content(f: &mut Frame, area: Rect, app: &App) {
             Style::default().fg(p.muted),
         ))],
     };
+    // Clamp the STORED scroll to the content ceiling so it can't overshoot —
+    // the "black hole" bug: Down past the bottom ran `app.scroll` up to 50+
+    // while `follow_scroll` clamped only the DISPLAY copy, so each Up press
+    // had to decrement from the overshoot back into range before the view
+    // moved. This clamps the user's actual position, not just the render.
+    let max_scroll = lines.len().saturating_sub(area.height as usize);
+    if app.scroll as usize > max_scroll {
+        app.scroll = max_scroll as u16;
+    }
     let widget = Paragraph::new(lines)
         .block(
             Block::default()
@@ -1430,7 +1439,7 @@ pub async fn run(
 
     loop {
         app.poll_scan().await;
-        terminal.draw(|f| render_ui(f, &app))?;
+        terminal.draw(|f| render_ui(f, &mut app))?;
 
         // Poll, don't block: the elapsed counter and the finished
         // measurement both need the loop to turn without a keypress.
