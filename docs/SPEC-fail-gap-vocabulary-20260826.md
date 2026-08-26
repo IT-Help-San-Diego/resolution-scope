@@ -1,12 +1,12 @@
-# SPEC — severity-keyed verdict word (FAIL → GAP for Low absences)
+# SPEC — severity-keyed verdict word (FAIL/GAP on absence; distinct word on Present-above-Ok)
 
 Status: **FILED, CONDITIONAL — the DECISION NEEDED was withdrawn as mis-posed (see §8
 addendum). This document activates on an explicit Carey ruling — his word is sufficient
 by itself, the way every severity ruling in this repo was made on argument and source;
 measured reader-comprehension evidence would strengthen the case but is not a
 precondition (an earlier version of this line overstated that gate — corrected
-2026-08-26). Any activation must fix BOTH collision directions. Nothing ships without
-the ruling.**
+2026-08-26). Any activation must fix BOTH collision directions — the FAIL overstatement
+AND the PASS understatement (see §2). Nothing ships without the ruling.**
 Written 2026-08-26 (claude-code lane), commissioned by Carey's scope answer: "whatever
 will give as much information to Hermes as possible and the rest of the team to finally
 make a decision." One proposal, one document, per the ledger's own rule
@@ -50,10 +50,23 @@ sits *inside* a tier whose own subtitle says "not urgent". The heading and the w
 disagree on one row. Whether that residual is harm or honesty is exactly the board's
 call — see §4.
 
-**(2) This proposal — severity-keyed verdict word.** `Absent + Low` renders **GAP**;
-`Absent + Medium/High/Critical` stays **FAIL**; `Present/Indet/NotApplicable` words
-unchanged. Uniform across all 8 controls. **Never CDS-only** — that shape is already
-ruled out (§5).
+**(2) This proposal — severity-keyed verdict word, BOTH AXES.** The verdict word is
+currently keyed to *presence* (`Present`→PASS, `Absent`→FAIL) while the judgement lives
+on *severity* — so it lies in both directions. The completed rule reads both axes:
+
+| state | word |
+|---|---|
+| Present + Ok | PASS |
+| **Present + above-Ok** (`Spf::OtherPolicy`=High, `Dmarc::Monitor`=Medium, `MtaSts::NotEnforced`=Medium, `Cds::DeletionRequested`=High) | **its own word — published but asserting nothing / actively de-securing** |
+| Absent + High/Critical | FAIL |
+| Absent + Low (CDS `NotPublished`, CAA `NotConfigured`, DANE `NotConfigured`, DANE `NoMx`) | **GAP** (or the board's chosen word) |
+| Indet / NotApplicable | unchanged |
+
+Uniform across all 8 controls. **Never CDS-only** — that shape is already ruled out (§5).
+The PASS-side is NOT optional: leaving `Present + above-Ok` as "PASS" ships only the
+overstatement half and leaves the understatement — the direction where a reader stops
+looking. `Cds::DeletionRequested` (a zone asking its parent to delete the DNSSEC anchor)
+rendering PASS is the sharpest instance.
 
 **(3) Any score change.** **Not proposed.** See §4: the score half of "paired" is
 already satisfied by shipped code. This document proposes a word change and zero
@@ -65,9 +78,10 @@ arithmetic.
   per surface, pinned identical across surfaces. `Absent` splits:
   `Low → "GAP"`, otherwise `"FAIL"`.
 - Membership is the same Low census the ADVISORY tier keys on (exactly four arms in
-  the 48-row table today: CDS `NotPublished`, CAA `NotConfigured`, DANE
-  `NotConfigured`, DANE `NoMx`) — so **tier and word agree by construction**: ADVISORY
-  rows all read GAP, FINDINGS rows never do.
+  the **54-row** table — verified by machine extraction 2026-08-26: CDS `NotPublished`,
+  CAA `NotConfigured`, DANE `NotConfigured`, DANE `NoMx`) — so **tier and word agree by
+  construction**: ADVISORY rows all read GAP, FINDINGS rows never do. The full census:
+  PASS 13 · Present-above-Ok 4 · FAIL 12 · Absent+Low 4 · Indet 16 · N/A 5 = **54**.
 - JSON: byte-unchanged (tri strings like `"Absent"` are the machine vocabulary; no
   key renamed, none added).
 - Store/history vocabulary: untouched.
@@ -138,13 +152,15 @@ not lose a tooth (§6).
 
 ## 6. Acceptance tests — the frozen contract (implementation must satisfy all)
 
-1. **Word census**: iterating all 48 disposition rows — every `Absent+Low` row renders
-   GAP and every `Absent+{Medium,High,Critical}` row renders FAIL, identically on
-   engine report, CLI report/summary/HTML, and TUI; `Present/Indet/NotApplicable`
-   words byte-unchanged.
+1. **Word census**: iterating all 54 disposition rows — every `Absent+Low` row renders
+   GAP, every `Absent+{Medium,High,Critical}` row renders FAIL, and every
+   `Present+above-Ok` row (`Spf::OtherPolicy`, `Dmarc::Monitor`, `MtaSts::NotEnforced`,
+   `Cds::DeletionRequested`) renders its own non-PASS word — identically on
+   engine report, CLI report/summary/HTML, and TUI; `Indet/NotApplicable` words
+   byte-unchanged.
 2. **Tier/word coherence**: no FINDINGS row ever renders GAP; no ADVISORY row ever
-   renders FAIL.
-3. **JSON byte-unchanged** on the existing corpus (16 verdict keys, `"Absent"`
+   renders FAIL; no `Present+above-Ok` row renders PASS.
+3. **JSON byte-unchanged** on the existing corpus (16 verdict keys, "Absent"
    strings, scores).
 4. **Coverage and Risk-Weighted numerically identical** on fixed fixtures pre/post.
 5. **Seal goldens byte-identical**; `SCORING_VERSION` still 1; `SEAL_SCHEME` still v4.
