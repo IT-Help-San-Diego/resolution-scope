@@ -901,24 +901,24 @@ fn framing_desc(a: Audience) -> &'static str {
 
 /// Header help line. One string, sized to fit an 80-column terminal, rendered
 /// beside a colored `keys` title (the accent colour: blue in defend, red in
-/// assess). WORDS, not glyphs: the font audit proved no single terminal font
-/// carries `⎋`/`⏎`/`⇥`/`①-⑨` together (SF Mono has the digits but not the
-/// escape/tab glyphs; Menlo has escape/tab but not the digits), so a glyph
-/// "keycap" renders as tofu on the next terminal. Every key is therefore its
-/// own word — `enter`, `esc`, `tab` — and the single-letter keys that ARE
-/// their key (`m`, `r`, `d`, `q`) stay bare. `m` names the mode it flips TO
-/// (red in blue mode, blue in red mode) so the switch is legible. `↑↓` carries
-/// `jk` as the ASCII floor. Number keys jump to a tab — 1-6 are the controls,
-/// 7 and 8 open a "reserved by the future" slot, 9 is the seal (fixed at 9 so
-/// it never renumbers). `tab` (the key) switches domain — not the number
-/// "tabs". These are navigation chrome, never measurement: the seal and
-/// verdicts stay pure ASCII.
+/// assess). WORDS in keycap brackets, not glyphs: the font audit proved no
+/// single terminal font carries `⎋`/`⏎`/`⇥`/`①-⑨` together, so a glyph
+/// "keycap" renders as tofu on the next terminal. A multi-character key is
+/// bracketed (`[enter]`, `[esc]`, `[tab]` — the `less`/`vim`/`mc` keycap rule,
+/// more visible than a bare word), and a single-letter key that IS its key
+/// (`m`, `r`, `d`, `q`) stays bare. `m` names the mode it flips TO (red in blue
+/// mode, blue in red mode). `↑↓` carries `jk` as the ASCII floor. Number keys
+/// jump to a tab — 1-6 are the controls, 7 and 8 open a "reserved by the
+/// future" slot, 9 is the seal (fixed at 9 so it never renumbers). `[tab]` (the
+/// key) switches domain — not the number "tabs". Separators are box-only (no
+/// trailing space) so the bracketed keys still fit 80 columns. Navigation
+/// chrome, never measurement: the seal and verdicts stay pure ASCII.
 fn help_line(a: Audience) -> String {
     let target = match a {
         Audience::BlueTeam => "red",
         Audience::RedTeam => "blue",
     };
-    format!("1-9│ ↑↓/jk│ enter open│ esc back│ m {target}│ r rescan│ tab next│ d new│ q quit")
+    format!("1-9│↑↓/jk│[enter] open│[esc] back│m {target}│r rescan│[tab] next│d new│q quit")
 }
 
 /// The brand wordmark: the owl mark, then "RESOLUTION SCOPE" in the mode
@@ -1750,14 +1750,20 @@ mod tests {
     fn help_line_is_words_not_glyphs_and_fits_80() {
         let blue = help_line(Audience::BlueTeam);
         let red = help_line(Audience::RedTeam);
-        // Every key is a word (no Apple glyphs, no enclosed digits) — the font
-        // audit showed no single terminal font carries ⎋ ⏎ ⇥ ①-⑨ together.
-        assert!(blue.contains("enter open"), "{blue:?}");
-        assert!(blue.contains("esc back"), "{blue:?}");
-        assert!(blue.contains("tab next"), "{blue:?}");
+        // Every multi-char key is a bracketed WORD (no Apple glyphs, no
+        // enclosed digits) — the font audit showed no single terminal font
+        // carries ⎋ ⏎ ⇥ ①-⑨ together. Brackets mark the keycap (more visible
+        // than a bare word, the less/vim/mc rule).
+        assert!(blue.contains("[enter] open"), "{blue:?}");
+        assert!(blue.contains("[esc] back"), "{blue:?}");
+        assert!(blue.contains("[tab] next"), "{blue:?}");
         assert!(blue.contains("q quit"), "{blue:?}");
         assert!(blue.contains("d new"), "{blue:?}");
         assert!(!blue.contains("d add"));
+        // Bare words must NOT remain unbracketed for the multi-char keys.
+        assert!(!blue.contains("│ enter"), "enter must be [enter]: {blue:?}");
+        assert!(!blue.contains("│ esc"), "esc must be [esc]: {blue:?}");
+        assert!(!blue.contains("│ tab"), "tab must be [tab]: {blue:?}");
         for g in ['\u{238b}', '\u{23ce}', '\u{21e5}', '\u{2460}'] {
             assert!(!blue.contains(g), "glyph {g:?} must be a word: {blue:?}");
         }
@@ -2070,44 +2076,44 @@ mod tests {
             .await
             .expect("scan it-help.tech");
 
-        let mut app = App::new(
-            test_resolver(),
-            "cloudflare",
-            vec![domain],
-            vec![],
-            Audience::BlueTeam,
-        );
-        app.scan = ScanState::Done {
-            result,
-            took: Duration::from_secs(10),
-            at: Instant::now(),
-        };
+        // Dump BOTH modes so the blue and red renders can be compared.
+        for (audience, name) in [(Audience::BlueTeam, "blue"), (Audience::RedTeam, "red")] {
+            let mut app = App::new(
+                test_resolver(),
+                "cloudflare",
+                vec![domain.clone()],
+                vec![],
+                audience,
+            );
+            app.scan = ScanState::Done {
+                result: result.clone(),
+                took: Duration::from_secs(10),
+                at: Instant::now(),
+            };
 
-        let (w, h) = (100u16, 40u16);
-        let backend = TestBackend::new(w, h);
-        let mut term = Terminal::new(backend).expect("terminal");
-        term.draw(|f| render_ui(f, &mut app)).expect("draw");
-        let buf = term.backend().buffer().clone();
+            let (w, h) = (100u16, 40u16);
+            let backend = TestBackend::new(w, h);
+            let mut term = Terminal::new(backend).expect("terminal");
+            term.draw(|f| render_ui(f, &mut app)).expect("draw");
+            let buf = term.backend().buffer().clone();
 
-        let mut rows = Vec::with_capacity(h as usize);
-        for y in 0..h {
-            let mut row = Vec::with_capacity(w as usize);
-            for x in 0..w {
-                let cell = &buf[(x, y)];
-                row.push(serde_json::json!({
-                    "s": cell.symbol(),
-                    "fg": format!("{:?}", cell.fg),
-                    "bg": format!("{:?}", cell.bg),
-                }));
+            let mut rows = Vec::with_capacity(h as usize);
+            for y in 0..h {
+                let mut row = Vec::with_capacity(w as usize);
+                for x in 0..w {
+                    let cell = &buf[(x, y)];
+                    row.push(serde_json::json!({
+                        "s": cell.symbol(),
+                        "fg": format!("{:?}", cell.fg),
+                        "bg": format!("{:?}", cell.bg),
+                    }));
+                }
+                rows.push(row);
             }
-            rows.push(row);
+            let out = serde_json::json!({ "w": w, "h": h, "cells": rows });
+            let path = format!("/tmp/rescope_cells_{name}.json");
+            std::fs::write(&path, serde_json::to_string_pretty(&out).unwrap()).unwrap();
+            eprintln!("wrote {path}");
         }
-        let out = serde_json::json!({ "w": w, "h": h, "cells": rows });
-        std::fs::write(
-            "/tmp/rescope_cells.json",
-            serde_json::to_string_pretty(&out).unwrap(),
-        )
-        .unwrap();
-        eprintln!("wrote /tmp/rescope_cells.json");
     }
 }
