@@ -921,42 +921,15 @@ fn help_line(a: Audience) -> String {
     format!("1-9│ ↑↓/jk│ enter open│ esc back│ m {target}│ r rescan│ tab next│ d new│ q quit")
 }
 
-/// The brand wordmark: the owl mark, then "RESOLUTION" as a left-to-right
-/// red→amber→green gradient (the word visibly *resolves* as it colours — the
-/// brand story in one line), then "SCOPE" in the mode accent. The gradient is a
-/// constant, mode-independent brand signal: resolution completing is always
-/// true, whatever the epistemic state; blue/red is carried by the TEAM word
-/// and the palette, never the brand. Indexed 256-colour steps only, so it
-/// renders identically on the headless box and a truecolor terminal.
+/// The brand wordmark: the owl mark, then "RESOLUTION SCOPE" in the mode
+/// accent (blue in defend, red in assess). Solid, not a gradient — the word
+/// is too short for a resolving gradient to read as anything but a rainbow
+/// (the classic Unix rainbow-terminal look we are deliberately leaving behind).
 fn brand_spans(mark: &str, accent: Color) -> Vec<Span<'static>> {
-    const RES_GRADIENT: [Color; 10] = [
-        Color::Indexed(196), // R  red (unresolved)
-        Color::Indexed(202), // E  red-orange
-        Color::Indexed(208), // S  orange
-        Color::Indexed(214), // O  amber
-        Color::Indexed(220), // L  yellow
-        Color::Indexed(190), // U  yellow-green
-        Color::Indexed(154), // T  lime
-        Color::Indexed(82),  // I  green
-        Color::Indexed(40),  // O  green
-        Color::Indexed(40),  // N  green (resolved)
-    ];
-    let mut spans = Vec::with_capacity(12);
-    spans.push(Span::styled(
-        format!("{mark} "),
+    vec![Span::styled(
+        format!("{mark} RESOLUTION SCOPE "),
         Style::default().fg(accent).add_modifier(Modifier::BOLD),
-    ));
-    for (ch, &color) in "RESOLUTION".chars().zip(RES_GRADIENT.iter()) {
-        spans.push(Span::styled(
-            ch.to_string(),
-            Style::default().fg(color).add_modifier(Modifier::BOLD),
-        ));
-    }
-    spans.push(Span::styled(
-        " SCOPE ",
-        Style::default().fg(accent).add_modifier(Modifier::BOLD),
-    ));
-    spans
+    )]
 }
 
 fn render_header(f: &mut Frame, area: Rect, app: &App) {
@@ -1809,21 +1782,13 @@ mod tests {
     }
 
     #[test]
-    fn brand_gradient_resolves_red_to_green() {
+    fn brand_is_solid_accent_not_a_gradient() {
         let spans = brand_spans("\u{1f989}", Color::Indexed(33));
-        // owl+space, 10 letters, " SCOPE "
-        assert_eq!(spans.len(), 12, "mark + 10 letters + SCOPE");
-        let letters: Vec<Color> = spans[1..=10]
-            .iter()
-            .map(|s| s.style.fg.expect("letter has fg"))
-            .collect();
-        assert_eq!(letters.len(), 10);
-        assert_eq!(letters[0], Color::Indexed(196), "R starts red (unresolved)");
-        assert_eq!(letters[9], Color::Indexed(40), "N ends green (resolved)");
-        assert_eq!(letters[8], Color::Indexed(40), "last two letters are green");
-        assert_ne!(letters[0], letters[9], "gradient is not solid");
-        // "SCOPE" carries the mode accent, unchanged.
-        assert_eq!(spans[11].style.fg, Some(Color::Indexed(33)));
+        // A single span: owl + "RESOLUTION SCOPE", all in the accent colour.
+        assert_eq!(spans.len(), 1, "solid brand is one span, not per-letter");
+        let content = spans[0].content.to_string();
+        assert!(content.contains("RESOLUTION SCOPE"), "{content:?}");
+        assert_eq!(spans[0].style.fg, Some(Color::Indexed(33)));
     }
 
     #[tokio::test]
