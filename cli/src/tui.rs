@@ -894,7 +894,7 @@ fn framing_word(a: Audience) -> &'static str {
 /// short form stays the canonical label (tests pin it).
 fn framing_desc(a: Audience) -> &'static str {
     match a {
-        Audience::BlueTeam => " \u{00b7} what it costs you, what to fix",
+        Audience::BlueTeam => " \u{00b7} what to fix",
         Audience::RedTeam => " \u{00b7} the attacker's view",
     }
 }
