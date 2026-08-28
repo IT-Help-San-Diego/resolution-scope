@@ -8,7 +8,9 @@ use hickory_resolver::net::NetError;
 use hickory_resolver::TokioResolver;
 use tracing::{debug, warn};
 
-use crate::denial_proof::{extract_denial_proof, DenialProof, LookupReceipt, ReceiptRcode};
+use crate::denial_proof::{
+    extract_denial_proof, DenialProof, LookupReceipt, ReceiptRcode, RecordEntry,
+};
 use crate::truth_chain::ControlId;
 use crate::TriState;
 
@@ -68,7 +70,7 @@ pub async fn analyse_domain_with_receipts(
     domain: &str,
     dkim_selectors: &[String],
     resolver_identity: &str,
-) -> Result<(ScoredAnalysis, Vec<LookupReceipt>)> {
+) -> Result<(ScoredAnalysis, Vec<LookupReceipt>, Vec<RecordEntry>)> {
     debug!(domain, "starting analysis");
 
     let session_id: u64 = rand_session_id();
@@ -83,6 +85,11 @@ pub async fn analyse_domain_with_receipts(
     let mut r_caa = None;
     let mut r_cds = None;
 
+    // Raw records captured at classification time — BESIDE the seal (R-B),
+    // exactly like the receipts. The ScoredAnalysis and its seal are
+    // byte-identical whether or not the caller keeps the records.
+    let mut records: Vec<RecordEntry> = Vec::new();
+
     // ── DNSSEC chain ────────────────────────────────────────────────────────
     // hickory-resolver with validate=true performs AD-bit + RRSIG chain check.
     // The dnssec-ring feature (enforced by compile_error! in lib.rs) is what
@@ -95,21 +102,22 @@ pub async fn analyse_domain_with_receipts(
     // chain() right here and nowhere else. Hand-pairing (TriState, Disposition)
     // tuples let the two verdict channels disagree — the 2026-08-19 adversarial
     // panel found three live divergences that way. Derived means impossible.
-    let spf_disposition = score_spf(resolver, domain, &mut r_spf).await;
+    let spf_disposition = score_spf(resolver, domain, &mut r_spf, &mut records).await;
     let spf = spf_disposition.chain();
     // The selector sweep is now wired: probe the 81 defaults (plus any
     // caller-supplied selector via analyse_domain_with_selectors). The honest
     // dispositions are Verified / KeyMismatch / NotFoundDefaults — no longer
     // a hardcoded NotProbed stub.
-    let dkim_disposition = score_dkim(resolver, domain, dkim_selectors, &mut r_dkim).await;
+    let dkim_disposition =
+        score_dkim(resolver, domain, dkim_selectors, &mut r_dkim, &mut records).await;
     let dkim = dkim_disposition.chain();
-    let dmarc_disposition = score_dmarc(resolver, domain, &mut r_dmarc).await;
+    let dmarc_disposition = score_dmarc(resolver, domain, &mut r_dmarc, &mut records).await;
     let dmarc = dmarc_disposition.chain();
     let (dane_disposition, tlsa_zone) = score_dane(resolver, domain, &mut r_dane).await;
     let dane = dane_disposition.chain();
     let mta_sts_disposition = score_mta_sts(resolver, domain, &mut r_mta_sts).await;
     let mta_sts = mta_sts_disposition.chain();
-    let caa_disposition = score_caa(resolver, domain, &mut r_caa).await;
+    let caa_disposition = score_caa(resolver, domain, &mut r_caa, &mut records).await;
     let caa = caa_disposition.chain();
     let cds_disposition = score_cds_cdnskey(resolver, domain, &mut r_cds).await;
     let cds_cdnskey = cds_disposition.chain();
@@ -146,7 +154,7 @@ pub async fn analyse_domain_with_receipts(
         cds_cdnskey,
         cds_disposition,
     };
-    Ok((analysis, receipts))
+    Ok((analysis, receipts, records))
 }
 
 // =============================================================================
@@ -432,6 +440,7 @@ async fn score_spf(
     resolver: &TokioResolver,
     domain: &str,
     receipt: &mut Option<LookupReceipt>,
+    records: &mut Vec<RecordEntry>,
 ) -> SpfDisposition {
     // SPF is a TXT record at the apex beginning with "v=spf1". The qualifier
     // (-all hardfail vs ~all softfail) is the deployed-but-not-enforcing
@@ -448,6 +457,14 @@ async fn score_spf(
                         }
                     }
                 }
+            }
+            // The raw record bytes are BESIDE the seal (R-B): captured here so a
+            // reader can re-derive what the scorer read, but never sealed.
+            for r in &spf_records {
+                records.push(RecordEntry {
+                    control: ControlId::Spf,
+                    value: r.clone(),
+                });
             }
             spf_disposition_from_records(&spf_records)
         }
@@ -477,6 +494,7 @@ async fn score_dmarc(
     resolver: &TokioResolver,
     domain: &str,
     receipt: &mut Option<LookupReceipt>,
+    records: &mut Vec<RecordEntry>,
 ) -> DmarcDisposition {
     // DMARC policy at _dmarc.<domain> TXT "v=DMARC1; p=...". p=none is
     // deployed-but-not-enforcing (monitor only), p=quarantine is intermediate,
@@ -494,6 +512,13 @@ async fn score_dmarc(
                         }
                     }
                 }
+            }
+            // Raw bytes BESIDE the seal (R-B) — captured, never sealed.
+            for r in &dmarc_records {
+                records.push(RecordEntry {
+                    control: ControlId::Dmarc,
+                    value: r.clone(),
+                });
             }
             if dmarc_records.is_empty() {
                 DmarcDisposition::NotConfigured
@@ -771,6 +796,7 @@ async fn score_dkim(
     domain: &str,
     extra_selectors: &[String],
     receipt: &mut Option<LookupReceipt>,
+    records: &mut Vec<RecordEntry>,
 ) -> DkimDisposition {
     // Wildcard detection FIRST (2026-08-21 ruling): if a nonexistent selector
     // name resolves to TXT, the domain publishes `*._domainkey` and the sweep
@@ -796,10 +822,21 @@ async fn score_dkim(
     let mut probes: Vec<DkimSelectorProbe> = Vec::with_capacity(selectors.len());
     for sel in &selectors {
         let fqdn = format!("{}.{}", sel, domain);
-        probes.push(match resolver.txt_lookup(fqdn.as_str()).await {
-            Ok(rdata) => Ok(dkim_txt_chunks(rdata.answers())),
-            Err(e) => Err(record_absence_verdict(&e, domain)),
-        });
+        match resolver.txt_lookup(fqdn.as_str()).await {
+            Ok(rdata) => {
+                let chunks = dkim_txt_chunks(rdata.answers());
+                // Raw key bytes BESIDE the seal (R-B): captured per selector so
+                // a reader can re-derive WHICH selector published WHICH key.
+                for chunk in &chunks {
+                    records.push(RecordEntry {
+                        control: ControlId::Dkim,
+                        value: format!("{sel} => {chunk}"),
+                    });
+                }
+                probes.push(Ok(chunks));
+            }
+            Err(e) => probes.push(Err(record_absence_verdict(&e, domain))),
+        }
     }
 
     dkim_disposition_from_probes(&probes)
@@ -1414,6 +1451,7 @@ async fn score_caa(
     resolver: &TokioResolver,
     domain: &str,
     receipt: &mut Option<LookupReceipt>,
+    records: &mut Vec<RecordEntry>,
 ) -> CaaDisposition {
     // CAA record lookup.
     // RecordType::CAA = 257, confirmed present in hickory 0.26 (hickory_rr_types.md).
@@ -1425,6 +1463,16 @@ async fn score_caa(
     match observed_lookup(resolver, ControlId::Caa, domain, RecordType::CAA, receipt).await {
         Ok(resp) => {
             if answers_present(resp.answers()) {
+                // Raw CAA presentation strings BESIDE the seal (R-B) — captured
+                // via the RData's own Display (`{flags} {tag} "{value}"`).
+                for rec in resp.answers() {
+                    if let hickory_proto::rr::RData::CAA(caa) = &rec.data {
+                        records.push(RecordEntry {
+                            control: ControlId::Caa,
+                            value: caa.to_string(),
+                        });
+                    }
+                }
                 if caa_fully_restricted(resp.answers()) {
                     CaaDisposition::FullyRestricted // issue ";" — no CA at all
                 } else if caa_wildcard_fully_restricted(resp.answers()) {

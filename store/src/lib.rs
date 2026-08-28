@@ -24,7 +24,7 @@ use tokio_postgres::{Client, NoTls};
 use tracing::{info, warn};
 
 use resolution_scope_engine::denial_proof::{
-    control_from_key, control_key, DenialProof, LookupReceipt, ReceiptRcode,
+    control_from_key, control_key, DenialProof, LookupReceipt, ReceiptRcode, RecordEntry,
 };
 use resolution_scope_engine::flux::{FluxObservation, FluxVantage};
 use resolution_scope_engine::seal::{
@@ -44,6 +44,7 @@ const MIGRATIONS: &[(i32, &str)] = &[
     (2, include_str!("../migrations/002_seal_scheme.sql")),
     (3, include_str!("../migrations/003_lookup_receipts.sql")),
     (4, include_str!("../migrations/004_receipt_domain_key.sql")),
+    (5, include_str!("../migrations/005_records.sql")),
 ];
 
 /// Advisory-lock key for migration serialization — arbitrary but fixed;
@@ -205,15 +206,17 @@ impl Store {
         &mut self,
         a: &ScoredAnalysis,
         receipts: &[LookupReceipt],
+        records: &[RecordEntry],
     ) -> Result<i64> {
         let version = engine_version();
         let sealed = seal_versioned(a, &version);
         let verdict = serde_json::to_value(a).context("store: verdict serialization failed")?;
 
-        // The scan and its receipts commit atomically: a verdict row with half
-        // its receipts would present a receipt set as complete when it is not.
-        // Receipts are BESIDE the seal (R-B) — this transaction touches the
-        // receipt table only; the seal path and its goldens are byte-untouched.
+        // The scan, its receipts, and its raw records commit atomically: a
+        // verdict row with half its evidence would present an evidence set as
+        // complete when it is not. Receipts AND records are BESIDE the seal
+        // (R-B) — this transaction touches only the receipt and record tables;
+        // the seal path and its goldens are byte-untouched.
         let tx = self.client.transaction().await?;
         let row = tx
             .query_one(
@@ -243,6 +246,14 @@ impl Store {
                     &proof,
                     &elapsed,
                 ],
+            )
+            .await?;
+        }
+        for rec in records {
+            let control = control_key(rec.control);
+            tx.execute(
+                "INSERT INTO records (scan_id, control, value) VALUES ($1, $2, $3)",
+                &[&scan_id, &control, &rec.value],
             )
             .await?;
         }
@@ -287,6 +298,29 @@ impl Store {
             });
         }
         Ok(receipts)
+    }
+
+    /// Read a scan's raw records back whole — one row per captured record, in
+    /// insert order. The raw bytes are BESIDE the seal (R-B), exactly like the
+    /// receipts; an unknown stored control key is a loud error, never a skip.
+    pub async fn records_for_scan(&self, scan_id: i64) -> Result<Vec<RecordEntry>> {
+        let rows = self
+            .client
+            .query(
+                "SELECT control, value FROM records WHERE scan_id = $1 ORDER BY ctid",
+                &[&scan_id],
+            )
+            .await?;
+        let mut records = Vec::with_capacity(rows.len());
+        for row in rows {
+            let control_key_str: String = row.get(0);
+            let value: String = row.get(1);
+            let control = control_from_key(&control_key_str).with_context(|| {
+                format!("store: unknown stored record control key {control_key_str:?}")
+            })?;
+            records.push(RecordEntry { control, value });
+        }
+        Ok(records)
     }
 
     /// Domain-keyed receipt read (ruling 2026-08-25): reaches BOTH scan-linked
@@ -590,7 +624,7 @@ mod tests {
     async fn sealed_roundtrip_and_verification() {
         let mut store = test_store().await;
         let a = verdict("roundtrip.test");
-        let id = store.record_scan(&a, &[]).await.expect("record");
+        let id = store.record_scan(&a, &[], &[]).await.expect("record");
 
         // Read back whole: verdict fields survive the JSON roundtrip.
         let stored = store.read_scan(id).await.expect("read");
@@ -610,7 +644,7 @@ mod tests {
     async fn tampered_verdict_fails_verification() {
         let mut store = test_store().await;
         let id = store
-            .record_scan(&verdict("tamper.test"), &[])
+            .record_scan(&verdict("tamper.test"), &[], &[])
             .await
             .unwrap();
 
@@ -878,7 +912,7 @@ mod tests {
                 elapsed_ms: 1000,
             },
         ];
-        let id = store.record_scan(&a, &receipts).await.unwrap();
+        let id = store.record_scan(&a, &receipts, &[]).await.unwrap();
 
         // Receipts roundtrip through the TEXT vocabulary in a stable order.
         let mut back = store.receipts_for_scan(id).await.unwrap();
@@ -890,7 +924,7 @@ mod tests {
         // R-B: receipts are BESIDE the seal. The seal is computed from the
         // verdict alone, so the same verdict seals identically with and without
         // receipts — the receipt table never touches the seal preimage.
-        let no_receipt_id = store.record_scan(&a, &[]).await.unwrap();
+        let no_receipt_id = store.record_scan(&a, &[], &[]).await.unwrap();
         let with = store.read_scan(id).await.unwrap();
         let without = store.read_scan(no_receipt_id).await.unwrap();
         assert_eq!(
@@ -909,5 +943,53 @@ mod tests {
             by_domain.iter().filter(|(sid, _)| *sid == Some(id)).count() == receipts.len(),
             "every scan-linked receipt carries its scan_id through the domain read"
         );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires RS_STORE_TEST_URL (disposable postgres)"]
+    async fn record_roundtrip_and_beside_seal() {
+        use resolution_scope_engine::ControlId;
+
+        let mut store = test_store().await;
+        let a = verdict("record.test");
+        let records = vec![
+            RecordEntry {
+                control: ControlId::Spf,
+                value: "v=spf1 include:_spf.example.com -all".to_string(),
+            },
+            RecordEntry {
+                control: ControlId::Dmarc,
+                value: "v=DMARC1; p=reject; rua=mailto:dmarc@example.com".to_string(),
+            },
+            RecordEntry {
+                control: ControlId::Caa,
+                value: "0 issue \"letsencrypt.org\"".to_string(),
+            },
+            RecordEntry {
+                control: ControlId::Dkim,
+                value: "google => v=DKIM1; k=rsa; p=MIGfMA0…".to_string(),
+            },
+        ];
+        let id = store.record_scan(&a, &[], &records).await.unwrap();
+
+        // Records roundtrip through the control TEXT vocabulary in insert order.
+        let back = store.records_for_scan(id).await.unwrap();
+        assert_eq!(back, records, "records must roundtrip byte-for-byte");
+
+        // R-B: records are BESIDE the seal. The seal is computed from the
+        // verdict alone, so the same verdict seals identically with and without
+        // records — the records table never touches the seal preimage.
+        let no_records_id = store.record_scan(&a, &[], &[]).await.unwrap();
+        let with = store.read_scan(id).await.unwrap();
+        let without = store.read_scan(no_records_id).await.unwrap();
+        assert_eq!(
+            with.seal, without.seal,
+            "records must never change the seal (R-B)"
+        );
+
+        // A control with no measured record contributes zero rows — a missing
+        // record is informative absence, never a fabricated empty string.
+        let empty = store.records_for_scan(no_records_id).await.unwrap();
+        assert!(empty.is_empty(), "no records captured => no rows written");
     }
 }
