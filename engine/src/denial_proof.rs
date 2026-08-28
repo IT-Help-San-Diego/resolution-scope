@@ -121,6 +121,20 @@ pub struct LookupReceipt {
     pub elapsed_ms: u64,
 }
 
+/// One raw DNS record captured at classification time — the bytes the verdict
+/// was computed from. BESIDE the seal (R-B), exactly like [`LookupReceipt`]:
+/// the seal attests OUR verdict (judge); the record is the SERVER'S words the
+/// verdict read (witness). Never sealed, never crosses into `types/` (carries
+/// no SealSpelling). `control` is the stable [`ControlId`], not a display name
+/// — the store maps it through [`control_key`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordEntry {
+    pub control: ControlId,
+    /// The raw record presentation string (e.g. `v=spf1 include:… -all`,
+    /// `v=DMARC1; p=reject; rua=…`, `0 issue "letsencrypt.org"`).
+    pub value: String,
+}
+
 /// The stored lowercase key for a control (the `lookup_receipts.control` TEXT
 /// vocabulary). Stable across display-string edits — the display `name()` is
 /// NOT the stored key.

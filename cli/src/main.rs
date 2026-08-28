@@ -287,6 +287,9 @@ async fn scan(args: ScanArgs) -> Result<()> {
     // Kept OUTSIDE ScoredAnalysis: receipts are beside-the-seal provenance
     // (R-B) and must never ride the sealed struct.
     let mut all_receipts = Vec::with_capacity(domains.len());
+    // Raw records captured at classification — also BESIDE the seal (R-B),
+    // one Vec per domain, index-paired with `analyses`.
+    let mut all_records = Vec::with_capacity(domains.len());
     for domain in &domains {
         // Real progress only: what is being measured, from where, and how
         // long it took. Per-control progress needs an engine hook (the
@@ -298,17 +301,19 @@ async fn scan(args: ScanArgs) -> Result<()> {
             resolution_scope_engine::truth_chain::ControlId::ALL.len()
         );
         let started = Instant::now();
-        let (a, receipts) =
+        let (a, receipts, records) =
             analyse_domain_with_receipts(&resolver, domain, &args.dkim_selector, RESOLVER_IDENTITY)
                 .await?;
         eprintln!(
-            "measured {domain} in {:.1}s — seal {}… ({} receipts)",
+            "measured {domain} in {:.1}s — seal {}… ({} receipts, {} records)",
             started.elapsed().as_secs_f64(),
             &resolution_scope_engine::seal::seal(&a)[..16],
-            receipts.len()
+            receipts.len(),
+            records.len()
         );
         analyses.push(a);
         all_receipts.push(receipts);
+        all_records.push(records);
     }
 
     let (body, default_path): (String, Option<&str>) = match args.format {
@@ -345,13 +350,19 @@ async fn scan(args: ScanArgs) -> Result<()> {
             match resolution_scope_store::Store::connect(&url).await {
                 Ok(mut store) => {
                     store.migrate().await?;
-                    for (a, receipts) in analyses.iter().zip(all_receipts.iter()) {
-                        let id = store.record_scan(a, receipts).await?;
+                    for (a, receipts, records) in analyses
+                        .iter()
+                        .zip(all_receipts.iter())
+                        .zip(all_records.iter())
+                        .map(|((a, r), rec)| (a, r, rec))
+                    {
+                        let id = store.record_scan(a, receipts, records).await?;
                         let seal = resolution_scope_engine::seal::seal(a);
                         eprintln!(
-                            "stored {} as scan #{id} (+{} receipts, seal {}…)",
+                            "stored {} as scan #{id} (+{} receipts, +{} records, seal {}…)",
                             a.domain,
                             receipts.len(),
+                            records.len(),
                             &seal[..16]
                         );
                     }
