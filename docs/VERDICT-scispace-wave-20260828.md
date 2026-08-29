@@ -5,11 +5,16 @@
 last file was written. This is a **new SciSpace session UUID** — hash-join against the fully
 indexed `e4f6b244…_1787638639` archive shows **237 of 238 files are content-new**; the diff
 method's superset assumption does not apply across session UUIDs. An earlier same-session
-snapshot (`…_1787936491`, 204 files) is contained in the newest except **one deleted file**:
-`lineage-verified-20260828.md`, superseded by `informational-statement-20260828.md`
-("Supersedes all prior provenance statements") — deletion accounted for, nothing else lost
-(the Why-Rust section and acknowledgments survive in §3/§5 of the successor and in the live
-/about scrape).
+snapshot (`…_1787936491`, 204 files) was also compared — **but see the correction below: that
+folder was locally mutated after download** (42 files carry post-download mtimes, 19:45Z →
+08-29 01:15Z; independently flagged by the second local lane, measured here by mtime-vs-epoch
+screen). In particular `lineage-verified-20260828.md` (mtime 08-29T01:15Z, after the snapshot's
+17:01Z download and after SciSpace's last authored file) was a **local addition to the
+downloaded folder, not a SciSpace file** — the earlier reading "deleted by SciSpace, superseded
+by informational-statement-20260828.md" is RETRACTED as a file-lifecycle claim; the successor's
+"supersedes all prior provenance statements" text still governs the content relationship. All
+per-claim verdicts below were measured in the newest export (downloaded 01:17Z, mtimes ≤ its
+download — pristine) and are unaffected.
 
 **Three work programs, one verdict discipline** (per-claim, never wholesale): a funding
 package (NLnet + SPI), a mesh-architecture ADR corpus, and a lineage/credits verification arc.
