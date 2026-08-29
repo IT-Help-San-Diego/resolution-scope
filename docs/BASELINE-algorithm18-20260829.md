@@ -85,6 +85,15 @@ done
   (claude-science). **Caveat:** guessed hostnames are not a survey — absence
   means "not at the names tried."
 
+- **353 distinct domains** from DNS Tool's production scan history (hermes,
+  2026-08-29, raw `ds_records`+`dnskey_records` via prod RDS — not the tool's
+  derived field, which carries a known parse bug found during this sweep):
+  84 signed / 269 unsigned; distribution 13×62, 8×19, 7×2 (nsa.gov,
+  mailbox.org), 10×1, 14×1 (defcon.org); **algorithms 17/18/23: zero in the
+  tool's entire history.** Complementary bias to the 19-zone survey: that one
+  is adopter-biased (the eager cohort), this one is usage-biased (the
+  population people actually measure) — both zero.
+
 - The one public PQ-DNSSEC testbed (`pq-dnssec.dedyn.io`, field-study era
   2023–24): parent answers under algorithm 13; the falcon/dilithium/sphincs
   example subzones are dark via public resolvers today (claude-code dig,
