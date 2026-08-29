@@ -59,35 +59,56 @@
   <div class="wrap">
     <h2>A real measurement, not a brochure</h2>
     <p>This is the engine's verbatim output for the domain you are reading right now — captured
-    2026-08-23 (UTC), seal included. The instrument does not flatter its operator: the failures below
+    2026-08-29 (UTC), seal included. The instrument does not flatter its operator: the failures below
     are real, and the domain publishes them anyway.</p>
     <div class="report-frame">
-<pre class="report">Resolution Scope — DNS Analysis Report
-Domain    : resolutionscope.com
-Engine    : 0.1.0
-Resolver  : cloudflare
-Timestamp : 1787462410 (unix epoch seconds, UTC)
-Session   : 584acf7370fa2e59
-Seal      : <span class="seal">1c4b45c5c310ac3441d1bf75ddfc8e7914e0ae20ea36fa6ddee004c13524bbce968abd39a91f905a709d943fd30dff4a407459080f7e3857d5e8c2f6b37f33b9</span>
+<pre class="report">══ resolutionscope.com ══
+engine 26.0.0-alpha.1-1d1900e · resolver cloudflare · 2026-08-29 19:01:34 UTC (epoch 1788030094) · session a3f49f8280c18aed
+seal   <span class="seal">574dba06794d72e902dd6ec8ae813807c718722c1decefe35a75cfbb496ae4e5db4153d9998eb3176a4265c87146d14a9fd4c7fa4e430747d8dec613bf71efb1</span>
+scheme resolution-scope-sha3-512-v4
 
-Control         Score    Measured
-──────────────  ───────  ────────
-DNSSEC            <span class="pass">PRESENT</span>  signed + delegated — chain validates from the root
-SPF               <span class="pass">PRESENT</span>  hardfail (-all) — enforced
-DKIM              <span class="indet">INDET</span>    wildcard *._domainkey — the selector sweep proves nothing
-DMARC             <span class="pass">PRESENT</span>  reject (p=reject) — enforced
-DANE              <span class="na">N/A</span>      no mail declared (null MX, RFC 7505)
-MTA-STS           <span class="fail">ABSENT</span>   record absent — zone exists, no MTA-STS
-CAA               <span class="pass">PRESENT</span>  wildcard-fully-restricted — issuewild ";"
-CDS/CDNSKEY       <span class="na">ABSENT</span>    not published — zone exists, no CDS/CDNSKEY
+FINDINGS
+  HIGH       MTA-STS      <span class="fail">ABSENT</span>  record absent — zone exists, no MTA-STS
+      rfc  Optional (RFC 8461). TXT at _mta-sts.&lt;domain&gt; plus an HTTPS policy file; only mode:enforce enforces — testing and none do not.
+      → No transport policy: senders may fall back to plaintext delivery, so mail to this domain is exposed to STARTTLS stripping. Publish an MTA-STS policy (or deploy DANE).
 
-Coverage Score : 4/6 (66%)  |  unmeasured: 1  |  not-applicable: 1
-Risk-Weighted  : 71%  (scoring v1)
+ADVISORY
+  LOW        CDS/CDNSKEY  <span class="na">ABSENT</span>  not published — zone exists, no CDS/CDNSKEY
+      rfc  Optional (RFC 7344, Proposed Standard — elevated from Informational by RFC 8078 §6.1; further updated by RFC 9615/9975). CDS/CDNSKEY at the apex signal automated DS maintenance to the parent zone; the parent MAY act on it but is not normatively required to (§6 SHOULD, not MUST).
+      → DS updates at the parent are manual. If your keys change and the parent DS is not updated in step, the domain stops resolving (SERVFAIL) for every validating resolver until it is fixed. Publishing CDS/CDNSKEY lets a supporting parent maintain the DS automatically. This is an availability control: it protects you from your own key changes, not from an attacker. Remediation: publish CDS and CDNSKEY records matching your DS at your DNS operator; if your operator provides no way to create them, the remediation is procedural — write the registrar DS step into your key-change runbook.
 
-<span class="rederive">── Re-derive the seal (SHA3-512 of these exact bytes) ──
-resolution-scope-sha3-512-v3
+HOLDING
+  OK         DNSSEC       <span class="pass">PRESENT</span> signed + delegated — chain validates from the root
+      rfc  Optional (BCP: RFC 9364). If deployed: DNSKEY at the apex, DS at the parent, and the chain must validate from the root.
+      → DNSSEC is fully operational: responses for this zone are cryptographically verifiable end-to-end.
+  OK         SPF          <span class="pass">PRESENT</span> hardfail (-all) — strongest publisher assertion
+      rfc  Optional (RFC 7208). If present: exactly one TXT record starting `v=spf1`, terminating in `-all` (enforce) or `~all` (softfail).
+      → SPF authorizes specific senders and asserts the rest are unauthorized — the strongest statement the record can make. RFC 9989 §7.1 names a trade: because SPF runs early in the SMTP transaction, -all can cause rejection before DMARC is consulted, so mail that would have passed via an aligned DKIM signature may be refused — and those rejections never reach the DATA phase, so they never appear in your aggregate reports.
+  OK         DMARC        <span class="pass">PRESENT</span> reject (p=reject) — enforced
+      rfc  Optional (RFC 9989, which obsoletes RFC 7489). TXT at _dmarc.&lt;domain&gt; with p=none, p=quarantine, or p=reject; only quarantine and reject enforce.
+      → DMARC tells receivers to refuse mail that fails SPF/DKIM alignment.
+  OK         CAA          <span class="pass">PRESENT</span> wildcard-fully-restricted — issuewild ";"
+      rfc  Optional (RFC 8659). CAA records name the CAs allowed to issue certificates for the domain; CAs are required to honor them.
+      → The domain affirmatively prohibits wildcard-certificate issuance (RFC 8659 §4.3): no CA may issue for *.example. This is stricter than a named-CA restriction.
+
+COULD NOT MEASURE
+  UNMEASURED DKIM         <span class="indet">INDET</span>   wildcard *._domainkey — the selector sweep proves nothing
+      rfc  Optional (RFC 6376). Public key published at &lt;selector&gt;._domainkey.&lt;domain&gt;; the selector is advertised only in outbound mail (DKIM-Signature `s=` tag), not in the zone.
+      → A nonexistent selector name resolved, so this domain publishes a wildcard and the 81-selector sweep is not probative — every probe "resolves" against it. Provide your actual selector (the s= tag in any outbound DKIM-Signature header) to measure DKIM definitively.
+
+NOT APPLICABLE
+  N/A        DANE         <span class="na">N/A</span>     no mail declared (null MX, RFC 7505)
+      rfc  Optional (RFC 7672). TLSA at _25._tcp.&lt;mx-host&gt; for each MX; requires a DNSSEC-signed zone (§1.3.2) to mean anything.
+      → The domain explicitly declares it accepts no mail; there is no mail server to pin.
+
+Coverage Score : 4/6 (66%)  — deployed controls over measured controls
+Risk-Weighted  : 71%  (scoring v1)  — the same verdicts weighted by each control's identity — beside Coverage, never instead of it, never sealed
+? (indeterminate): 1 · N/A (not applicable): 1  — excluded from both scores
+
+<span class="rederive">── Re-derive the seal — scheme resolution-scope-sha3-512-v4 ──
+resolution-scope-sha3-512-v4
 resolutionscope.com
-0.1.0
+26.0.0-alpha.1-1d1900e
 cloudflare
 dnssec=SignedAndDelegated=Present
 spf=HardFail=Present
@@ -98,7 +119,8 @@ tlsa_zone=NoMxHost
 mta_sts=RecordAbsent=Absent
 caa=WildcardFullyRestricted=Present
 cds=NotPublished=Absent
-──────────────────────────────────────────────────────────</span></pre>
+──────────────────────────────────────────────────────────</span>
+tamper-evidence only: hash these exact bytes under the named scheme (every line, the last included, ends in a newline) and you re-derive the seal — it proves the verdict you hold is the one that was sealed, nothing more</pre>
     </div>
     <p class="specimen-note">This domain declares no mail (null MX, RFC 7505) — so DANE is honestly
     not-applicable rather than silently passed, and DKIM is honestly indeterminate: a wildcard
