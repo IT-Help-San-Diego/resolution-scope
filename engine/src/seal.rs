@@ -314,6 +314,22 @@ mod tests {
         );
     }
 
+    /// v3 companion to the v4 known-answer above, same freeze contract. The
+    /// store's v3 re-derive arm (store/src/lib.rs seal dispatch) rides the
+    /// SAME shared builder under the v3 label — valid only while v3/v4 are
+    /// byte-identical — so at the v5 bump BOTH arms must re-target the frozen
+    /// canonical_input_v4() (scheme-line parameterized) or stored v3 rows
+    /// false-tamper exactly as v4 rows would. Never re-pin this literal.
+    #[test]
+    fn v3_known_answer_seal_is_byte_frozen() {
+        let s = seal_versioned_under_scheme(&baseline(), "0.0.0-kat", SEAL_SCHEME_V3);
+        assert_eq!(
+            s,
+            "20745a96ae762f15146184233c64149fad3a09415e1b6014990b3168f7ac2e97\
+             92fa6b1418ab259908f515f863ee0d7ace22685ab8a957006e1f438621dbd26d"
+        );
+    }
+
     #[test]
     fn seal_is_deterministic() {
         assert_eq!(seal(&baseline()), seal(&baseline()));
