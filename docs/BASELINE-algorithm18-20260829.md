@@ -47,7 +47,9 @@ code search is not a universal negative):
   `ECC_NIST_P256` KMS key (algorithm 13, the only option), which bounds what
   its signer can emit regardless of implementation. Cloudflare's and
   Verisign's own zones publish algorithm 13 today — evidence of current
-  output, not of capability.
+  output, not of capability — and both published future-tense "preparing"
+  posts in July 2026 (hermes, 2026-08-29): their own readable surfaces say
+  not-yet, in their own words.
 
 **Precision from the other lane's hunt:** research *forks* did implement the
 predecessor — desec-io/pqc-dnssec (deSEC + SandboxAQ + PowerDNS field study,
