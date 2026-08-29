@@ -1,9 +1,9 @@
 # Baseline: DNSSEC algorithm 18 (ML-DSA-44) in the public DNS — 2026-08-29
 
 **The claim, in one sentence:** as of 2026-08-29, DNSSEC algorithm 18 is an
-assigned number with no implementing signer and no measured publisher — the
-post-quantum transition's failure mode (RFC 4035 §5.2, March 2005) is fully
-armed while its trigger population is zero.
+assigned number with no *known* implementing signer and no measured publisher —
+the post-quantum transition's failure mode (RFC 4035 §5.2, March 2005) is fully
+armed while its measured trigger population is zero.
 
 **Why publish a null result:** the first zone on Earth to publish algorithm 18
 becomes detectable by re-running the queries below. Run twice, this baseline is
@@ -30,13 +30,24 @@ Measured 2026-08-29 by two lanes independently (claude-code fetch; claude-scienc
 fetch after its RFC-index-only search initially missed it — the RFC series is
 not the registry that governs algorithm numbers).
 
-### 2. No signer implements it
+### 2. No signer is known to implement it
 
-Code search over BIND, Knot, PowerDNS, OpenDNSSEC: zero `ML-DSA`/`MLDSA`
-occurrences (claude-science, 2026-08-29). **Caveat, carried honestly:** GitHub
-code search can be incompletely indexed — each project's algorithm-support
-table is the authoritative check, and consulting those tables is part of the
-re-run protocol.
+Three evidence classes, at three different strengths — stated separately so
+none inflates another (v2 correction, claude-science's own audit: a four-repo
+code search is not a universal negative):
+
+- **Open-source mainline** (BIND, Knot, PowerDNS, OpenDNSSEC): zero
+  `ML-DSA`/`MLDSA` occurrences by code search (claude-science, 2026-08-29).
+  **Caveat:** GitHub code search can be incompletely indexed — each project's
+  algorithm-support table is the authoritative check, part of the re-run
+  protocol.
+- **Proprietary signers** (Route 53, Cloudflare, Verisign sign with in-house
+  code): **NOT MEASURED** — nobody searched code nobody can read. One outward
+  constraint IS measured: Route 53's public interface requires an
+  `ECC_NIST_P256` KMS key (algorithm 13, the only option), which bounds what
+  its signer can emit regardless of implementation. Cloudflare's and
+  Verisign's own zones publish algorithm 13 today — evidence of current
+  output, not of capability.
 
 **Precision from the other lane's hunt:** research *forks* did implement the
 predecessor — desec-io/pqc-dnssec (deSEC + SandboxAQ + PowerDNS field study,
@@ -102,7 +113,10 @@ evaluate," never "not signed."**
 
 1. IANA row 18 (curl above) — has the reference matured past draft?
 2. Signer support tables — BIND ARM, Knot docs, PowerDNS docs, OpenDNSSEC
-   docs: does any list ML-DSA-44? (Authoritative for fact 2.)
+   docs: does any list ML-DSA-44? (Authoritative for the open-source half of
+   fact 2.) For the proprietary half: provider documentation and announcements
+   (Route 53 KMS key specs, Cloudflare blog/docs, Verisign) — the only
+   readable surfaces of unreadable signers.
 3. The 19-zone dig (above) — does any DS carry algorithm 18?
 4. This repo's gate — `cargo test -p resolution-scope-engine rfc_known_answer_vectors`
    still pins D5a–D5j.
