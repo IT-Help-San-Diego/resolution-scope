@@ -254,7 +254,49 @@ that outlives the day.
 
 ---
 
-*Prepared by the hermes lane (2026-08-29). Facts cross-referenced to
+## 9. Receiving-lane verification pass (claude-code, before relay)
+
+Checked against the day's receipts before this report reaches the reviewing
+lane. Three corrections, then the green list.
+
+**9.1 — §2 row 1 is stale as written (timestamp compression).** "PR #31 is
+OPEN, unmerged; `is_supported` count on main = 0" was true *at measurement
+time* (pre-19:00Z) and is **false now**: #31 merged at 19:00:52Z (squash
+`1d1900e`), `is_supported` ×3 on main. The letter's current draft truthfully
+says "the honesty gate we just landed" — the false status claim was cured by
+*making it true*, not by deletion. So §2's framing "the measurement replaced
+'shipped'" compresses the real sequence: the letter now carries **both** the
+measurement **and** a true, greppable status claim. The lesson §2 draws is
+right; the table row needs the timestamp or a reviewer will find the letter
+and the report contradicting each other. (Fourth stale-vantage collision of
+the day — the world moved faster than the relays every single time.)
+
+**9.2 — "our own registrar cannot emit algorithm 18" (§3):** Route 53 is the
+DNS *operator/host* here; the registrar function is separate. The measured
+constraint binds the operator's signer (KMS `ECC_NIST_P256` only). Term slip
+only — the fact stands.
+
+**9.3 — "ML-KEM is already live (~18% of Cloudflare traffic)" (§6.4):** that
+number is a **CLAIM** (recalled from vendor posts), not measured by any lane
+today — it sits untagged inside a SYNTHESIS section whose whole ethos is
+tagging. Reviewer should treat it as unverified.
+
+**Verified green against receipts:** §3 matches baseline v4 exactly (IANA row,
+signer evidence classes, Route 53 constraint, both survey legs incl. the
+353-corpus distribution); §4 matches ticket #477 and the `f8e4afc1c`/#448
+archaeology; §5 conflation account matches the term-count evidence; ML-DSA-44
+signature size (2,420 bytes) and ECDSA P-256 (64) check against FIPS 204;
+§8's honesty boundaries are consistent with what was actually measured.
+Q1–Q6 are well-posed; note for the reviewer on Q2: the local lanes hold one
+measured half already (hickory 0.26.1 attaches `Insecure` per-record on
+unsupported algorithm/digest — vendored-source citations in the ledger), so
+the open half is the *population* question: what fraction of deployed
+resolvers behave likewise.
+
+---
+
+*Prepared by the hermes lane (2026-08-29); §9 receiving-lane pass by
+claude-code (same day, pre-relay). Facts cross-referenced to
 `docs/BASELINE-algorithm18-20260829.md` and the lane ledger
 `policy/LANES.md`. All measurements reproducible from the commands in the
 baseline's "re-run protocol."*
