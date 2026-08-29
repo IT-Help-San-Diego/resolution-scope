@@ -43,7 +43,8 @@ use crate::render::{
     tier_subtitle, tiers, weighted_label, Observation, COVERAGE_NOTE, EXCLUDED_NOTE,
     RISK_WEIGHTED_NOTE, SEAL_NOTE,
 };
-use resolution_scope_engine::analysis::analyse_domain_with_selectors;
+use resolution_scope_engine::analysis::analyse_domain_with_receipts;
+use resolution_scope_engine::denial_proof::RecordEntry;
 use resolution_scope_engine::seal::canonical_input;
 use resolution_scope_engine::truth_chain::{
     by_severity, truth_chain, Audience, ControlId, ControlReport, Severity, Tally,
@@ -452,6 +453,7 @@ fn render_controls(
     title: &'static str,
     model: &[ControlReport; 8],
     controls: &[ControlId],
+    records: &[RecordEntry],
     pal: Palette,
     audience: Audience,
     width: usize,
@@ -483,6 +485,32 @@ fn render_controls(
             ),
         ]));
         lines.push(Line::from(""));
+        // Raw records — the proof ABOVE the explanation (deep statement Part 3,
+        // requirement A). Rendered verbatim, keyed to this control. No new
+        // color judgment is invented: the record is evidence, and the verdict
+        // that reads it is already the severity/tier/consequence on this row.
+        // A control with no measured record contributes nothing (a missing
+        // record is informative absence, never a fabricated empty string).
+        let own_records: Vec<&RecordEntry> = records.iter().filter(|r| r.control == *c).collect();
+        if own_records.is_empty() {
+            lines.extend(wrap_indent(
+                "  records      ",
+                "(no record measured — the verdict is a probe-sweep or absence judgment, not a published value)",
+                width,
+                label,
+                Style::default().fg(pal.muted),
+            ));
+        } else {
+            for rec in &own_records {
+                lines.extend(wrap_indent(
+                    "  records      ",
+                    &rec.value,
+                    width,
+                    label,
+                    Style::default().fg(pal.fg),
+                ));
+            }
+        }
         lines.extend(wrap_indent(
             "  measured     ",
             rep.measured,
@@ -582,6 +610,7 @@ fn render_seal(a: &ScoredAnalysis, pal: Palette, width: usize) -> Vec<Line<'stat
 fn section_for_tab(
     tab: usize,
     result: &ScoredAnalysis,
+    records: &[RecordEntry],
     pal: Palette,
     audience: Audience,
     selected: usize,
@@ -594,7 +623,7 @@ fn section_for_tab(
         n => {
             let (title, controls) = controls_for_tab(n);
             (
-                render_controls(title, &model, controls, pal, audience, width),
+                render_controls(title, &model, controls, records, pal, audience, width),
                 0..0,
             )
         }
@@ -639,10 +668,11 @@ enum ScanState {
     Measuring {
         domain: String,
         started: Instant,
-        handle: JoinHandle<Result<ScoredAnalysis>>,
+        handle: JoinHandle<Result<(ScoredAnalysis, Vec<RecordEntry>)>>,
     },
     Done {
         result: ScoredAnalysis,
+        records: Vec<RecordEntry>,
         took: Duration,
         at: Instant,
     },
@@ -658,6 +688,7 @@ enum ScanState {
 #[derive(Clone)]
 struct DoneScan {
     result: ScoredAnalysis,
+    records: Vec<RecordEntry>,
     took: Duration,
     at: Instant,
 }
@@ -758,7 +789,9 @@ impl App {
         let d = domain.clone();
         let identity = self.resolver_identity;
         let handle = tokio::spawn(async move {
-            analyse_domain_with_selectors(&resolver, &d, &selectors, identity).await
+            analyse_domain_with_receipts(&resolver, &d, &selectors, identity)
+                .await
+                .map(|(a, _receipts, records)| (a, records))
         });
         self.scan = ScanState::Measuring {
             domain,
@@ -779,6 +812,7 @@ impl App {
         if let Some(cached) = self.results.get(&name) {
             self.scan = ScanState::Done {
                 result: cached.result.clone(),
+                records: cached.records.clone(),
                 took: cached.took,
                 at: cached.at,
             };
@@ -807,7 +841,7 @@ impl App {
         {
             let took = started.elapsed();
             let completed = match handle.await {
-                Ok(Ok(result)) => {
+                Ok(Ok((result, records))) => {
                     let at = Instant::now();
                     // Cache the DONE payload (not the whole ScanState —
                     // Measuring holds a non-Clone JoinHandle). A later Tab
@@ -816,11 +850,17 @@ impl App {
                         domain,
                         DoneScan {
                             result: result.clone(),
+                            records: records.clone(),
                             took,
                             at,
                         },
                     );
-                    ScanState::Done { result, took, at }
+                    ScanState::Done {
+                        result,
+                        records,
+                        took,
+                        at,
+                    }
                 }
                 Ok(Err(e)) => ScanState::Failed {
                     domain,
@@ -1110,10 +1150,13 @@ fn render_content(f: &mut Frame, area: Rect, app: &mut App) {
         return;
     }
     let lines: Vec<Line<'static>> = match &app.scan {
-        ScanState::Done { result, .. } => {
+        ScanState::Done {
+            result, records, ..
+        } => {
             let (lines, keep) = section_for_tab(
                 app.selected_tab,
                 result,
+                records,
                 p,
                 app.audience,
                 app.selected_control,
@@ -1686,6 +1729,68 @@ mod tests {
     }
 
     #[test]
+    fn records_render_verbatim_above_the_explanation() {
+        use resolution_scope_engine::analysis::{
+            CaaDisposition, CdsDisposition, DaneDisposition, DkimDisposition, DmarcDisposition,
+            DnssecDisposition, MtaStsDisposition, SpfDisposition, TlsaZone,
+        };
+        let a = ScoredAnalysis {
+            domain: "example.test".into(),
+            session_id: 0,
+            timestamp_local: 0,
+            resolver_identity: "test".into(),
+            dnssec_chain: DnssecDisposition::Unsigned.chain(),
+            dnssec_disposition: DnssecDisposition::Unsigned,
+            spf: SpfDisposition::SoftFail.chain(),
+            spf_disposition: SpfDisposition::SoftFail,
+            dkim: DkimDisposition::NotProbed.chain(),
+            dkim_disposition: DkimDisposition::NotProbed,
+            dmarc: DmarcDisposition::Reject.chain(),
+            dmarc_disposition: DmarcDisposition::Reject,
+            dane: DaneDisposition::DnssecRequired.chain(),
+            dane_disposition: DaneDisposition::DnssecRequired,
+            tlsa_zone: TlsaZone::ForeignZone,
+            mta_sts: MtaStsDisposition::Enforced.chain(),
+            mta_sts_disposition: MtaStsDisposition::Enforced,
+            caa: CaaDisposition::Configured.chain(),
+            caa_disposition: CaaDisposition::Configured,
+            cds_cdnskey: CdsDisposition::NotPublished.chain(),
+            cds_disposition: CdsDisposition::NotPublished,
+        };
+        // Records keyed to the controls they came from (R-B: beside the seal).
+        let records = vec![
+            RecordEntry {
+                control: ControlId::Spf,
+                value: "v=spf1 include:_spf.google.com ~all".to_string(),
+            },
+            RecordEntry {
+                control: ControlId::Dmarc,
+                value: "v=DMARC1; p=reject; rua=mailto:dmarc@example.com".to_string(),
+            },
+        ];
+        // Tab 3 is SPF · DKIM · DMARC — it carries two of the three records.
+        let (lines, _) = section_for_tab(3, &a, &records, Palette::BLUE, Audience::BlueTeam, 0, 80);
+        let text: String = lines
+            .iter()
+            .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+            .collect();
+        assert!(
+            text.contains("v=spf1 include:_spf.google.com ~all"),
+            "the raw SPF record renders verbatim"
+        );
+        assert!(
+            text.contains("v=DMARC1; p=reject"),
+            "the raw DMARC record renders verbatim"
+        );
+        // DKIM has no captured record here (NotProbed) — a missing record is an
+        // honest placeholder, never a fabricated value or a silent skip.
+        assert!(
+            text.contains("no record measured"),
+            "a control with no record says so, never fabricates"
+        );
+    }
+
+    #[test]
     fn summary_subtitles_sit_under_the_verdict_tiers() {
         use resolution_scope_engine::analysis::{
             CaaDisposition, CdsDisposition, DaneDisposition, DkimDisposition, DmarcDisposition,
@@ -2072,9 +2177,10 @@ mod tests {
         use std::time::{Duration, Instant};
 
         let domain = "it-help.tech".to_string();
-        let result = analyse_domain_with_selectors(&test_resolver(), &domain, &[], "cloudflare")
-            .await
-            .expect("scan it-help.tech");
+        let (result, _receipts, records) =
+            analyse_domain_with_receipts(&test_resolver(), &domain, &[], "cloudflare")
+                .await
+                .expect("scan it-help.tech");
 
         // Dump BOTH modes so the blue and red renders can be compared.
         for (audience, name) in [(Audience::BlueTeam, "blue"), (Audience::RedTeam, "red")] {
@@ -2087,6 +2193,7 @@ mod tests {
             );
             app.scan = ScanState::Done {
                 result: result.clone(),
+                records: records.clone(),
                 took: Duration::from_secs(10),
                 at: Instant::now(),
             };
