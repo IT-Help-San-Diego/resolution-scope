@@ -1759,26 +1759,36 @@ mod tests {
     // Helper — build a DNSSEC-validating resolver pointing at Cloudflare DoT
     // -------------------------------------------------------------------------
 
-    fn make_test_resolver() -> TokioResolver {
+    /// The options `make_test_resolver` builds with — factored out so the
+    /// validate-flag gate below asserts on the REAL constructor input, not a
+    /// local re-derivation. (The previous test built its own opts, set the
+    /// flag, and asserted its own assignment — a check that could not fail;
+    /// deleting `validate = true` from the helper left it green. Audit
+    /// 2026-08-29, same defect shape as the NXNAME-inversion precedent.)
+    fn test_resolver_opts() -> ResolverOpts {
         let mut opts = ResolverOpts::default();
         opts.validate = true; // DNSSEC chain validation on
-                              // Use Cloudflare DoT for deterministic responses in CI.
-                              // In sandboxed / offline environments, these tests must be run with
-                              // `--ignored` suppressed or a local resolver mock substituted.
+        opts
+    }
+
+    fn make_test_resolver() -> TokioResolver {
+        // Use Cloudflare DoT for deterministic responses in CI.
+        // In sandboxed / offline environments, these tests must be run with
+        // `--ignored` suppressed or a local resolver mock substituted.
         TokioResolver::builder_with_config(
             ResolverConfig::udp_and_tcp(&hickory_resolver::config::CLOUDFLARE),
             hickory_resolver::net::runtime::TokioRuntimeProvider::default(),
         )
-        .with_options(opts)
+        .with_options(test_resolver_opts())
         .build()
         .expect("test resolver construction")
     }
 
     // -------------------------------------------------------------------------
     // Unit: resolver_options_validate_is_set
-    // Verifies that make_test_resolver() actually sets validate=true.
-    // This is the Section A.3 gate: if validate is false the golden fixtures
-    // would pass vacuously even without DNSSEC signatures.
+    // Verifies that the opts make_test_resolver() is BUILT WITH carry
+    // validate=true. This is the Section A.3 gate: if validate is false the
+    // golden fixtures would pass vacuously even without DNSSEC signatures.
     // -------------------------------------------------------------------------
     #[test]
     fn resolver_options_validate_is_set() {
@@ -1788,12 +1798,10 @@ mod tests {
             !default_opts.validate,
             "sanity: default validate should be false"
         );
-
-        let mut patched = ResolverOpts::default();
-        patched.validate = true;
         assert!(
-            patched.validate,
-            "validate must be true for DNSSEC fixture tests"
+            test_resolver_opts().validate,
+            "make_test_resolver's opts must carry validate=true — if this \
+             fails, every DNSSEC golden fixture passes vacuously (A.3)"
         );
     }
 

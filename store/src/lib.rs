@@ -750,6 +750,12 @@ mod tests {
     /// The v4 bump's obligation (this enum's own doc): rows sealed under v3
     /// stay VERIFIABLE, because v3's canonical form is byte-identical to
     /// v4's apart from the scheme line.
+    ///
+    /// DISPATCH test only: expected and actual both ride the shared builder,
+    /// so a byte-drift common to both sides passes here. The byte-honesty of
+    /// the v3 path rests on the engine's frozen known-answer pin
+    /// (`v3_known_answer_seal_is_byte_frozen`, engine/src/seal.rs) — do not
+    /// "simplify" that KAT away; this test depends on it.
     #[test]
     fn v3_sealed_row_rederives_to_verified() {
         let a = verdict("v3row.test");
@@ -786,16 +792,16 @@ mod tests {
         }
     }
 
-    /// Refactor guard: the scheme-parameterized path under the CURRENT
-    /// scheme reproduces `seal_versioned` exactly, and the current-scheme
-    /// roundtrip still verifies.
+    /// Refactor guard: a current-scheme roundtrip through the dispatch
+    /// verifies. (An earlier first assertion compared
+    /// `seal_versioned_under_scheme(.., SEAL_SCHEME)` to `seal_versioned` —
+    /// a tautology BY DEFINITION, since the latter is literally defined as
+    /// that call; it could not fail under any drift and was removed. The
+    /// byte-honesty of this path is pinned by the engine's frozen
+    /// known-answer tests, not here. Audit 2026-08-29.)
     #[test]
     fn current_scheme_roundtrip_still_verifies() {
         let a = verdict("current.test");
-        assert_eq!(
-            seal_versioned_under_scheme(&a, "0.1.0", SEAL_SCHEME),
-            seal_versioned(&a, "0.1.0")
-        );
         let s = seal_versioned(&a, "0.1.0");
         assert_eq!(
             check_stored_seal(planted(SEAL_SCHEME, s, a)),

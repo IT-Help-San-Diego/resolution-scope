@@ -230,8 +230,18 @@ fn canonical_input_under_scheme(
 /// Public so the store can persist the producing version beside each verdict
 /// (verification of old rows hashes the stored version, never the current).
 pub fn engine_version() -> String {
-    let pkg = env!("CARGO_PKG_VERSION");
-    match option_env!("RESOLUTION_SCOPE_GIT_VERSION") {
+    compose_engine_version(
+        env!("CARGO_PKG_VERSION"),
+        option_env!("RESOLUTION_SCOPE_GIT_VERSION"),
+    )
+}
+
+/// Pure combinator behind [`engine_version`], factored so the fallback rules
+/// are testable: `option_env!` is compile-time, so the three git-stamp cases
+/// (absent / empty / "untracked") could never be exercised through the public
+/// fn — mutation testing found every mutant here surviving (2026-08-29).
+fn compose_engine_version(pkg: &str, git: Option<&str>) -> String {
+    match git {
         Some(git) if !git.is_empty() && git != "untracked" => format!("{pkg}-{git}"),
         _ => pkg.to_string(),
     }
@@ -312,6 +322,28 @@ mod tests {
             "a5e47988770b3a62bdee9ff50a3068604eeddbc2186784c83129c819f161dd4d\
              bd35fee65b7e92a0625ea3c3f3cc69fd50f49914c30e6e343076e2b0aefc1b29"
         );
+    }
+
+    /// Pins the version-string fallback rules mutation testing found
+    /// entirely unguarded: a build where the git stamp is empty or
+    /// "untracked" must fall back to the BARE crate version ("visibly
+    /// distinct, never a silent default" — the fn's own doc, previously
+    /// asserted by nothing).
+    #[test]
+    fn engine_version_fallback_rules_are_pinned() {
+        assert_eq!(
+            compose_engine_version("26.0.0", Some("g1234abc")),
+            "26.0.0-g1234abc"
+        );
+        assert_eq!(compose_engine_version("26.0.0", Some("")), "26.0.0");
+        assert_eq!(
+            compose_engine_version("26.0.0", Some("untracked")),
+            "26.0.0"
+        );
+        assert_eq!(compose_engine_version("26.0.0", None), "26.0.0");
+        // And the public fn actually routes through the combinator with the
+        // real crate version — a body replaced by String::new() fails here.
+        assert!(engine_version().starts_with(env!("CARGO_PKG_VERSION")));
     }
 
     /// v3 companion to the v4 known-answer above, same freeze contract. The
