@@ -413,10 +413,56 @@ async fn score_dnssec(
                     });
                 }
             }
-            dnssec_disposition_from_answer(
+            let disposition = dnssec_disposition_from_answer(
                 answers_present(answers),
                 answers.first().map(|r| r.proof),
-            )
+            );
+            // `Insecure` is ambiguous by the spec's own construction: RFC
+            // 4035 §5.2 makes a resolver report "no authentication path" and
+            // "path I cannot walk" identically. Only the ambiguous grade
+            // pays for the discriminating DS lookup; the receipt stays on
+            // the primary DNSKEY lookup (a second receipt row per control is
+            // a schema question, not this change's call — the DS material
+            // itself is captured beside the seal below).
+            if disposition == DnssecDisposition::SignedNotDelegated {
+                if let Ok(ds_resp) = observed_lookup(
+                    resolver,
+                    ControlId::Dnssec,
+                    domain,
+                    RecordType::DS,
+                    &mut None,
+                )
+                .await
+                {
+                    let ds_answers = ds_resp.answers();
+                    for rec in ds_answers {
+                        if let hickory_proto::rr::RData::DNSSEC(DNSSECRData::DS(ds)) = &rec.data {
+                            records.push(RecordEntry {
+                                control: ControlId::Dnssec,
+                                value: format!("DS {ds}"),
+                            });
+                        }
+                    }
+                    // Per-record authentication + evaluability live inside
+                    // the gate fn: only Secure-proof DS records count
+                    // (§5.2's AUTHENTICATED DS RRset), and a record is
+                    // evaluatable only when algorithm AND digest both are.
+                    // Absent/unauthenticated DS keeps the proof-derived
+                    // grade: never flip on a measurement that did not
+                    // complete.
+                    if let Some(pairs) = ds_records_none_evaluatable(ds_answers) {
+                        warn!(
+                            domain,
+                            ds_alg_digest_pairs = ?pairs,
+                            "authenticated DS present but no record is evaluatable \
+                             by this validator — chain unwalkable, not unsigned \
+                             (RFC 4035 §5.2 + RFC 6840 §5.2, instrument-level)"
+                        );
+                        return DnssecDisposition::ChainUnverified;
+                    }
+                }
+            }
+            disposition
         }
         Err(e) => {
             warn!(domain, error = %e, "DNSSEC DNSKEY lookup error");
@@ -449,6 +495,71 @@ fn dnssec_disposition_from_answer(
         Some(Proof::Bogus) => DnssecDisposition::BrokenChain,           // broken — counts against
         _ => DnssecDisposition::ChainUnverified, // keys present, chain unmeasurable
     }
+}
+
+/// RFC 4035 §5.2 measured at instrument level, not resolver level. Both of
+/// §5.2's unsupported-algorithm paragraphs mandate the fail-open: the
+/// validator treats the case "as it would the case of an authenticated NSEC
+/// RRset proving that no DS RRset exists", and "the resolver SHOULD treat
+/// the child zone as if it were unsigned". RFC 6840 §5.2 extends the same
+/// rule to DS records with unsupported DIGEST algorithms ("MUST be treated
+/// the same way"). That fail-open is right for a resolver deciding whether
+/// to answer and wrong for an instrument deciding what to report — it
+/// erases the line between "no authentication path exists" (the island)
+/// and "a path exists this validator cannot walk". The DS RRset is the
+/// discriminating measurement the answer proof alone cannot supply:
+/// `Insecure` with no authenticated DS is the island; `Insecure` with an
+/// authenticated DS RRset containing no evaluatable record is an unwalkable
+/// chain — `ChainUnverified`, never `Unsigned`.
+///
+/// The unit is the DS RECORD, algorithm AND digest jointly — the exact
+/// complement of the validator's own insecure-gate
+/// (`!algorithm.is_supported() || !digest_type.is_supported()`,
+/// hickory-net dnssec/mod.rs). An algorithm-only check misses the compound
+/// case (one record supported-alg/unknown-digest beside another
+/// unknown-alg/supported-digest: no record is walkable, yet each column
+/// contains a supported member) — the adversarial-verify refutation that
+/// produced this form. Only `Proof::Secure` records count: §5.2 speaks of
+/// an AUTHENTICATED DS RRset, and an unvalidated record must never flip a
+/// grade in either direction.
+///
+/// Not a future concern: IANA already lists 17 (SM2, RFC 9563), 23
+/// (GOST R 34.10-2012, RFC 9558), and 18 (ML-DSA-44, post-quantum lattice;
+/// early allocation, draft-stage reference) — all `Unknown` to this build's
+/// validator — so zones this gate discriminates exist in the measurable
+/// wild today, and an algorithm transition arrives here as new numbers,
+/// not a redesign. `is_supported()` is the validator's own self-report of
+/// its build, never a hand-maintained list (the mirror-drift class); note
+/// it includes SHA-1-era RSA (5, 7) — a SHA-1-only chain is walkable to
+/// this validator and never reaches the gate.
+///
+/// Returns `Some(sorted, deduped (algorithm, digest_type) pairs)` when the
+/// authenticated DS set is non-empty and NO record is evaluatable; `None`
+/// when any record is evaluatable or no authenticated DS is present.
+fn ds_records_none_evaluatable(records: &[hickory_proto::rr::Record]) -> Option<Vec<(u8, u8)>> {
+    use hickory_proto::dnssec::rdata::DNSSECRData;
+    use hickory_proto::dnssec::{Algorithm, DigestType, Proof};
+    let mut pairs: Vec<(u8, u8)> = records
+        .iter()
+        .filter(|rec| rec.proof == Proof::Secure)
+        .filter_map(|rec| match &rec.data {
+            hickory_proto::rr::RData::DNSSEC(DNSSECRData::DS(ds)) => {
+                Some((u8::from(ds.algorithm()), u8::from(ds.digest_type())))
+            }
+            _ => None,
+        })
+        .collect();
+    if pairs.is_empty() {
+        return None;
+    }
+    if pairs.iter().any(|&(alg, dig)| {
+        Algorithm::from_u8(alg).is_supported() && DigestType::from(dig).is_supported()
+    }) {
+        return None;
+    }
+    pairs.sort_unstable();
+    pairs.dedup();
+    Some(pairs)
 }
 
 async fn score_spf(
@@ -1902,6 +2013,104 @@ mod tests {
             DnssecDisposition::BrokenChain,
             "D4: validation fails = bogus/broken"
         );
+
+        // --- DNSSEC unsupported-DS gate (RFC 4035 §5.2 + RFC 6840 §5.2) ---
+        // 4035 §5.2: unsupported algorithms in an AUTHENTICATED DS RRset →
+        // resolver SHOULD treat the child as unsigned. 6840 §5.2: DS records
+        // with unsupported DIGEST algorithms MUST be treated the same way.
+        // Right for a resolver, wrong for an instrument: the gate below
+        // discriminates "no path" from "path this validator cannot walk",
+        // per RECORD (algorithm AND digest jointly — the exact complement of
+        // the validator's own insecure-gate). Numbers are live IANA
+        // assignments: alg 13 = ECDSA-P256 (evaluatable), 17 = SM2,
+        // 18 = ML-DSA-44 (post-quantum, early allocation), 23 = GOST-2012,
+        // 1 = RSAMD5 (known, refused); digest 2 = SHA-256 (evaluatable),
+        // 3 = GOST 34.11-94 (Unknown to this validator).
+        {
+            use hickory_proto::dnssec::rdata::{DNSSECRData, DS};
+            use hickory_proto::dnssec::{Algorithm, DigestType, Proof};
+            use hickory_proto::rr::{RData, Record};
+            let ds = |alg: u8, dig: u8, proof: Proof| {
+                let mut rec = Record::from_rdata(
+                    mx_name("example.com."),
+                    300,
+                    RData::DNSSEC(DNSSECRData::DS(DS::new(
+                        12345,
+                        Algorithm::from_u8(alg),
+                        DigestType::from(dig),
+                        vec![0xAA; 32],
+                    ))),
+                );
+                rec.proof = proof;
+                rec
+            };
+            let s = Proof::Secure;
+            assert_eq!(
+                ds_records_none_evaluatable(&[ds(13, 2, s)]),
+                None,
+                "D5a: evaluatable record (ECDSA-P256 + SHA-256) — gate must NOT fire"
+            );
+            assert_eq!(
+                ds_records_none_evaluatable(&[ds(18, 2, s)]),
+                Some(vec![(18, 2)]),
+                "D5b: ML-DSA-44 only (IANA 18, post-quantum) — unwalkable, gate fires"
+            );
+            assert_eq!(
+                ds_records_none_evaluatable(&[ds(18, 2, s), ds(13, 2, s)]),
+                None,
+                "D5c: one evaluatable RECORD suffices — §5.2 'does not support ANY'"
+            );
+            assert_eq!(
+                ds_records_none_evaluatable(&[
+                    ds(23, 2, s),
+                    ds(18, 2, s),
+                    ds(17, 2, s),
+                    ds(18, 2, s)
+                ]),
+                Some(vec![(17, 2), (18, 2), (23, 2)]),
+                "D5d: multiple unevaluatable records, sorted + deduped"
+            );
+            assert_eq!(
+                ds_records_none_evaluatable(&[ds(1, 2, s)]),
+                Some(vec![(1, 2)]),
+                "D5e: RSAMD5 — known to the parser, refused by the validator; \
+                 known-but-unverifiable is still unwalkable"
+            );
+            assert_eq!(
+                ds_records_none_evaluatable(&[]),
+                None,
+                "D5f: no DS = the island case — gate must NOT fire (never \
+                 converts a genuine island into ChainUnverified)"
+            );
+            assert_eq!(
+                ds_records_none_evaluatable(&[ds(13, 3, s), ds(18, 2, s)]),
+                Some(vec![(13, 3), (18, 2)]),
+                "D5g: the compound refuting vector — supported alg with unknown \
+                 digest beside unknown alg with supported digest: each COLUMN \
+                 has a supported member, NO RECORD is walkable — gate fires \
+                 (this is what an algorithm-only check misgraded as island)"
+            );
+            assert_eq!(
+                ds_records_none_evaluatable(&[ds(13, 3, s)]),
+                Some(vec![(13, 3)]),
+                "D5h: supported algorithm, unsupported digest (RFC 6840 §5.2) — \
+                 unwalkable, gate fires"
+            );
+            assert_eq!(
+                ds_records_none_evaluatable(&[ds(18, 2, Proof::Indeterminate)]),
+                None,
+                "D5i: unauthenticated DS records do not count — §5.2 speaks of \
+                 an AUTHENTICATED DS RRset; an unvalidated record must never \
+                 flip a grade"
+            );
+            assert_eq!(
+                ds_records_none_evaluatable(&[ds(5, 2, s)]),
+                None,
+                "D5j: RSASHA1 counts evaluatable — the gate inherits the \
+                 validator's own build list (SHA-1-era RSA included), never a \
+                 hand-maintained policy list"
+            );
+        }
 
         // --- SPF (RFC 7208 §4.6.2 qualifiers, §4.5 none-result; null MX RFC 7505 §3) ---
         assert_eq!(
