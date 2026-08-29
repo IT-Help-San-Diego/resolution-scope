@@ -1,0 +1,39 @@
+name: Wrong verdict
+description: The instrument asserted something the DNS does not support
+labels: [verdict]
+body:
+  - type: input
+    id: domain
+    attributes:
+      label: Domain measured
+    validations:
+      required: true
+  - type: input
+    id: command
+    attributes:
+      label: Exact command
+      placeholder: resolution-scope example.com --format json
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Verdict produced (paste the JSON or text output, seal included)
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Verdict you believe correct, with the evidence
+      description: >
+        dig/drill output, the RFC section, or the record data that shows the
+        instrument is wrong. A disagreement without a measurement is an
+        opinion; we can only act on measurements.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+    validations:
+      required: true

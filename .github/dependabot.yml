@@ -1,0 +1,23 @@
+# Keeps the SHA-pinned actions fresh (bumps the SHA, keeps the version
+# comment) and watches all five crate dirs — no workspace, so each is
+# enumerated. Dependabot PRs run the same gates as everyone else's.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: cargo
+    directories:
+      - "/engine"
+      - "/cli"
+      - "/store"
+      - "/types"
+      - "/native"
+    schedule:
+      interval: weekly
+    groups:
+      patch-and-minor:
+        update-types:
+          - "patch"
+          - "minor"

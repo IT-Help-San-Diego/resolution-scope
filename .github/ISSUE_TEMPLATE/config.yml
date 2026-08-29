@@ -1,0 +1,7 @@
+# Machine-gate-first: the form is the gate. (Maintainer self-notes can
+# still bypass via `gh issue create` / the API.)
+blank_issues_enabled: false
+contact_links:
+  - name: Security report
+    url: https://github.com/IT-Help-San-Diego/resolution-scope/security/advisories/new
+    about: Wrong-verdict-with-security-impact and vulnerabilities go here, privately.

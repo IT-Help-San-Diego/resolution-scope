@@ -21,6 +21,13 @@ on:
 permissions:
   contents: read
 
+# Serialize deploys, never cancel one mid-flight: two quick pushes to site/**
+# running `s3 sync --delete` concurrently interleave, and a half-cancelled
+# deploy leaves the bucket in neither state (audit 2026-08-29, H6).
+concurrency:
+  group: deploy-site
+  cancel-in-progress: false
+
 jobs:
   verify:
     runs-on: ubuntu-latest

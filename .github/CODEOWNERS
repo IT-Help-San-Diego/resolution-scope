@@ -1,0 +1,4 @@
+# Single maintainer today. All paths route review to the owner. Add rows
+# only when a second maintainer actually owns a path — per-crate lines for
+# a one-author history would be fiction.
+* @careyjames

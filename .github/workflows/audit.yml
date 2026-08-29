@@ -1,0 +1,48 @@
+# Advisories live here, NOT in ci.yml's license gate: a RustSec advisory
+# lands without any commit, so a red run here means "act on the advisory,"
+# never "this PR broke something." Before 2026-08-29 deny.toml's
+# [advisories] section was config that NO gate executed — the exact
+# check-that-cannot-fail class the project forbids. Three triggers:
+# daily cron (advisories arrive on their own clock), pushes touching
+# dependency files, and PRs touching dependency files (a dep-bumping PR
+# gets its advisories checked in-PR; everyone else's PRs stay hermetic).
+name: Security audit
+
+on:
+  schedule:
+    - cron: "37 6 * * *"
+  push:
+    paths:
+      - "**/Cargo.lock"
+      - "**/Cargo.toml"
+      - "deny.toml"
+  pull_request:
+    paths:
+      - "**/Cargo.lock"
+      - "**/Cargo.toml"
+      - "deny.toml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: audit-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  advisories:
+    name: advisories — ${{ matrix.crate }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        crate: [engine, cli, native, store, types]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5 tag @ 2026-08-29
+        with:
+          persist-credentials: false
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
+        with:
+          command: check advisories
+          manifest-path: ${{ matrix.crate }}/Cargo.toml
