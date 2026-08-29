@@ -297,6 +297,23 @@ mod tests {
         }
     }
 
+    /// v4 known-answer: the ONLY byte-frozen pin in the suite. Every other
+    /// seal test compares seal() to seal() and would pass unchanged through a
+    /// silent canonical-form drift; this literal is what catches it. Minted
+    /// BEFORE any v5 builder change — the ordering is load-bearing, because a
+    /// pin minted after a mutation freezes the wrong bytes. When the v5 bump
+    /// lands, re-target this at the frozen canonical_input_v4() builder; the
+    /// literal itself must NEVER be re-pinned.
+    #[test]
+    fn v4_known_answer_seal_is_byte_frozen() {
+        let s = seal_versioned(&baseline(), "0.0.0-kat");
+        assert_eq!(
+            s,
+            "a5e47988770b3a62bdee9ff50a3068604eeddbc2186784c83129c819f161dd4d\
+             bd35fee65b7e92a0625ea3c3f3cc69fd50f49914c30e6e343076e2b0aefc1b29"
+        );
+    }
+
     #[test]
     fn seal_is_deterministic() {
         assert_eq!(seal(&baseline()), seal(&baseline()));
