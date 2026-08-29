@@ -94,7 +94,7 @@ pub async fn analyse_domain_with_receipts(
     // hickory-resolver with validate=true performs AD-bit + RRSIG chain check.
     // The dnssec-ring feature (enforced by compile_error! in lib.rs) is what
     // makes this verification real rather than a no-op.
-    let dnssec_disposition = score_dnssec(resolver, domain, &mut r_dnssec).await;
+    let dnssec_disposition = score_dnssec(resolver, domain, &mut r_dnssec, &mut records).await;
     let dnssec_chain = dnssec_disposition.chain();
 
     // ── Email controls (stub — wire up full probes in Tier 2) ───────────────
@@ -113,13 +113,14 @@ pub async fn analyse_domain_with_receipts(
     let dkim = dkim_disposition.chain();
     let dmarc_disposition = score_dmarc(resolver, domain, &mut r_dmarc, &mut records).await;
     let dmarc = dmarc_disposition.chain();
-    let (dane_disposition, tlsa_zone) = score_dane(resolver, domain, &mut r_dane).await;
+    let (dane_disposition, tlsa_zone) =
+        score_dane(resolver, domain, &mut r_dane, &mut records).await;
     let dane = dane_disposition.chain();
-    let mta_sts_disposition = score_mta_sts(resolver, domain, &mut r_mta_sts).await;
+    let mta_sts_disposition = score_mta_sts(resolver, domain, &mut r_mta_sts, &mut records).await;
     let mta_sts = mta_sts_disposition.chain();
     let caa_disposition = score_caa(resolver, domain, &mut r_caa, &mut records).await;
     let caa = caa_disposition.chain();
-    let cds_disposition = score_cds_cdnskey(resolver, domain, &mut r_cds).await;
+    let cds_disposition = score_cds_cdnskey(resolver, domain, &mut r_cds, &mut records).await;
     let cds_cdnskey = cds_disposition.chain();
 
     // ControlId declaration order — one receipt per control that yielded one
@@ -365,6 +366,7 @@ async fn score_dnssec(
     resolver: &TokioResolver,
     domain: &str,
     receipt: &mut Option<LookupReceipt>,
+    records: &mut Vec<RecordEntry>,
 ) -> DnssecDisposition {
     // DNSSEC is measured by the zone's DNSKEY material, NOT by A/AAAA address
     // existence. A zone can publish DNSKEY + RRSIG (sign) while hosting no
@@ -398,6 +400,19 @@ async fn score_dnssec(
     {
         Ok(resp) => {
             let answers = resp.answers();
+            // Raw DNSKEY material — the record the chain was validated against.
+            // BESIDE the seal (R-B), rendered via hickory's own DNSKEY Display
+            // (flags/protocol/algorithm/key-tag/public-key) so a reader can
+            // re-derive which key material produced the verdict.
+            use hickory_proto::dnssec::rdata::DNSSECRData;
+            for rec in answers {
+                if let hickory_proto::rr::RData::DNSSEC(DNSSECRData::DNSKEY(dnskey)) = &rec.data {
+                    records.push(RecordEntry {
+                        control: ControlId::Dnssec,
+                        value: dnskey.to_string(),
+                    });
+                }
+            }
             dnssec_disposition_from_answer(
                 answers_present(answers),
                 answers.first().map(|r| r.proof),
@@ -1122,6 +1137,7 @@ async fn score_dane(
     resolver: &TokioResolver,
     domain: &str,
     receipt: &mut Option<LookupReceipt>,
+    records: &mut Vec<RecordEntry>,
 ) -> (DaneDisposition, TlsaZone) {
     // DANE for SMTP (RFC 7672): TLSA at _25._tcp.<mx-host> for each MX target.
     // NOT _443._tcp.<domain> — that is HTTPS DANE (RFC 6698 for browsers), the
@@ -1190,7 +1206,7 @@ async fn score_dane(
                         if let Some(apex) = zone_apex_of(resolver, host).await {
                             // Internal sub-measurement of the MX host's zone —
                             // not the control's primary lookup; no receipt slot.
-                            let d = score_dnssec(resolver, &apex, &mut None).await;
+                            let d = score_dnssec(resolver, &apex, &mut None, &mut Vec::new()).await;
                             if dane_host_zone_requires_dnssec(d) {
                                 warn!(
                                     domain,
@@ -1210,7 +1226,21 @@ async fn score_dane(
                     for host in &hosts {
                         let tlsa_name = format!("_25._tcp.{host}");
                         match resolver.lookup(tlsa_name.as_str(), RecordType::TLSA).await {
-                            Ok(resp) => counts.push(Some(resp.answers().len())),
+                            Ok(resp) => {
+                                // Raw TLSA records — the actual DANE pins, keyed
+                                // with the host they belong to. BESIDE the seal
+                                // (R-B). hickory's TLSA Display renders the
+                                // usage/selector/matching-type + association data.
+                                for rec in resp.answers() {
+                                    if let hickory_proto::rr::RData::TLSA(tlsa) = &rec.data {
+                                        records.push(RecordEntry {
+                                            control: ControlId::Dane,
+                                            value: format!("{host} => {tlsa}"),
+                                        });
+                                    }
+                                }
+                                counts.push(Some(resp.answers().len()))
+                            }
                             Err(e) => {
                                 // Route through record_absence_verdict so NODATA
                                 // (the host exists, no TLSA) is a MEASURED
@@ -1244,6 +1274,7 @@ async fn score_mta_sts(
     resolver: &TokioResolver,
     domain: &str,
     receipt: &mut Option<LookupReceipt>,
+    records: &mut Vec<RecordEntry>,
 ) -> MtaStsDisposition {
     // MTA-STS (RFC 8461) is a two-step protocol:
     //   1. Discovery: _mta-sts.<domain> TXT ("v=STSv1; id=...") signals that a
@@ -1266,10 +1297,26 @@ async fn score_mta_sts(
     )
     .await
     {
-        Ok(rdata) => rdata.answers().iter().any(|rec| {
-            matches!(&rec.data, hickory_proto::rr::RData::TXT(txt)
-                if txt.txt_data.iter().any(|s| s.starts_with(b"v=STSv1")))
-        }),
+        Ok(rdata) => {
+            // Capture the raw _mta-sts discovery TXT (v=STSv1; id=…) — the
+            // hint that a policy MAY be published. BESIDE the seal (R-B).
+            let mut hint_present = false;
+            for rec in rdata.answers() {
+                if let hickory_proto::rr::RData::TXT(txt) = &rec.data {
+                    for s in &txt.txt_data {
+                        let s = String::from_utf8_lossy(s);
+                        if s.starts_with("v=STSv1") {
+                            hint_present = true;
+                            records.push(RecordEntry {
+                                control: ControlId::MtaSts,
+                                value: s.to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+            hint_present
+        }
         Err(e) => {
             // NODATA (no hint) = measured absence; NXDOMAIN/transient = Indet.
             return mta_sts_err_to_disposition(&e, domain);
@@ -1301,15 +1348,24 @@ async fn score_mta_sts(
     }
     .await;
     match policy_result {
-        Ok(policy) => match mta_sts_policy_state(&policy) {
-            MtaStsPolicyState::Enforce => MtaStsDisposition::Enforced,
-            // Valid policy, mode testing/none — deployed, not enforcing (§8).
-            MtaStsPolicyState::TestingOrNone => MtaStsDisposition::NotEnforced,
-            // Fetched bytes that are not a valid policy: the old code lumped
-            // this into NotEnforced, reporting "published (mode testing/none)"
-            // for garbage — a mode that was never measured.
-            MtaStsPolicyState::Invalid => MtaStsDisposition::PolicyInvalid,
-        },
+        Ok(policy) => {
+            // The fetched policy text — the actual enforcement content. BESIDE
+            // the seal (R-B). A reader can re-derive the mode/mx/max_age the
+            // verdict was computed from.
+            records.push(RecordEntry {
+                control: ControlId::MtaSts,
+                value: policy.clone(),
+            });
+            match mta_sts_policy_state(&policy) {
+                MtaStsPolicyState::Enforce => MtaStsDisposition::Enforced,
+                // Valid policy, mode testing/none — deployed, not enforcing (§8).
+                MtaStsPolicyState::TestingOrNone => MtaStsDisposition::NotEnforced,
+                // Fetched bytes that are not a valid policy: the old code lumped
+                // this into NotEnforced, reporting "published (mode testing/none)"
+                // for garbage — a mode that was never measured.
+                MtaStsPolicyState::Invalid => MtaStsDisposition::PolicyInvalid,
+            }
+        }
         Err(e) => {
             warn!(domain, error = %e, "MTA-STS policy fetch failed");
             MtaStsDisposition::PolicyInvalid // hint present, policy not servable
@@ -1495,6 +1551,7 @@ async fn score_cds_cdnskey(
     resolver: &TokioResolver,
     domain: &str,
     receipt: &mut Option<LookupReceipt>,
+    records: &mut Vec<RecordEntry>,
 ) -> CdsDisposition {
     // CDS (type 59) and CDNSKEY (type 60) are published at the child zone apex
     // as a standing declaration that the parent may maintain the DS from them
@@ -1518,6 +1575,18 @@ async fn score_cds_cdnskey(
         match observed_lookup(resolver, ControlId::Cds, domain, RecordType::CDS, receipt).await {
             Ok(resp) => {
                 if answers_present(resp.answers()) {
+                    // Raw CDS material — the DS the parent is asked to publish.
+                    // BESIDE the seal (R-B), via hickory's CDS Display (key-tag/
+                    // algorithm/digest-type/digest).
+                    use hickory_proto::dnssec::rdata::DNSSECRData;
+                    for rec in resp.answers() {
+                        if let hickory_proto::rr::RData::DNSSEC(DNSSECRData::CDS(cds)) = &rec.data {
+                            records.push(RecordEntry {
+                                control: ControlId::Cds,
+                                value: format!("CDS {cds}"),
+                            });
+                        }
+                    }
                     return if cds_deletion_requested(resp.answers()) {
                         CdsDisposition::DeletionRequested // null CDS — DS removal (RFC 8078 §4)
                     } else {
@@ -1544,6 +1613,18 @@ async fn score_cds_cdnskey(
     match resolver.lookup(domain, RecordType::CDNSKEY).await {
         Ok(resp) => {
             if answers_present(resp.answers()) {
+                // Raw CDNSKEY material, BESIDE the seal (R-B).
+                use hickory_proto::dnssec::rdata::DNSSECRData;
+                for rec in resp.answers() {
+                    if let hickory_proto::rr::RData::DNSSEC(DNSSECRData::CDNSKEY(cdnskey)) =
+                        &rec.data
+                    {
+                        records.push(RecordEntry {
+                            control: ControlId::Cds,
+                            value: format!("CDNSKEY {cdnskey}"),
+                        });
+                    }
+                }
                 if cds_deletion_requested(resp.answers()) {
                     CdsDisposition::DeletionRequested // null CDNSKEY — DS removal
                 } else {
