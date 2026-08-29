@@ -18,7 +18,7 @@ serde_json = "1"
 
 # Interactive dashboard (the folded TUI) — ratatui + crossterm.
 ratatui = "0.30"
-crossterm = "0.28"
+crossterm = "0.29"
 
 [[bin]]
 name = "resolution-scope"
