@@ -1,0 +1,20 @@
+[package]
+name = "dane-rx"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0"
+description = "DANE specimen receiver: minimal STARTTLS responder presenting the zone-pinned certificate; never accepts mail."
+
+[[bin]]
+name = "dane-rx"
+path = "src/main.rs"
+
+[dependencies]
+rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"] }
+rustls-pemfile = "2"
+x509-parser = "0.16"
+sha2 = "0.10"
+
+[profile.release]
+strip = true
+lto = true
