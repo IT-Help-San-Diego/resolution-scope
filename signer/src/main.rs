@@ -284,7 +284,7 @@ fn dnskey_presentation(rdata: &[u8]) -> String {
 }
 
 /// Epoch seconds → YYYYMMDDHHMMSS (UTC), the RRSIG time presentation every
-/// serving daemon accepts (NSD rejects bare epoch integers; RFC 4034 §3.2
+/// serving daemon accepts (NSD rejects bare epoch integers; the records spec §3.2 — README.md citation map
 /// allows both, but zone files must be written for the strictest parser).
 fn epoch_to_zone_time(epoch: u32) -> String {
     // civil-from-days (Howard Hinnant's algorithm), days since 1970-01-01
@@ -349,7 +349,7 @@ fn nsec_presentation(rdata: &[u8]) -> String {
 const TXT_DECLARATION: &str = "v=pqexperiment1; domain=pq.resolutionscope.com; algorithm=18; algorithm-name=ML-DSA-44; draft=draft-westerbaan-dnssec-mldsa-04; purpose=field-specimen-only; corpus-excluded=YES; dual-sign=NO; label=EXPERIMENT-NOT-PRODUCTION; contact=security@it-help.tech";
 
 /// No-mail fixture lock (family standard, WHOIS/mail doctrine 2026-08-21):
-/// null MX declares "accepts no mail" (RFC 7505), SPF -all declares no
+/// null MX declares "accepts no mail" (null-MX spec — README.md citation map), SPF -all declares no
 /// authorized sender. The fixture cannot be spoofed FROM.
 const TXT_SPF: &str = "v=spf1 -all";
 
@@ -563,7 +563,7 @@ fn main() -> io::Result<()> {
         class: 1,
         rdata: spf_rd,
     };
-    // Null MX (RFC 7505): declares this fixture accepts no mail at all.
+    // Null MX (null-MX spec, README.md citation map): declares this fixture accepts no mail at all.
     let mx_rd = mx_rdata(0, ".");
     let mx_rr = Rr {
         owner: zone_origin.clone(),
