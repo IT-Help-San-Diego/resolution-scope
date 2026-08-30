@@ -203,6 +203,18 @@ fn txt_presentation(text: &str) -> String {
         .join(" ")
 }
 
+fn mx_rdata(preference: u16, exchange: &str) -> Vec<u8> {
+    let mut r = Vec::new();
+    r.extend_from_slice(&preference.to_be_bytes());
+    r.extend_from_slice(&name_wire(exchange));
+    r
+}
+
+fn mx_presentation(rdata: &[u8]) -> String {
+    let pref = u16::from_be_bytes([rdata[0], rdata[1]]);
+    format!("{pref} {}", name_unwire(&rdata[2..]))
+}
+
 fn nsec_rdata(next_name: &str, types: &[u16]) -> Vec<u8> {
     let mut r = Vec::new();
     r.extend_from_slice(&name_wire(next_name));
@@ -228,6 +240,7 @@ fn type_name(t: u16) -> &'static str {
         1 => "A",
         2 => "NS",
         6 => "SOA",
+        15 => "MX",
         16 => "TXT",
         48 => "DNSKEY",
         47 => "NSEC",
@@ -270,6 +283,31 @@ fn dnskey_presentation(rdata: &[u8]) -> String {
     format!("{flags} {proto} {algo} {key_b64}")
 }
 
+/// Epoch seconds → YYYYMMDDHHMMSS (UTC), the RRSIG time presentation every
+/// serving daemon accepts (NSD rejects bare epoch integers; RFC 4034 §3.2
+/// allows both, but zone files must be written for the strictest parser).
+fn epoch_to_zone_time(epoch: u32) -> String {
+    // civil-from-days (Howard Hinnant's algorithm), days since 1970-01-01
+    let days = (epoch / 86400) as i64;
+    let secs = (epoch % 86400) as i64;
+    let z = days + 719468;
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = (z - era * 146097) as u64; // day of era [0, 146096]
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365; // [0,399]
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let d = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
+    let m = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
+    let year = if m <= 2 { y + 1 } else { y };
+    format!(
+        "{year:04}{m:02}{d:02}{:02}{:02}{:02}",
+        secs / 3600,
+        (secs % 3600) / 60,
+        secs % 60
+    )
+}
+
 fn rrsig_presentation(f: &RrsigFields, sig: &[u8]) -> String {
     let sig_b64 = base64::engine::general_purpose::STANDARD.encode(sig);
     format!(
@@ -279,8 +317,8 @@ fn rrsig_presentation(f: &RrsigFields, sig: &[u8]) -> String {
         f.algorithm,
         f.labels,
         f.orig_ttl,
-        f.expiration,
-        f.inception,
+        epoch_to_zone_time(f.expiration),
+        epoch_to_zone_time(f.inception),
         f.keytag,
         f.signer,
         sig_b64
@@ -309,6 +347,11 @@ fn nsec_presentation(rdata: &[u8]) -> String {
 /// Zone content — single source of truth, shared by --preview (unsigned
 /// placeholder) and the production signing run. Schema per SPEC §3.
 const TXT_DECLARATION: &str = "v=pqexperiment1; domain=pq.resolutionscope.com; algorithm=18; algorithm-name=ML-DSA-44; draft=draft-westerbaan-dnssec-mldsa-04; purpose=field-specimen-only; corpus-excluded=YES; dual-sign=NO; label=EXPERIMENT-NOT-PRODUCTION; contact=security@it-help.tech";
+
+/// No-mail fixture lock (family standard, WHOIS/mail doctrine 2026-08-21):
+/// null MX declares "accepts no mail" (RFC 7505), SPF -all declares no
+/// authorized sender. The fixture cannot be spoofed FROM.
+const TXT_SPF: &str = "v=spf1 -all";
 
 /// Carey's words (fixture doctrine: ASCII-only, word-boundary chunking).
 const TXT_POEM: &str = "Come home to the data, stay spooky at a distance on that sidewalk with a foundation that is better than concrete, seek logic and reason, mathematical validation not con-firmation -- that is just social media likes, not the tour -- that is just applause, great talk now back to the lab! Decide to mathematically, logically work for the future. One less champagne lobster dinner is a lot more science. Immutable reality checks and mathematical validation my love that is the data we come home to.";
@@ -504,6 +547,7 @@ fn main() -> io::Result<()> {
     let poem = TXT_POEM;
     let txt_rd = txt_rdata(txt_str);
     let poem_rd = txt_rdata(poem);
+    let spf_rd = txt_rdata(TXT_SPF);
     let txt_rr = Rr {
         owner: zone_origin.clone(),
         class: 1,
@@ -514,6 +558,18 @@ fn main() -> io::Result<()> {
         class: 1,
         rdata: poem_rd,
     };
+    let spf_rr = Rr {
+        owner: zone_origin.clone(),
+        class: 1,
+        rdata: spf_rd,
+    };
+    // Null MX (RFC 7505): declares this fixture accepts no mail at all.
+    let mx_rd = mx_rdata(0, ".");
+    let mx_rr = Rr {
+        owner: zone_origin.clone(),
+        class: 1,
+        rdata: mx_rd.clone(),
+    };
 
     let dnskey_rr = Rr {
         owner: zone_origin.clone(),
@@ -521,9 +577,9 @@ fn main() -> io::Result<()> {
         rdata: dnskey_rd.clone(),
     };
 
-    // NSEC: apex-only, self-pointing, bitmap covers NS SOA TXT DNSKEY NSEC RRSIG.
+    // NSEC: apex-only, self-pointing, bitmap covers NS SOA MX TXT DNSKEY NSEC RRSIG.
     // Do not claim A here: pqns.resolutionscope.com lives in the parent zone, not this child zone.
-    let nsec_rd = nsec_rdata(&zone_origin, &[2, 6, 16, 48, 47, 46]);
+    let nsec_rd = nsec_rdata(&zone_origin, &[2, 6, 15, 16, 48, 47, 46]);
     let nsec_rr = Rr {
         owner: zone_origin.clone(),
         class: 1,
@@ -532,7 +588,8 @@ fn main() -> io::Result<()> {
 
     let soa_set = vec![&soa_rr];
     let ns_set = vec![&ns_rr];
-    let txt_set = vec![&txt_rr, &poem_rr];
+    let txt_set = vec![&txt_rr, &poem_rr, &spf_rr];
+    let mx_set = vec![&mx_rr];
     let dnskey_set = vec![&dnskey_rr];
     let nsec_set = vec![&nsec_rr];
 
@@ -548,6 +605,7 @@ fn main() -> io::Result<()> {
     let (soa_f, soa_sig) = sign_rrset(&sk, &soa_set, 6, &signing_ctx);
     let (ns_f, ns_sig) = sign_rrset(&sk, &ns_set, 2, &signing_ctx);
     let (txt_f, txt_sig) = sign_rrset(&sk, &txt_set, 16, &signing_ctx);
+    let (mx_f, mx_sig) = sign_rrset(&sk, &mx_set, 15, &signing_ctx);
     let (dnskey_f, dnskey_sig) = sign_rrset(&sk, &dnskey_set, 48, &signing_ctx);
     let (nsec_f, nsec_sig) = sign_rrset(&sk, &nsec_set, 47, &signing_ctx);
 
@@ -557,9 +615,10 @@ fn main() -> io::Result<()> {
     verify_rrset(&pk2, &soa_f, &soa_sig, &soa_set, "SOA")?;
     verify_rrset(&pk2, &ns_f, &ns_sig, &ns_set, "NS")?;
     verify_rrset(&pk2, &txt_f, &txt_sig, &txt_set, "TXT")?;
+    verify_rrset(&pk2, &mx_f, &mx_sig, &mx_set, "MX")?;
     verify_rrset(&pk2, &dnskey_f, &dnskey_sig, &dnskey_set, "DNSKEY")?;
     verify_rrset(&pk2, &nsec_f, &nsec_sig, &nsec_set, "NSEC")?;
-    eprintln!("self-verify: all 5 RRSIGs verified OK");
+    eprintln!("self-verify: all 6 RRSIGs verified OK");
 
     // Emit zone file
     let mut out: Box<dyn Write> = if let Some(ref p) = out_file {
@@ -589,7 +648,14 @@ fn main() -> io::Result<()> {
         txt_presentation(txt_str)
     )?;
     writeln!(out, "{zone_origin} 3600 IN TXT {}", txt_presentation(poem))?;
+    writeln!(
+        out,
+        "{zone_origin} 3600 IN TXT {}",
+        txt_presentation(TXT_SPF)
+    )?;
     writeln!(out, "{}", rrsig_presentation(&txt_f, &txt_sig))?;
+    writeln!(out, "{zone_origin} 3600 IN MX {}", mx_presentation(&mx_rd))?;
+    writeln!(out, "{}", rrsig_presentation(&mx_f, &mx_sig))?;
     writeln!(
         out,
         "{zone_origin} 3600 IN DNSKEY {}",
@@ -699,7 +765,7 @@ mod tests {
 
     #[test]
     fn nsec_bitmap_does_not_claim_parent_zone_a_record() {
-        let rdata = nsec_rdata("pq.resolutionscope.com.", &[2, 6, 16, 48, 47, 46]);
+        let rdata = nsec_rdata("pq.resolutionscope.com.", &[2, 6, 15, 16, 48, 47, 46]);
         let rendered = nsec_presentation(&rdata);
         assert!(
             !format!(" {rendered} ").contains(" A "),
@@ -707,9 +773,45 @@ mod tests {
         );
         assert!(rendered.contains("NS"));
         assert!(rendered.contains("SOA"));
+        assert!(rendered.contains("MX"));
         assert!(rendered.contains("TXT"));
         assert!(rendered.contains("DNSKEY"));
         assert!(rendered.contains("RRSIG"));
         assert!(rendered.contains("NSEC"));
+    }
+
+    /// Known-answer test for epoch_to_zone_time, oracle = `date -u -r <epoch>`.
+    /// A silent off-by-one here shifts every RRSIG validity window — the
+    /// civil-from-days algorithm gets pinned, not trusted.
+    #[test]
+    fn epoch_to_zone_time_known_answers() {
+        assert_eq!(epoch_to_zone_time(0), "19700101000000");
+        assert_eq!(epoch_to_zone_time(951782400), "20000229000000"); // leap day
+        assert_eq!(epoch_to_zone_time(1788072388), "20260830064628");
+        assert_eq!(epoch_to_zone_time(1790667988), "20260929074628");
+        assert_eq!(epoch_to_zone_time(4102444799), "20991231235959");
+    }
+
+    #[test]
+    fn rrsig_presentation_uses_zone_time_not_epoch() {
+        let f = RrsigFields {
+            type_covered: 6,
+            algorithm: 18,
+            labels: 3,
+            orig_ttl: 3600,
+            expiration: 1790667988,
+            inception: 1788072388,
+            keytag: 33846,
+            signer: "pq.resolutionscope.com.".to_string(),
+        };
+        let line = rrsig_presentation(&f, &[0u8; 2420]);
+        assert!(
+            line.contains(" 20260929074628 20260830064628 "),
+            "RRSIG dates must be YYYYMMDDHHMMSS (NSD rejects epoch): {line}"
+        );
+        assert!(
+            !line.contains("1790667988"),
+            "no bare epoch integers in zone presentation"
+        );
     }
 }
