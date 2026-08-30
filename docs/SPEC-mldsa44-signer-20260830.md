@@ -188,7 +188,15 @@ below is that vantage, not merely an interop check.
 2. NSD live on :53; external dig receipts (UDP TC=1, TCP full) from ≥2 vantages.
 3. Parent records: `pqns.resolutionscope.com A 44.226.60.249`, then
    `pq NS pqns`. Verify end-to-end serving (still insecure-delegation).
-4. **DS last** — publishing it arms validation.
+4. **The island window (claude-science proposal, 2026-08-30, adopted):** once
+   the signed zone (DNSKEY live) serves but BEFORE the DS publishes, hold for
+   one deliberate measurement beat — run the engine against the fixture and
+   capture `SignedNotDelegated` firing on a zone we own, a branch never before
+   observed on owned infrastructure. Event-driven watch armed (DNSKEY
+   appearance → wall run + island capture; DS appearance → window closed).
+5. **DS last** — publishing it arms validation; the engine's verdict should
+   transition `SignedNotDelegated` → `ChainUnverified`, and the :5300
+   validator's verdict should flip no-AD → AD. Three sequenced receipts.
 5. Engine + baseline: fixture pre-registration lands in BASELINE (v6) the same
    day the DS does; re-run protocol step 3 documented to exclude/label our own
    zone. Rollback = reverse order (DS out first).
