@@ -27,6 +27,29 @@ Every report carries the verdict's seal and the exact bytes that re-derive it;
 `--format text` prints the engine's own minimal render (the compartment's proof
 surface), `--format json` the verdict object plus seal and scores.
 
+## Why this instrument stays on the sidewalk
+
+Everything Resolution Scope measures is passive, public observation: DNS
+answers any resolver would hand anyone who asked, records published on
+purpose, behavior visible from the outside without touching the systems that
+produce it.
+
+We are fully aware that active techniques would buy more intelligence. An
+Nmap script sweep, active probing of resolvers, mass scanning — any of these
+would multiply what this instrument can see, and we know exactly how. We
+decline them deliberately. The mathematical analysis is *better* when the
+instrument does not perturb or intrude on what it measures, and the
+foundation of the internet deserves observers who treat it as a commons, not
+a target range. That is the whole discipline: the view from the public
+sidewalk, done carefully enough that the receipts re-derive.
+
+Contributions are welcome under the same rule. An improvement that passes
+this project's reality checks cleanly (see the doctrines in `docs/` — every
+claim measured at source, every receipt kept) is wanted, whatever it improves.
+An "improvement" whose yield comes from going active will be declined
+regardless of how much intelligence it would add — not because we don't know
+what it would find, but because we do.
+
 ## License
 
 - **AGPL-3.0** for the analyzer core: anyone may download, run, study, and

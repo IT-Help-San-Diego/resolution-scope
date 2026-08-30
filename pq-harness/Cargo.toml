@@ -1,0 +1,17 @@
+[package]
+name = "pq-harness"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "AGPL-3.0-only"
+publish = false
+description = "Verification harness for the pq.resolutionscope.com ML-DSA-44 fixture: draft-westerbaan-dnssec-mldsa-04 §6 KATs against two independent crates, cross-verification, and the testbed negative receipt. Per docs/SPEC-mldsa44-signer-20260830.md §5.1/§7 — this crate verifies; it never holds production key material."
+
+[dependencies]
+# The SPEC §5.1 signing pick, KAT'd here (must reproduce §6 byte-for-byte or the pick is void)
+fips204 = { version = "=0.4.6", default-features = false, features = ["ml-dsa-44"] }
+# SciSpace's pq-keygen crate, adopted as independent verifier (SPEC §5.1 D7)
+ml-dsa = { version = "=0.1.1", default-features = false, features = ["alloc"] }
+sha2 = "0.10"
+base64 = "0.22"
+hex = "0.4"
