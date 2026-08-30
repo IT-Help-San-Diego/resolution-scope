@@ -308,11 +308,11 @@ fn epoch_to_zone_time(epoch: u32) -> String {
     )
 }
 
-fn rrsig_presentation(f: &RrsigFields, sig: &[u8]) -> String {
+fn rrsig_presentation(owner: &str, f: &RrsigFields, sig: &[u8]) -> String {
     let sig_b64 = base64::engine::general_purpose::STANDARD.encode(sig);
     format!(
         "{} 3600 IN RRSIG {} {} {} {} {} {} {} {} {}",
-        f.signer,
+        owner,
         type_name(f.type_covered),
         f.algorithm,
         f.labels,
@@ -354,6 +354,21 @@ const TXT_DECLARATION: &str = "v=pqexperiment2; alg=18; alg-name=ML-DSA-44; keyt
 const TXT_SPF: &str = "v=spf1 -all";
 
 /// Carey's words (fixture doctrine: ASCII-only, word-boundary chunking).
+/// Window-2 self-declaration (v=pqexperiment3): same schema as v2 but the
+/// keytag/serial are runtime facts of THIS signing run, not compile-time
+/// constants — the declaration can never describe a different key than the
+/// one that signed it. `purpose=field-specimen-only; corpus-excluded=YES`
+/// unchanged. baseline=pq.resolutionscope.com records the leave-live sibling
+/// (Science condition: window 1 stays on the air unchanged).
+const TXT_DECLARATION_W2: &str = "v=pqexperiment3; alg=18; alg-name=ML-DSA-44; keytag={KEYTAG}; keybytes=1312; iana-assigned-between=2026-08-04..2026-08-11; ref=draft-westerbaan-dnssec-mldsa-04; purpose=field-specimen-only; corpus-excluded=YES; dual-sign=NO; baseline=pq.resolutionscope.com; contact=security@it-help.tech";
+
+/// Sidecar self-description records (window 2). Anchors are STABLE DOCS,
+/// never the append-only ledger (relay ruling 2026-08-30: a ledger hash goes
+/// stale in hours; the SPEC document is the stable contract target).
+const TXT_SPEC: &str = "v=pqspec1; doc=docs/SPEC-mldsa44-signer-20260830.md; sha=2ea61f490c8cf4bb";
+const TXT_PROOF: &str = "v=pqproof1; build=053fc78; verify=4-impl KAT + wall green; receipts=policy/LANES.md";
+const TXT_REPO: &str = "v=pqrepo1; url=https://github.com/IT-Help-San-Diego/resolution-scope";
+
 const TXT_POEM: &str = "Come home to the data, stay spooky at a distance on that sidewalk with a foundation that is better than concrete, seek logic and reason, mathematical validation not con-firmation -- that is just social media likes, not the tour -- that is just applause, great talk now back to the lab! Decide to mathematically, logically work for the future. One less champagne lobster dinner is a lot more science. Immutable reality checks and mathematical validation my love that is the data we come home to.";
 
 // ---------- sign + verify ----------
@@ -364,7 +379,20 @@ fn sign_rrset(
     type_covered: u16,
     ctx: &SigningContext,
 ) -> (RrsigFields, Vec<u8>) {
-    let f = ctx.fields_for(type_covered);
+    let mut f = ctx.fields_for(type_covered);
+    // RFC 4034 §3.1.3: the RRSIG Labels field is the number of labels in the
+    // RRset's OWNER name, not the zone origin's. An apex-only zone never
+    // exposed this (owner == origin); multi-name zones (window 2's sidecars
+    // and chain NSECs) break validation if every RRset inherits the apex's
+    // label count — validators reconstruct the signed data from the owner
+    // minus `labels` labels, so a wrong count verifies against a different
+    // message and the RRset reads bogus.
+    let owner_labels = rrs[0]
+        .owner
+        .trim_end_matches('.')
+        .split('.')
+        .count() as u8;
+    f.labels = owner_labels;
     let msg = rrsig_signed_data(&f, rrs);
     let sig = sk
         .try_sign_with_seed(&[0u8; 32], &msg, &[])
@@ -405,6 +433,10 @@ fn main() -> io::Result<()> {
     let mut zone_origin = "pq.resolutionscope.com.".to_string();
     let mut serial = 2026083001u32;
     let mut preview = false;
+    // window2 mode: the reset specimen (Science-approved 2026-08-31) —
+    // dual-NS (SPOF fix, RFC 2182 §5), _spec/_proof/_repo sidecars, canonical
+    // multi-name NSEC chain, SOA-MIN 3600 (matches the other two specimens).
+    let mut window2 = false;
 
     let mut i = 1;
     while i < args.len() {
@@ -428,6 +460,9 @@ fn main() -> io::Result<()> {
             "--preview" => {
                 preview = true;
             }
+            "--window2" => {
+                window2 = true;
+            }
             _ => {
                 eprintln!("unknown flag: {}", args[i]);
                 std::process::exit(1);
@@ -443,6 +478,7 @@ fn main() -> io::Result<()> {
     // TXT. No DNSKEY, no NSEC, no RRSIGs — the island window stays shut.
     if preview {
         assert!(seed_file.is_none(), "--preview takes no --seed-file");
+        let soa_min: u32 = if window2 { 3600 } else { 300 };
         let soa_rd = soa_rdata(
             &zone_origin,
             "hostmaster.resolutionscope.com.",
@@ -450,7 +486,7 @@ fn main() -> io::Result<()> {
             3600,
             900,
             604800,
-            300,
+            soa_min,
         );
         let txt_str = TXT_DECLARATION;
         let poem = TXT_POEM;
@@ -501,6 +537,8 @@ fn main() -> io::Result<()> {
     // Keygen
     let (pk, sk) = fips204::ml_dsa_44::KG::keygen_from_seed(&seed);
     let pk_bytes = pk.into_bytes().to_vec();
+    let pk2 = fips204::ml_dsa_44::PublicKey::try_from_bytes(pk_bytes.clone().try_into().unwrap())
+        .unwrap();
 
     // DNSKEY + DS
     let dnskey_rd = dnskey_rdata(257, 3, 18, &pk_bytes);
@@ -516,7 +554,10 @@ fn main() -> io::Result<()> {
     let expiration = (now + 30 * 86400) as u32;
     let labels = zone_origin.trim_end_matches('.').split('.').count() as u8;
 
-    // Build RRsets (apex-only zone per SPEC §3)
+    // Build RRsets. Window 2: SOA-MIN 3600 (matches the other two specimens;
+    // Science TTL table 2026-08-31); window 1's 300 stays unchanged at runtime
+    // only via NOT passing --window2 — window 1 is frozen and never re-signed.
+    let soa_min: u32 = if window2 { 3600 } else { 300 };
     let soa_rd = soa_rdata(
         &zone_origin,
         "hostmaster.resolutionscope.com.",
@@ -524,7 +565,7 @@ fn main() -> io::Result<()> {
         3600,
         900,
         604800,
-        300,
+        soa_min,
     );
     let soa_rr = Rr {
         owner: zone_origin.clone(),
@@ -532,20 +573,35 @@ fn main() -> io::Result<()> {
         rdata: soa_rd.clone(),
     };
 
-    let ns_rd = name_wire("pqns.resolutionscope.com.");
-    let ns_rr = Rr {
-        owner: zone_origin.clone(),
-        class: 1,
-        rdata: ns_rd,
-    };
+    let mut ns_names: Vec<&str> = vec!["pqns.resolutionscope.com."];
+    if window2 {
+        // RFC 2182 §5: at least two nameservers on separate networks —
+        // pqns (us-west-2c) + pqns2 (us-west-2a) are separate AZs.
+        ns_names.push("pqns2.resolutionscope.com.");
+    }
+    let mut ns_rrs: Vec<Rr> = Vec::new();
+    for n in &ns_names {
+        ns_rrs.push(Rr {
+            owner: zone_origin.clone(),
+            class: 1,
+            rdata: name_wire(n),
+        });
+    }
+    // (single-NS shape superseded by ns_rrs loop emit; kept none)
 
     // Single source of truth for zone content (process rule @533d92e: zones
     // are signer OUTPUT, never hand-edited on the box). Schema per SPEC §3;
     // contact is the role address (WHOIS doctrine 2026-08-23); poem is
     // Carey's words, ASCII-only by fixture doctrine.
-    let txt_str = TXT_DECLARATION;
+    // Window 2's declaration carries the RUNTIME keytag (v=pqexperiment3) —
+    // the signed text can never describe a different key than the one signing it.
+    let txt_str: String = if window2 {
+        TXT_DECLARATION_W2.replace("{KEYTAG}", &kt.to_string())
+    } else {
+        TXT_DECLARATION.to_string()
+    };
     let poem = TXT_POEM;
-    let txt_rd = txt_rdata(txt_str);
+    let txt_rd = txt_rdata(&txt_str);
     let poem_rd = txt_rdata(poem);
     let spf_rd = txt_rdata(TXT_SPF);
     let txt_rr = Rr {
@@ -577,9 +633,35 @@ fn main() -> io::Result<()> {
         rdata: dnskey_rd.clone(),
     };
 
-    // NSEC: apex-only, self-pointing, bitmap covers NS SOA MX TXT DNSKEY NSEC RRSIG.
-    // Do not claim A here: pqns.resolutionscope.com lives in the parent zone, not this child zone.
-    let nsec_rd = nsec_rdata(&zone_origin, &[2, 6, 15, 16, 48, 47, 46]);
+    // NSEC + sidecars. Window 2 is not apex-only: the _proof/_repo/_spec
+    // names require a canonical-order chain (apex -> _proof -> _repo -> _spec
+    // -> wrap to apex) or the sidecars are excluded from authenticated denial
+    // (ledger 2026-08-30 structural requirement). Window 1 keeps the frozen
+    // apex-only self-pointing shape.
+    const APEX_BITMAP: [u16; 7] = [2, 6, 15, 16, 48, 47, 46]; // NS SOA MX TXT DNSKEY NSEC RRSIG
+    const SIDECAR_BITMAP: [u16; 2] = [16, 47]; // TXT NSEC
+
+    let mut nsec_rrs: Vec<Rr> = Vec::new();
+    let mut sidecar_rrs: Vec<Rr> = Vec::new();
+    if window2 {
+        let proof_name = format!("_proof.{zone_origin}");
+        let repo_name = format!("_repo.{zone_origin}");
+        let spec_name = format!("_spec.{zone_origin}");
+        // TRUE canonical order (RFC 4034 §6.1, verified by sort): the apex
+        // (fewer labels at the divergence point) sorts FIRST, then the
+        // underscore names in byte order _proof < _repo < _spec. Chain:
+        // apex -> _proof -> _repo -> _spec -> wrap to apex.
+        nsec_rrs.push(Rr { owner: zone_origin.clone(), class: 1, rdata: nsec_rdata(&proof_name, &APEX_BITMAP) });
+        nsec_rrs.push(Rr { owner: proof_name.clone(), class: 1, rdata: nsec_rdata(&repo_name, &SIDECAR_BITMAP) });
+        nsec_rrs.push(Rr { owner: repo_name.clone(), class: 1, rdata: nsec_rdata(&spec_name, &SIDECAR_BITMAP) });
+        nsec_rrs.push(Rr { owner: spec_name.clone(), class: 1, rdata: nsec_rdata(&zone_origin, &SIDECAR_BITMAP) });
+        sidecar_rrs.push(Rr { owner: proof_name, class: 1, rdata: txt_rdata(TXT_PROOF) });
+        sidecar_rrs.push(Rr { owner: repo_name, class: 1, rdata: txt_rdata(TXT_REPO) });
+        sidecar_rrs.push(Rr { owner: spec_name, class: 1, rdata: txt_rdata(TXT_SPEC) });
+    } else {
+        nsec_rrs.push(Rr { owner: zone_origin.clone(), class: 1, rdata: nsec_rdata(&zone_origin, &APEX_BITMAP) });
+    }
+    let nsec_rd = nsec_rrs[0].rdata.clone();
     let nsec_rr = Rr {
         owner: zone_origin.clone(),
         class: 1,
@@ -587,7 +669,7 @@ fn main() -> io::Result<()> {
     };
 
     let soa_set = vec![&soa_rr];
-    let ns_set = vec![&ns_rr];
+    let ns_set: Vec<&Rr> = ns_rrs.iter().collect();
     let txt_set = vec![&txt_rr, &poem_rr, &spf_rr];
     let mx_set = vec![&mx_rr];
     let dnskey_set = vec![&dnskey_rr];
@@ -602,16 +684,31 @@ fn main() -> io::Result<()> {
         keytag: kt,
         signer: zone_origin.clone(),
     };
+    // Per-sidecar RRsets: one TXT RRset per sidecar name.
+    let mut sidecar_sets: Vec<(&Rr, RrsigFields, Vec<u8>)> = Vec::new();
+    for sc in &sidecar_rrs {
+        let set = vec![sc];
+        let (f, sig) = sign_rrset(&sk, &set, 16, &signing_ctx);
+        verify_rrset(&pk2, &f, &sig, &set, "SIDECAR")?;
+        sidecar_sets.push((sc, f, sig));
+    }
+
     let (soa_f, soa_sig) = sign_rrset(&sk, &soa_set, 6, &signing_ctx);
     let (ns_f, ns_sig) = sign_rrset(&sk, &ns_set, 2, &signing_ctx);
     let (txt_f, txt_sig) = sign_rrset(&sk, &txt_set, 16, &signing_ctx);
     let (mx_f, mx_sig) = sign_rrset(&sk, &mx_set, 15, &signing_ctx);
     let (dnskey_f, dnskey_sig) = sign_rrset(&sk, &dnskey_set, 48, &signing_ctx);
     let (nsec_f, nsec_sig) = sign_rrset(&sk, &nsec_set, 47, &signing_ctx);
+    // Chain NSECs beyond the first (window 2): each name's NSEC is its own RRset.
+    let mut extra_nsec_sets: Vec<(&Rr, RrsigFields, Vec<u8>)> = Vec::new();
+    for nsec in nsec_rrs.iter().skip(1) {
+        let set = vec![nsec];
+        let (f, sig) = sign_rrset(&sk, &set, 47, &signing_ctx);
+        verify_rrset(&pk2, &f, &sig, &set, "NSEC-CHAIN")?;
+        extra_nsec_sets.push((nsec, f, sig));
+    }
 
     // Self-verify
-    let pk2 = fips204::ml_dsa_44::PublicKey::try_from_bytes(pk_bytes.clone().try_into().unwrap())
-        .unwrap();
     verify_rrset(&pk2, &soa_f, &soa_sig, &soa_set, "SOA")?;
     verify_rrset(&pk2, &ns_f, &ns_sig, &ns_set, "NS")?;
     verify_rrset(&pk2, &txt_f, &txt_sig, &txt_set, "TXT")?;
@@ -639,13 +736,19 @@ fn main() -> io::Result<()> {
         "{zone_origin} 3600 IN SOA {}",
         soa_presentation(&soa_rd)
     )?;
-    writeln!(out, "{}", rrsig_presentation(&soa_f, &soa_sig))?;
-    writeln!(out, "{zone_origin} 3600 IN NS pqns.resolutionscope.com.")?;
-    writeln!(out, "{}", rrsig_presentation(&ns_f, &ns_sig))?;
+    writeln!(out, "{}", rrsig_presentation(&zone_origin, &soa_f, &soa_sig))?;
+    for ns_rr in &ns_rrs {
+        writeln!(
+            out,
+            "{zone_origin} 3600 IN NS {}",
+            name_unwire(&ns_rr.rdata)
+        )?;
+    }
+    writeln!(out, "{}", rrsig_presentation(&zone_origin, &ns_f, &ns_sig))?;
     writeln!(
         out,
         "{zone_origin} 3600 IN TXT {}",
-        txt_presentation(txt_str)
+        txt_presentation(&txt_str)
     )?;
     writeln!(out, "{zone_origin} 3600 IN TXT {}", txt_presentation(poem))?;
     writeln!(
@@ -653,21 +756,39 @@ fn main() -> io::Result<()> {
         "{zone_origin} 3600 IN TXT {}",
         txt_presentation(TXT_SPF)
     )?;
-    writeln!(out, "{}", rrsig_presentation(&txt_f, &txt_sig))?;
+    writeln!(out, "{}", rrsig_presentation(&zone_origin, &txt_f, &txt_sig))?;
     writeln!(out, "{zone_origin} 3600 IN MX {}", mx_presentation(&mx_rd))?;
-    writeln!(out, "{}", rrsig_presentation(&mx_f, &mx_sig))?;
+    writeln!(out, "{}", rrsig_presentation(&zone_origin, &mx_f, &mx_sig))?;
     writeln!(
         out,
         "{zone_origin} 3600 IN DNSKEY {}",
         dnskey_presentation(&dnskey_rd)
     )?;
-    writeln!(out, "{}", rrsig_presentation(&dnskey_f, &dnskey_sig))?;
+    writeln!(out, "{}", rrsig_presentation(&zone_origin, &dnskey_f, &dnskey_sig))?;
     writeln!(
         out,
         "{zone_origin} 3600 IN NSEC {}",
         nsec_presentation(&nsec_rd)
     )?;
-    writeln!(out, "{}", rrsig_presentation(&nsec_f, &nsec_sig))?;
+    writeln!(out, "{}", rrsig_presentation(&zone_origin, &nsec_f, &nsec_sig))?;
+    for (rr, f, sig) in &sidecar_sets {
+        writeln!(
+            out,
+            "{} 3600 IN TXT {}",
+            rr.owner,
+            txt_presentation(&String::from_utf8_lossy(&rr.rdata[1..]).to_string())
+        )?;
+        writeln!(out, "{}", rrsig_presentation(&rr.owner, f, sig))?;
+    }
+    for (rr, f, sig) in &extra_nsec_sets {
+        writeln!(
+            out,
+            "{} 3600 IN NSEC {}",
+            rr.owner,
+            nsec_presentation(&rr.rdata)
+        )?;
+        writeln!(out, "{}", rrsig_presentation(&rr.owner, f, sig))?;
+    }
 
     Ok(())
 }
@@ -826,7 +947,7 @@ mod tests {
             keytag: 33846,
             signer: "pq.resolutionscope.com.".to_string(),
         };
-        let line = rrsig_presentation(&f, &[0u8; 2420]);
+        let line = rrsig_presentation("pq.resolutionscope.com.", &f, &[0u8; 2420]);
         assert!(
             line.contains(" 20260929074628 20260830064628 "),
             "RRSIG dates must be YYYYMMDDHHMMSS (NSD rejects epoch): {line}"
