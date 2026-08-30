@@ -1,0 +1,18 @@
+# PowerDNS Recursor @ master built against OpenSSL >= 3.5 (debian:trixie ships 3.5)
+# — the only mainline validator implementing DNSSEC algorithm 18 (ML-DSA-44),
+# commit 31d80e61. SPEC §7 designates this container the known-behavior
+# validator vantage for pq.resolutionscope.com: public resolvers structurally
+# report the zone insecure; only this can say "valid".
+FROM debian:trixie
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git ca-certificates meson ninja-build g++ pkg-config python3-venv \
+    libssl-dev libboost-dev libboost-context-dev libboost-filesystem-dev \
+    libboost-system-dev libboost-thread-dev libluajit-5.1-dev libcurl4-openssl-dev \
+    libfstrm-dev libsnmp-dev libsodium-dev libcap-dev libsystemd-dev \
+    curl bison flex ragel && rm -rf /var/lib/apt/lists/*
+RUN openssl version
+RUN git clone --depth 50 https://github.com/PowerDNS/pdns.git /src/pdns
+WORKDIR /src/pdns/pdns/recursordist
+RUN meson setup build && ninja -C build pdns_recursor rec_control || \
+    (echo 'MESON BUILD FAILED — dumping log'; tail -50 build/meson-logs/meson-log.txt; exit 1)
+RUN ./build/pdns_recursor --version 2>&1 | head -5
