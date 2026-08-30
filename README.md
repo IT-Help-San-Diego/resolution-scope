@@ -50,6 +50,14 @@ An "improvement" whose yield comes from going active will be declined
 regardless of how much intelligence it would add — not because we don't know
 what it would find, but because we do.
 
+One clarification, so the rule reads as it's meant: the line is about *our
+conduct*, not about the data's origin. This project's first rule is to take
+every receipt that is legally and publicly available (see the source-access
+enumeration doctrine in `docs/`). If the industry someday publishes the very
+measurements we decline to produce — scan data released as welcomed public
+information — that rule applies instantly: thank you, we'll take it. We just
+won't be the ones banging on doors or slipping in windows to make it exist.
+
 ## License
 
 - **AGPL-3.0** for the analyzer core: anyone may download, run, study, and
