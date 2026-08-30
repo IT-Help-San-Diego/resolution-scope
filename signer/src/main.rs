@@ -148,22 +148,57 @@ fn soa_rdata(
     r
 }
 
+/// Split a TXT payload into DNS char-strings (≤255 bytes each).
+///
+/// Rule (routed by claude-code @533d92e, proven byte-identical @0b01277):
+/// cut at the LAST SPACE within the 255-byte window, RETAINING the space at
+/// the tail of the chunk — prose always reads word-whole in `dig` output.
+/// The 255 limit is a maximum, not a mandated cut point.
+/// Escape clause: if the window holds NO space (a >255-byte token, e.g. a
+/// future sidecar carrying base64), fall back to a hard 255-byte cut for
+/// that span only; the boundary is reported as hard-cut so wall.sh can
+/// exempt exactly those spans from its word-boundary check.
+/// Byte-identity invariant: concatenating the chunks reproduces the input
+/// exactly — chunking moves the cut, never a byte.
+/// Mirror lives in pq-harness/wall.sh §4b (keep the two in sync).
+fn txt_chunks(text: &str) -> Vec<(String, bool)> {
+    let b = text.as_bytes();
+    let mut out = Vec::new();
+    let mut start = 0usize;
+    while start < b.len() {
+        if b.len() - start <= 255 {
+            out.push((text[start..].to_string(), false));
+            break;
+        }
+        match b[start..start + 255].iter().rposition(|&c| c == b' ') {
+            Some(i) => {
+                // retain the space at the chunk tail
+                out.push((text[start..start + i + 1].to_string(), false));
+                start += i + 1;
+            }
+            None => {
+                out.push((text[start..start + 255].to_string(), true));
+                start += 255;
+            }
+        }
+    }
+    out
+}
+
 fn txt_rdata(text: &str) -> Vec<u8> {
     let mut r = Vec::new();
-    for chunk in text.as_bytes().chunks(255) {
-        r.push(chunk.len() as u8);
-        r.extend_from_slice(chunk);
+    for (chunk, _hard) in txt_chunks(text) {
+        let cb = chunk.as_bytes();
+        r.push(cb.len() as u8);
+        r.extend_from_slice(cb);
     }
     r
 }
 
 fn txt_presentation(text: &str) -> String {
-    text.as_bytes()
-        .chunks(255)
-        .map(|chunk| {
-            let part = std::str::from_utf8(chunk).expect("fixture TXT is ASCII/UTF-8");
-            format!("\"{part}\"")
-        })
+    txt_chunks(text)
+        .into_iter()
+        .map(|(chunk, _hard)| format!("\"{chunk}\""))
         .collect::<Vec<_>>()
         .join(" ")
 }
@@ -271,6 +306,13 @@ fn nsec_presentation(rdata: &[u8]) -> String {
     format!("{next} {}", ts.join(" "))
 }
 
+/// Zone content — single source of truth, shared by --preview (unsigned
+/// placeholder) and the production signing run. Schema per SPEC §3.
+const TXT_DECLARATION: &str = "v=pqexperiment1; domain=pq.resolutionscope.com; algorithm=18; algorithm-name=ML-DSA-44; draft=draft-westerbaan-dnssec-mldsa-04; purpose=field-specimen-only; corpus-excluded=YES; dual-sign=NO; label=EXPERIMENT-NOT-PRODUCTION; contact=security@it-help.tech";
+
+/// Carey's words (fixture doctrine: ASCII-only, word-boundary chunking).
+const TXT_POEM: &str = "Come home to the data, stay spooky at a distance on that sidewalk with a foundation that is better than concrete, seek logic and reason, mathematical validation not con-firmation -- that is just social media likes, not the tour -- that is just applause, great talk now back to the lab! Decide to mathematically, logically work for the future. One less champagne lobster dinner is a lot more science. Immutable reality checks and mathematical validation my love that is the data we come home to.";
+
 // ---------- sign + verify ----------
 
 fn sign_rrset(
@@ -319,6 +361,7 @@ fn main() -> io::Result<()> {
     let mut out_file: Option<PathBuf> = None;
     let mut zone_origin = "pq.resolutionscope.com.".to_string();
     let mut serial = 2026083001u32;
+    let mut preview = false;
 
     let mut i = 1;
     while i < args.len() {
@@ -339,12 +382,60 @@ fn main() -> io::Result<()> {
                 i += 1;
                 serial = args[i].parse().unwrap();
             }
+            "--preview" => {
+                preview = true;
+            }
             _ => {
                 eprintln!("unknown flag: {}", args[i]);
                 std::process::exit(1);
             }
         }
         i += 1;
+    }
+
+    // ---------- preview mode: UNSIGNED placeholder zone ----------
+    // The pre-signing box must serve zone content produced by THIS binary too
+    // (process rule @533d92e: zones are signer output, never hand-edited).
+    // Emits exactly the placeholder shape: SOA + NS + declaration TXT + poem
+    // TXT. No DNSKEY, no NSEC, no RRSIGs — the island window stays shut.
+    if preview {
+        assert!(seed_file.is_none(), "--preview takes no --seed-file");
+        let soa_rd = soa_rdata(
+            &zone_origin,
+            "hostmaster.resolutionscope.com.",
+            serial,
+            3600,
+            900,
+            604800,
+            300,
+        );
+        let txt_str = TXT_DECLARATION;
+        let poem = TXT_POEM;
+        let mut out: Box<dyn Write> = if let Some(ref p) = out_file {
+            Box::new(fs::File::create(p)?)
+        } else {
+            Box::new(io::stdout().lock())
+        };
+        writeln!(
+            out,
+            "; pq.resolutionscope.com — UNSIGNED preview (island window shut)"
+        )?;
+        writeln!(out, "; generated by pq-signer --preview — do not hand-edit")?;
+        writeln!(out)?;
+        writeln!(
+            out,
+            "{zone_origin} 3600 IN SOA {}",
+            soa_presentation(&soa_rd)
+        )?;
+        writeln!(out, "{zone_origin} 3600 IN NS pqns.resolutionscope.com.")?;
+        writeln!(
+            out,
+            "{zone_origin} 3600 IN TXT {}",
+            txt_presentation(txt_str)
+        )?;
+        writeln!(out, "{zone_origin} 3600 IN TXT {}", txt_presentation(poem))?;
+        eprintln!("preview: unsigned zone emitted (serial {serial})");
+        return Ok(());
     }
 
     let seed_file = seed_file.expect("--seed-file required");
@@ -405,12 +496,23 @@ fn main() -> io::Result<()> {
         rdata: ns_rd,
     };
 
-    let txt_str = "v=pqexperiment1; domain=pq.resolutionscope.com; algorithm=18; algorithm-name=ML-DSA-44; draft=draft-westerbaan-dnssec-mldsa-04; purpose=field-specimen-only; corpus-excluded=YES; dual-sign=NO; label=EXPERIMENT-NOT-PRODUCTION; contact=carey.balboa@it-help.tech";
+    // Single source of truth for zone content (process rule @533d92e: zones
+    // are signer OUTPUT, never hand-edited on the box). Schema per SPEC §3;
+    // contact is the role address (WHOIS doctrine 2026-08-23); poem is
+    // Carey's words, ASCII-only by fixture doctrine.
+    let txt_str = TXT_DECLARATION;
+    let poem = TXT_POEM;
     let txt_rd = txt_rdata(txt_str);
+    let poem_rd = txt_rdata(poem);
     let txt_rr = Rr {
         owner: zone_origin.clone(),
         class: 1,
         rdata: txt_rd,
+    };
+    let poem_rr = Rr {
+        owner: zone_origin.clone(),
+        class: 1,
+        rdata: poem_rd,
     };
 
     let dnskey_rr = Rr {
@@ -430,7 +532,7 @@ fn main() -> io::Result<()> {
 
     let soa_set = vec![&soa_rr];
     let ns_set = vec![&ns_rr];
-    let txt_set = vec![&txt_rr];
+    let txt_set = vec![&txt_rr, &poem_rr];
     let dnskey_set = vec![&dnskey_rr];
     let nsec_set = vec![&nsec_rr];
 
@@ -486,6 +588,7 @@ fn main() -> io::Result<()> {
         "{zone_origin} 3600 IN TXT {}",
         txt_presentation(txt_str)
     )?;
+    writeln!(out, "{zone_origin} 3600 IN TXT {}", txt_presentation(poem))?;
     writeln!(out, "{}", rrsig_presentation(&txt_f, &txt_sig))?;
     writeln!(
         out,
@@ -507,18 +610,91 @@ fn main() -> io::Result<()> {
 mod tests {
     use super::*;
 
+    /// The byte-identity invariant: chunking moves the cut, never a byte.
+    fn assert_roundtrip(text: &str) {
+        let chunks = txt_chunks(text);
+        let concat: String = chunks.iter().map(|(c, _)| c.as_str()).collect();
+        assert_eq!(concat, text, "chunk concatenation must reproduce input");
+        for (c, _) in &chunks {
+            assert!(c.len() <= 255, "char-string exceeds 255 bytes");
+            assert!(!c.is_empty(), "empty char-string is hostile to parsers");
+        }
+    }
+
     #[test]
-    fn txt_presentation_splits_long_strings() {
-        let text = "x".repeat(260);
-        let rendered = txt_presentation(&text);
+    fn poem_splits_on_word_boundary_retaining_space() {
+        let poem = TXT_POEM;
+        let chunks = txt_chunks(poem);
+        assert_eq!(chunks.len(), 2, "494-byte poem -> exactly two char-strings");
+        assert_eq!(chunks[0].0.len(), 254, "cut lands on the space at byte 254");
+        assert!(chunks[0].0.ends_with(' '), "space retained at chunk tail");
+        assert!(
+            chunks[0].0.ends_with("applause, "),
+            "no mid-word cut: chunk 1"
+        );
+        assert!(
+            chunks[1].0.starts_with("great talk"),
+            "no mid-word cut: chunk 2"
+        );
+        // every chunk that IS NOT the final one must end on its space
+        // (a word-boundary cut retains the space; the final chunk simply
+        // ends with the text — it has no boundary to satisfy)
+        for (c, hard) in &chunks[..chunks.len() - 1] {
+            assert!(!hard, "poem has spaces; no hard cuts expected");
+            assert!(c.ends_with(' '), "non-final chunk must end on its space");
+        }
+        assert_roundtrip(poem);
+    }
+
+    #[test]
+    fn spaceless_blob_falls_back_to_hard_cuts() {
+        let blob = "a".repeat(600);
+        let chunks = txt_chunks(&blob);
+        assert_eq!(chunks.len(), 3);
+        assert_eq!(chunks[0].0.len(), 255);
+        assert_eq!(chunks[1].0.len(), 255);
+        assert_eq!(chunks[2].0.len(), 90);
+        assert!(chunks[0].1 && chunks[1].1, "mid-stream spans hard-cut");
+        assert_roundtrip(&blob);
+    }
+
+    #[test]
+    fn mixed_prose_and_giant_token() {
+        let text = format!("lead-in {} tail words here", "b".repeat(300));
+        assert_roundtrip(&text);
+        let chunks = txt_chunks(&text);
+        // the 300-byte token forces at least one hard-cut span, but the
+        // trailing prose must still land on word boundaries
+        assert!(chunks.iter().any(|(_, hard)| *hard));
+        let last = chunks.last().unwrap();
+        assert!(!last.1, "trailing prose should be a word-boundary span");
+    }
+
+    #[test]
+    fn single_chunk_under_cap_is_never_split() {
+        let text = "x y z ".repeat(40); // 240 bytes, spaces throughout
+        assert_eq!(txt_chunks(&text).len(), 1);
+        assert_roundtrip(&text);
+    }
+
+    #[test]
+    fn presentation_matches_wire_chunking() {
+        let poem = "word ".repeat(80); // 400 bytes
+        let rendered = txt_presentation(&poem);
         assert!(
             rendered.contains("\" \""),
-            "long TXT must be split into multiple quoted strings"
+            "long TXT must render as multiple quoted strings"
         );
-        for part in rendered.split(" ") {
-            let inner = part.trim_matches('"');
-            assert!(inner.len() <= 255, "TXT chunk exceeded 255 bytes");
-        }
+        let inner: Vec<&str> = rendered.split("\" \"").collect();
+        assert_eq!(inner.len(), txt_chunks(&poem).len());
+        assert_roundtrip(&poem);
+    }
+
+    #[test]
+    fn declaration_is_a_single_chunk() {
+        let decl = TXT_DECLARATION;
+        assert!(decl.len() <= 255);
+        assert_eq!(txt_chunks(decl).len(), 1);
     }
 
     #[test]

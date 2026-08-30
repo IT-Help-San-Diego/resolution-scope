@@ -51,10 +51,19 @@ for line in open(sys.argv[1], 'rb').read().decode('utf-8', 'replace').splitlines
             print(f"✗ TXT contains non-ASCII {[hex(ord(c)) for c in nonascii[:3]]} — use ASCII punctuation"); bad = True
             break
     for a, b in zip(strings, strings[1:]):
-        if a and b and a[-1] not in ' .!?;' and b[0] != ' ':
-            print(f"✗ TXT chunk split mid-word: …'{a[-12:]}' + '{b[:12]}'…"); bad = True
+        if not a or not b: continue
+        # Escape clause (mirror of signer txt_chunks): a full 255-byte chunk
+        # containing NO space was hard-cut — no boundary existed to use.
+        # Exempt it (noted, not condemned); every other boundary must be
+        # space-retained. Without this the check is unsatisfiable on a
+        # legitimate spaceless payload and blocks a signing run at 3 a.m.
+        if len(a) == 255 and ' ' not in a:
+            print(f"· hard-cut span (no space in 255-byte window — exempt): …'{a[-12:]}'+'{b[:12]}'…")
+            continue
+        if a[-1] != ' ':
+            print(f"✗ TXT chunk boundary not space-retained: …'{a[-12:]}' + '{b[:12]}'…"); bad = True
 if bad: sys.exit(1)
-print("✓ TXT strings ASCII-clean, chunk splits on word boundaries")
+print("✓ TXT strings ASCII-clean, chunk splits space-retained")
 EOF
 [ $? -ne 0 ] && fail=1
 
