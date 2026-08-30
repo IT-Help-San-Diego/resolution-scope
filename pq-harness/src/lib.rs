@@ -33,7 +33,11 @@ pub fn name_wire(name: &str) -> Vec<u8> {
 pub fn keytag(rdata: &[u8]) -> u16 {
     let mut ac: u32 = 0;
     for (i, &b) in rdata.iter().enumerate() {
-        ac += if i & 1 == 1 { b as u32 } else { (b as u32) << 8 };
+        ac += if i & 1 == 1 {
+            b as u32
+        } else {
+            (b as u32) << 8
+        };
     }
     ac += (ac >> 16) & 0xFFFF;
     (ac & 0xFFFF) as u16
@@ -136,13 +140,11 @@ pub fn rrsig_time(s: &str) -> u32 {
 // ---------- draft-westerbaan-dnssec-mldsa-04 §6 vectors ----------
 
 pub const VECTOR_SEED: [u8; 32] = [
-    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
-    0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d,
-    0x1e, 0x1f,
+    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+    0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
 ];
 pub const VECTOR_KEYTAG: u16 = 59829;
-pub const VECTOR_DS_HEX: &str =
-    "812cb1a22af04380e2f72d91c06c14eb1a918cf30037a8a9c67497e9264b4bfa";
+pub const VECTOR_DS_HEX: &str = "812cb1a22af04380e2f72d91c06c14eb1a918cf30037a8a9c67497e9264b4bfa";
 pub const VECTOR_PUBKEY_B64: &str = include_str!("../fixtures/vector-pubkey.b64");
 pub const VECTOR_RRSIG_B64: &str = include_str!("../fixtures/vector-rrsig.b64");
 
@@ -185,8 +187,10 @@ mod tests {
     use super::*;
     use fips204::traits::{KeyGen, SerDes, Signer, Verifier};
 
-
-    fn fips204_keypair() -> (fips204::ml_dsa_44::PublicKey, fips204::ml_dsa_44::PrivateKey) {
+    fn fips204_keypair() -> (
+        fips204::ml_dsa_44::PublicKey,
+        fips204::ml_dsa_44::PrivateKey,
+    ) {
         fips204::ml_dsa_44::KG::keygen_from_seed(&VECTOR_SEED)
     }
 
@@ -204,7 +208,10 @@ mod tests {
     fn kat_keytag_and_ds_from_vector_pubkey() {
         let rdata = dnskey_rdata(257, 3, 18, &vector_pubkey());
         assert_eq!(keytag(&rdata), VECTOR_KEYTAG, "keytag must be 59829");
-        assert_eq!(hex::encode(ds_sha256("example.com.", &rdata)), VECTOR_DS_HEX);
+        assert_eq!(
+            hex::encode(ds_sha256("example.com.", &rdata)),
+            VECTOR_DS_HEX
+        );
     }
 
     // ---- KAT leg 2: fips204 (the SPEC §5.1 signing pick) ----
@@ -212,7 +219,11 @@ mod tests {
     #[test]
     fn kat_fips204_keygen_reproduces_vector_pubkey() {
         let (pk, _sk) = fips204_keypair();
-        assert_eq!(pk.into_bytes().to_vec(), vector_pubkey(), "fips204 pubkey != §6 vector");
+        assert_eq!(
+            pk.into_bytes().to_vec(),
+            vector_pubkey(),
+            "fips204 pubkey != §6 vector"
+        );
     }
 
     #[test]
@@ -233,7 +244,10 @@ mod tests {
         let (f, rrs) = vector_rrsig_fields();
         let msg = rrsig_signed_data(&f, &rrs);
         let sig: [u8; 2420] = vector_rrsig().try_into().unwrap();
-        assert!(pk.verify(&msg, &sig, &[]), "fips204 must verify the §6 RRSIG");
+        assert!(
+            pk.verify(&msg, &sig, &[]),
+            "fips204 must verify the §6 RRSIG"
+        );
     }
 
     // ---- KAT leg 3: ml-dsa (SciSpace's pq-keygen crate, independent verifier) ----
@@ -241,7 +255,11 @@ mod tests {
     #[test]
     fn kat_mldsa_keygen_reproduces_vector_pubkey() {
         let enc = mldsa_signing_key().verifying_key().encode();
-        assert_eq!(enc.as_slice(), vector_pubkey().as_slice(), "ml-dsa pubkey != §6 vector");
+        assert_eq!(
+            enc.as_slice(),
+            vector_pubkey().as_slice(),
+            "ml-dsa pubkey != §6 vector"
+        );
     }
 
     #[test]
@@ -249,8 +267,14 @@ mod tests {
         let sk = mldsa_signing_key();
         let (f, rrs) = vector_rrsig_fields();
         let msg = rrsig_signed_data(&f, &rrs);
-        let sig = sk.sign_deterministic(&msg, &[]).expect("ml-dsa deterministic sign");
-        assert_eq!(sig.encode().as_slice(), vector_rrsig().as_slice(), "ml-dsa RRSIG != §6 vector");
+        let sig = sk
+            .sign_deterministic(&msg, &[])
+            .expect("ml-dsa deterministic sign");
+        assert_eq!(
+            sig.encode().as_slice(),
+            vector_rrsig().as_slice(),
+            "ml-dsa RRSIG != §6 vector"
+        );
     }
 
     #[test]
@@ -288,10 +312,15 @@ mod tests {
         let mut bad = vector_rrsig();
         bad[100] ^= 0x01;
         let bad_arr: [u8; 2420] = bad.clone().try_into().unwrap();
-        assert!(!pk.verify(&msg, &bad_arr, &[]), "fips204 accepted a flipped bit");
+        assert!(
+            !pk.verify(&msg, &bad_arr, &[]),
+            "fips204 accepted a flipped bit"
+        );
         if let Some(sig) = mldsa_sig(&bad) {
             assert!(
-                !mldsa_signing_key().verifying_key().verify_with_context(&msg, &[], &sig),
+                !mldsa_signing_key()
+                    .verifying_key()
+                    .verify_with_context(&msg, &[], &sig),
                 "ml-dsa accepted a flipped bit"
             );
         } // undecodable is also a pass
@@ -304,7 +333,10 @@ mod tests {
         let mut msg = rrsig_signed_data(&f, &rrs);
         msg[0] ^= 0x01;
         let sig: [u8; 2420] = vector_rrsig().try_into().unwrap();
-        assert!(!pk.verify(&msg, &sig, &[]), "fips204 verified against altered message");
+        assert!(
+            !pk.verify(&msg, &sig, &[]),
+            "fips204 verified against altered message"
+        );
     }
 
     #[test]
@@ -313,6 +345,9 @@ mod tests {
         let (f, rrs) = vector_rrsig_fields();
         let msg = rrsig_signed_data(&f, &rrs);
         let sig: [u8; 2420] = vector_rrsig().try_into().unwrap();
-        assert!(!pk.verify(&msg, &sig, b"x"), "ctx must be empty per draft §4");
+        assert!(
+            !pk.verify(&msg, &sig, b"x"),
+            "ctx must be empty per draft §4"
+        );
     }
 }

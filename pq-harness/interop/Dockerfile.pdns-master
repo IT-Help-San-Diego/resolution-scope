@@ -9,8 +9,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl-dev libboost-dev libboost-context-dev libboost-filesystem-dev \
     libboost-system-dev libboost-thread-dev libluajit-5.1-dev libcurl4-openssl-dev \
     libfstrm-dev libsnmp-dev libsodium-dev libcap-dev libsystemd-dev \
-    curl bison flex ragel && rm -rf /var/lib/apt/lists/*
-RUN openssl version
+    curl bison flex ragel cargo rustc && rm -rf /var/lib/apt/lists/*
+RUN openssl version && cargo --version
 RUN git clone --depth 50 https://github.com/PowerDNS/pdns.git /src/pdns
 WORKDIR /src/pdns/pdns/recursordist
 RUN meson setup build && ninja -C build pdns_recursor rec_control || \

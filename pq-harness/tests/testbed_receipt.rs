@@ -23,9 +23,16 @@ fn testbed_alg18_records_fail_fips204_verification() {
     let dnskey_line = include_str!("../fixtures/testbed-dnskey.txt");
     let df: Vec<&str> = dnskey_line.split_whitespace().collect();
     assert_eq!(df[3], "DNSKEY");
-    assert_eq!(df[6], "18", "testbed DNSKEY must be wire-labeled algorithm 18");
+    assert_eq!(
+        df[6], "18",
+        "testbed DNSKEY must be wire-labeled algorithm 18"
+    );
     let pubkey = b64_tail(&df, 7);
-    assert_eq!(pubkey.len(), 1312, "Dilithium2 and ML-DSA-44 share pk size — the trap");
+    assert_eq!(
+        pubkey.len(),
+        1312,
+        "Dilithium2 and ML-DSA-44 share pk size — the trap"
+    );
 
     // A + RRSIG lines.
     let mut a_rdata = None;
@@ -37,7 +44,10 @@ fn testbed_alg18_records_fail_fips204_verification() {
             a_rdata = Some(ip);
         } else if f.len() > 12 && f[3] == "RRSIG" {
             assert_eq!(f[4], "A");
-            assert_eq!(f[5], "18", "testbed RRSIG must be wire-labeled algorithm 18");
+            assert_eq!(
+                f[5], "18",
+                "testbed RRSIG must be wire-labeled algorithm 18"
+            );
             rrsig = Some((
                 RrsigFields {
                     type_covered: 1,
@@ -56,11 +66,19 @@ fn testbed_alg18_records_fail_fips204_verification() {
     }
     let a_rdata = a_rdata.expect("A record in fixture");
     let (fields, sig_bytes, owner) = rrsig.expect("RRSIG in fixture");
-    assert_eq!(sig_bytes.len(), 2420, "Dilithium2 and ML-DSA-44 share sig size — the trap");
+    assert_eq!(
+        sig_bytes.len(),
+        2420,
+        "Dilithium2 and ML-DSA-44 share sig size — the trap"
+    );
 
     let msg = rrsig_signed_data(
         &fields,
-        &[Rr { owner, class: 1, rdata: a_rdata }],
+        &[Rr {
+            owner,
+            class: 1,
+            rdata: a_rdata,
+        }],
     );
 
     let pk_arr: [u8; 1312] = pubkey.try_into().unwrap();
