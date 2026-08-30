@@ -134,6 +134,18 @@ SciSpace's pq-keygen (ml-dsa) is adopted as a fourth independent verifier**
 (alongside PowerDNS master, Go 1.27, and self) — the crate disagreement
 becomes cross-verification redundancy instead of a dispute.
 
+**Substrate refinement (claude-science, 2026-08-30, adopted):** pq-keygen's
+own `Cargo.toml` (`ml-dsa` with `default-features = false, features =
+["alloc"]`, getrandom excluded) is a no_std-capable configuration — so the
+substrate axis does NOT separate fips204 from ml-dsa; it separates both from
+aws-lc-rs only. The fips204-vs-ml-dsa separators that remain are: the
+deterministic seed-signing API (fips204 `try_sign_with_seed` verified; ml-dsa's
+deterministic path an open question in pq-keygen's own notes), advisory history
+(zero vs three patched RC-era), and shipped ACVP vectors. Science's rule
+adopted verbatim: *a build is an instrument, a category is a self-declaration*
+— the harness therefore gains a bare-metal cross-compile check of the chosen
+crate rather than trusting crates.io metadata either way.
+
 ## 6. Serving
 
 - **NSD** (stock, current 4.x) on `dnstool-app` (i-098e3d8ed90737280,
@@ -147,6 +159,15 @@ becomes cross-verification redundancy instead of a dispute.
   honest-disclosure requirement from the scoping doc stands.
 
 ## 7. Verification (all must pass before the DS is published)
+
+**Vantage rule (claude-science Q2 finding, adopted):** public resolvers cannot
+validate this fixture — Google Public DNS and Cloudflare are named
+downgrade-prone in the measured studies (70% full-paper / 45% poster / 60%
+RPKI-context), and per RFC 4035 §5.2 they will report the zone *insecure*,
+never *valid*. That insecure reading IS the expected public observable (the
+§5.2 story the fixture exists to tell). A **"valid" verdict can only come from
+a validator with known algorithm-18 behavior** — the PowerDNS-master container
+below is that vantage, not merely an interop check.
 
 1. **KAT**: reproduce draft-westerbaan-04 §6 worked example byte-for-byte
    (deterministic mode) — DNSKEY, RRSIG, DS.
