@@ -42,7 +42,10 @@ declares the same codepoint)
 ```
 pq.resolutionscope.com.  SOA   (serial YYYYMMDDNN; refresh/retry/expire/min per parent practice)
 pq.resolutionscope.com.  NS    pqns.resolutionscope.com.        ; NS name lives in the PARENT zone (out-of-bailiwick → no glue)
-pq.resolutionscope.com.  TXT   "labeled research fixture: DNSSEC algorithm 18 (ML-DSA-44) positive control; operated by Resolution Scope; pre-registered docs/BASELINE-algorithm18-20260829.md; excluded from our corpus statistics"
+pq.resolutionscope.com.  TXT   "v=pqexperiment1; domain=pq.resolutionscope.com; algorithm=18; algorithm-name=ML-DSA-44; draft=draft-westerbaan-dnssec-mldsa-04; purpose=field-specimen-only; corpus-excluded=YES; dual-sign=NO; label=EXPERIMENT-NOT-PRODUCTION; contact=carey.balboa@it-help.tech"
+                               ; schema adopted from SciSpace's pq_fixture_txt_baseline with two corrections:
+                               ; draft name fixed (its draft-ietf-dnsop-dnssec-pqc-04 does not exist), and NO
+                               ; keytag field until the production key exists (§4 hard rule)
 pq.resolutionscope.com.  DNSKEY 257 3 18 <1312-B key>
 + NSEC chain (apex-only zone → one NSEC, self-pointing) + RRSIGs over every RRset
 ```
@@ -53,6 +56,14 @@ parent is Route 53 compact-denial; the child is plain NSEC — expected, by
 design.
 
 ## 4. Key custody
+
+**HARD RULE (added 2026-08-30, from the SciSpace-wave review): the draft §6
+test-vector key (seed 0x00..0x1f, keytag 59829) is KAT-ONLY. It MUST NEVER
+appear in the published zone — its private half is public, so a zone keyed on
+it is forgeable by anyone and worthless as a control. The published TXT record
+must not pin any keytag until the production key exists. (SciSpace's fixture
+template bakes keytag=59829 into the TXT and DNSKEY blocks — do not follow it
+for deployment.)**
 
 The 32-byte FIPS 204 seed ξ **is** the private key. It never enters the repo.
 Proposed custody (Carey to confirm with the AWS GO): a 0600 file in Carey's
@@ -104,6 +115,24 @@ master, Go 1.27, self) re-verifies the same wrapper against independent
 implementations. **Graduation rule**: if this signer ever signs anything
 beyond the labeled fixture, this pick is void — re-run the head-to-head with
 aws-lc-rs (std side) and libcrux (if matured) as leading candidates.
+
+**D7 reconciliation (added 2026-08-30, SciSpace-wave review).** SciSpace's
+corrected relay brief (authored @e70d0b0, BEFORE this SPEC existed) reversed
+its own fips204 recommendation to RustCrypto `ml-dsa` 0.1.1 on activity
+grounds and named the three-axis tension (audit=aws-lc-rs / substrate=fips204
+/ activity=ml-dsa) as D7, "must be named in the SPEC before picking." §5 +
+§5.1 above ARE that treatment, made with facts the brief lacked (fips204's
+pinned NIST ACVP vectors; ml-dsa's three RC-era advisories; aws-lc-rs's
+no_std wall). Momentary three-lane divergence noted for the record —
+hermes=fips204 (nomination, vindicated), SciSpace=ml-dsa (reversal brief +
+working pq-keygen code, 19/19 tests, keytag 59829 reproduced), this lane's
+verification pass=aws-lc-rs (pre-SPEC recommendation, superseded by §5.1's
+substrate ruling). **Residual question settled by measurement, not
+re-litigation: the verification harness runs the draft-§6 KAT against BOTH
+fips204 and ml-dsa. fips204 stays the signing pick unless it fails its KAT;
+SciSpace's pq-keygen (ml-dsa) is adopted as a fourth independent verifier**
+(alongside PowerDNS master, Go 1.27, and self) — the crate disagreement
+becomes cross-verification redundancy instead of a dispute.
 
 ## 6. Serving
 
