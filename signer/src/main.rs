@@ -743,6 +743,30 @@ mod tests {
         assert_roundtrip(&text);
     }
 
+    /// Synthetic >255-byte space-retention test — independent of whatever the
+    /// zone currently carries (relay finding: a short poem removes the live
+    /// test surface for the word-boundary chunker; the check must not depend
+    /// on zone content existing that happens to be long).
+    #[test]
+    fn chunker_is_word_boundary_synthetic() {
+        // 60 words of varied length, ~420 bytes — forces multiple cuts
+        let text: String = (0..60)
+            .map(|i| format!("{}{} ", "probe", i))
+            .collect();
+        assert!(text.len() > 255, "test must exceed one char-string");
+        let chunks = txt_chunks(&text);
+        assert!(chunks.len() >= 2);
+        for (c, hard) in &chunks[..chunks.len() - 1] {
+            assert!(!hard, "prose with spaces must never hard-cut");
+            assert!(c.ends_with(' '), "every non-final chunk retains its space");
+            assert!(!c.trim_end().is_empty());
+        }
+        assert_roundtrip(&text);
+        // and the rendered form splits exactly at those boundaries
+        let rendered = txt_presentation(&text);
+        assert_eq!(rendered.matches("\" \"").count() + 1, chunks.len());
+    }
+
     #[test]
     fn presentation_matches_wire_chunking() {
         let poem = "word ".repeat(80); // 400 bytes
