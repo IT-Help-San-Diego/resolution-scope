@@ -50,7 +50,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        crate: [engine, cli, store, types, pq-harness]
+        crate: [engine, cli, store, types, pq-harness, signer]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5 tag @ 2026-08-29
         with:
@@ -127,7 +127,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        crate: [engine, cli, native, store, types, pq-harness]
+        crate: [engine, cli, native, store, types, pq-harness, signer]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5 tag @ 2026-08-29
         with:
@@ -136,6 +136,19 @@ jobs:
         with:
           command: check licenses sources
           manifest-path: ${{ matrix.crate }}/Cargo.toml
+
+  pq-monitor-script:
+    name: pq monitor script — unit tests + syntax
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5 tag @ 2026-08-29
+        with:
+          persist-credentials: false
+      - name: Python syntax
+        run: python3 -m py_compile scripts/pq_fixture_monitor.py scripts/test_pq_fixture_monitor.py
+      - name: Unit tests
+        run: python3 scripts/test_pq_fixture_monitor.py
 
   # Store integration: the sealed-history contract runs against a REAL
   # postgres — sealed roundtrip, tamper detection, cross-version
@@ -215,6 +228,7 @@ jobs:
         crates,
         native-lib,
         licenses,
+        pq-monitor-script,
         store-integration,
         lean-proofs,
       ]
