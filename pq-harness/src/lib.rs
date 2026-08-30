@@ -3,6 +3,9 @@
 //! Contract: docs/SPEC-mldsa44-signer-20260830.md §5.1 (KAT bake-off) + §7
 //! (verification). Ground truth: draft-westerbaan-dnssec-mldsa-04 §6, whose
 //! base64 blocks are extracted verbatim into fixtures/ (never hand-typed).
+//! Spec-section authority for every helper lives in README.md (the citation
+//! map) and, canonically, in engine/src/truth_chain.rs — the citation boundary
+//! keeps requirement-layer literals out of non-engine crates.
 //!
 //! The test-vector seed 0x00..0x1f is KAT-ONLY (SPEC §4 hard rule): its
 //! private half is printed in a public Internet-Draft. Nothing in this crate
@@ -10,7 +13,7 @@
 
 use sha2::{Digest, Sha256};
 
-/// Lowercased, uncompressed DNS name wire format (RFC 4034 §6.2 canonical form).
+/// Lowercased, uncompressed DNS name wire format (canonical form per the DNSSEC records spec — see README.md citation map).
 pub fn name_wire(name: &str) -> Vec<u8> {
     let mut out = Vec::new();
     let trimmed = name.trim_end_matches('.');
@@ -26,7 +29,7 @@ pub fn name_wire(name: &str) -> Vec<u8> {
     out
 }
 
-/// RFC 4034 Appendix B key tag over full DNSKEY RDATA.
+/// Key tag (DNSSEC records spec, Appendix B — README.md citation map) over full DNSKEY RDATA.
 pub fn keytag(rdata: &[u8]) -> u16 {
     let mut ac: u32 = 0;
     for (i, &b) in rdata.iter().enumerate() {
@@ -46,7 +49,7 @@ pub fn dnskey_rdata(flags: u16, protocol: u8, algorithm: u8, key: &[u8]) -> Vec<
     r
 }
 
-/// RFC 4034 §5.1.4: DS digest type 2 = SHA-256(owner_wire || DNSKEY RDATA).
+/// DS digest type 2 (delegation-signer digest rule — README.md citation map) = SHA-256(owner_wire || DNSKEY RDATA).
 pub fn ds_sha256(owner: &str, rdata: &[u8]) -> [u8; 32] {
     let mut h = Sha256::new();
     h.update(name_wire(owner));
@@ -74,7 +77,7 @@ pub struct Rr {
     pub rdata: Vec<u8>,
 }
 
-/// RFC 4034 §3.1.8.1 signed data:
+/// RRSIG signed data (signature-calculation rule — README.md citation map):
 /// RRSIG_RDATA (minus signature, signer uncompressed+lowercased)
 /// || canonical RRset (each RR: owner | type | class | orig_ttl | rdlen | rdata),
 /// RDATAs in canonical (byte-wise) order.

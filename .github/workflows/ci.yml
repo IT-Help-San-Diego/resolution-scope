@@ -50,7 +50,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        crate: [engine, cli, store, types]
+        crate: [engine, cli, store, types, pq-harness]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5 tag @ 2026-08-29
         with:
@@ -127,7 +127,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        crate: [engine, cli, native, store, types]
+        crate: [engine, cli, native, store, types, pq-harness]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5 tag @ 2026-08-29
         with:
