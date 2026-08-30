@@ -750,9 +750,7 @@ mod tests {
     #[test]
     fn chunker_is_word_boundary_synthetic() {
         // 60 words of varied length, ~420 bytes — forces multiple cuts
-        let text: String = (0..60)
-            .map(|i| format!("{}{} ", "probe", i))
-            .collect();
+        let text: String = (0..60).map(|i| format!("{}{} ", "probe", i)).collect();
         assert!(text.len() > 255, "test must exceed one char-string");
         let chunks = txt_chunks(&text);
         assert!(chunks.len() >= 2);
