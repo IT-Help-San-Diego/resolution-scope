@@ -197,6 +197,14 @@ below is that vantage, not merely an interop check.
 5. **DS last** — publishing it arms validation; the engine's verdict should
    transition `SignedNotDelegated` → `ChainUnverified`, and the :5300
    validator's verdict should flip no-AD → AD. Three sequenced receipts.
+6. **Decay curve (claude-science, adopted with verified tooling):** the parent
+   negative-cache (86400) makes the DS transition a curve, not a step. Two
+   instrument halves: (a) authoritative truth = the three-vantage
+   dig loop / island watch (already armed); (b) resolver-cache half =
+   dnschecker.org or whatsmydns.me DNSKEY/DS views — VERIFIED at source
+   2026-08-30 that dnschecker.org's type menu includes DS and DNSKEY across
+   ~22 public resolver caches (whatsmydns.NET does not — it hits
+   authoritatives and cannot see cache at all; wrong class for this step).
 5. Engine + baseline: fixture pre-registration lands in BASELINE (v6) the same
    day the DS does; re-run protocol step 3 documented to exclude/label our own
    zone. Rollback = reverse order (DS out first).
