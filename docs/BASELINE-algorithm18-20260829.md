@@ -5,6 +5,15 @@ assigned number with no *known* implementing signer and no measured publisher �
 the post-quantum transition's failure mode (RFC 4035 §5.2, March 2005) is fully
 armed while its measured trigger population is zero.
 
+**v5 correction (claude-code, 2026-08-30, from the fixture-scoping multi-lane
+review):** both halves of the claim sentence gained precision. (a) "No known
+implementing signer" → no *released* signer — PowerDNS `master` implements
+ML-DSA-44 at codepoint 18 (fact 2, v5 note). (b) "No measured publisher" → no
+measured publisher of *FIPS-204-valid* algorithm-18 records — the deSEC testbed
+publishes wire-labeled-18 records today that are pre-standard Dilithium-2
+(fact 3, v5 note). The null stands, sharpened: **zero zones publish algorithm-18
+records that verify under FIPS 204.**
+
 **Why publish a null result:** the first zone on Earth to publish algorithm 18
 becomes detectable by re-running the queries below. Run twice, this baseline is
 a longitudinal series; the null is the instrument, not the disappointment.
@@ -60,6 +69,19 @@ state is: **mainline signers: nothing; research forks: the predecessor, under
 different numbers.** No software anywhere is known to emit algorithm-18-proper
 records today.
 
+**v5 correction (claude-code, 2026-08-30) — the code-search null had an expiry
+date, and it passed on 2026-07-21:** PowerDNS `master` implements ML-DSA-44 at
+codepoint 18 (commit 31d80e61 "add algo 18 (MLDSA44)", 2026-07-21, van Dijk +
+Vallat), via OpenSSL ≥ 3.5's native `NID_ML_DSA_44` — no liboqs/oqs-provider
+needed. In **no release**: `m4/pdns_check_libcrypto_mldsa.m4` is HTTP 200 on
+`master`, 404 on `auth-5.1.4` (2026-08-03); `pdns/dnssec.hh:51` reads
+`MLDSA44 = 18` — re-verified first-hand 2026-08-30. BIND9 / Knot / NSD /
+Unbound mainline: still nothing. Fact 2's exact state is now: **released
+signers: nothing; one mainline master branch: yes (PowerDNS); research forks:
+the predecessor under colliding numbers.** Re-run protocol step 2 will catch
+the release when it ships — and PowerDNS master is now the natural interop
+cross-check for any signer we build.
+
 ### 3. No measured zone publishes it
 
 Two independent surveys, 2026-08-29:
@@ -99,6 +121,23 @@ done
   example subzones are dark via public resolvers today (claude-code dig,
   2026-08-29).
 
+  **v5 correction (claude-code, 2026-08-30) — the testbed is NOT dark; the
+  guessed names were wrong.** The real subzone scheme is
+  `{algorithm}.{vendor}.pq-dnssec.dedyn.io`. Measured first-hand:
+  `dilithium2.pdns.pq-dnssec.dedyn.io` resolves via public recursion with
+  **DS 47389 18 2** (plus a digest-4 twin), and the authoritative
+  (95.217.209.184) truncates at UDP/1232 and serves the full **algorithm-18
+  RRSIG** chain over TCP (inception 2026-08-20 — actively re-signing; DNSKEY
+  flags 257, algorithm 18). These records are wire-labeled 18 but are round-3
+  Dilithium-2 (the fork's own source: provider name `"dilithium2"`, private key
+  2528 bytes vs ML-DSA-44's 2560), which FIPS-204 verification rejects — and
+  the two are byte-size-identical on the wire (pk 1312, sig 2420), so *only* a
+  FIPS-204 verify distinguishes them. Consequence: this doc's "no zone
+  publishes algorithm 18" must be read as **"no zone publishes FIPS-204-valid
+  algorithm 18."** Wire-labeled 18 has a living publisher; the distinction is
+  measurable, and a verify-fail receipt against the testbed is part of the
+  fixture build plan.
+
 - `draft-westerbaan-dnssec-mldsa` itself names **no test zones** — its only
   domain is a deterministic, byte-reproducible pedagogical example
   (claude-code fetch of the draft, 2026-08-29).
@@ -132,6 +171,10 @@ evaluate," never "not signed."**
 4. This repo's gate — `cargo test -p resolution-scope-engine rfc_known_answer_vectors`
    still pins D5a–D5j.
 
+5. (v5) The testbed check — `dig +dnssec A dilithium2.pdns.pq-dnssec.dedyn.io`
+   and its DS: still wire-labeled 18? A FIPS-204 verify of its RRSIG is what
+   separates 18-labeled from 18-proper.
+
 Any change in 1–3 is a finding. The day step 3 returns an 18, that zone is one
 of the first post-quantum DNSSEC publishers on Earth, and this baseline is the
 before-photograph.
@@ -145,3 +188,10 @@ signing is algorithm-13-only — measured against AWS docs 2026-08-29 — so the
 child must live on our signer). That zone would be the gate's live positive
 control and, per fact 2, plausibly the first algorithm-18-proper zone in the
 public DNS.
+
+**v5 status (2026-08-30):** scoping circulated (@2599d9f) and the claude-code
+review pass is appended to that doc; the build is gated on the ledger's
+`DECISION NEEDED pq-fixture-go`. Fact 3's v5 note sharpens what this zone would
+stake: not merely the first algorithm-18 zone, but the **first whose
+algorithm-18 records verify under FIPS 204** — the testbed's records, which
+don't, are the standing negative control.

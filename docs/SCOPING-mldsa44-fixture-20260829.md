@@ -143,3 +143,102 @@ that will measure the zone it produces.
 *Measured 2026-08-29. desec-io/pqc-dnssec cloned and surveyed; fips204 crate
 API verified; EDNS0 sizes computed from draft-westerbaan-dnssec-mldsa-03 §3-4;
 Route 53 delegation path confirmed against our live `resolutionscope.com` zone.*
+
+---
+
+## 6. Multi-lane review — claude-code lane (2026-08-30)
+
+Requested by hermes @2599d9f, directed by Carey ("hear every lane first — this
+is foundation"). Method: three verification passes (repo+infra intel; fork
+recon at GitHub source level; library/protocol verification at
+IANA/FIPS/crates/parser-source level), then first-hand re-measurement of every
+new fact before it was written down. Original prose above is untouched;
+corrections sit beside it, R-B style.
+
+### Confirmed at source
+
+- **§1 verdict CONFIRMED and strengthened**: the repo is a testbed orchestrator
+  (setup.py:33-34 verbatim as cited); the crypto lives in two *other* repos
+  never cloned locally — `desec-io/pdns` @e5505b6 (liboqs+oqs-provider pinned
+  May-2024, round-3 `"dilithium2"`, priv 2528 B) and `Martyrshot/OQS-bind`
+  (BIND 9.19.7-era). "Porting the fork" would mean porting three external
+  repos; standalone Rust signer is the right call.
+- **§4 direction CONFIRMED**: a single 2,420-B RRSIG exceeds 1232 by itself;
+  100% TCP fallback is structural. deSEC field data: Dilithium2 UDP+DO ~42%
+  correct vs TCP ~93% — TCP-first is the honest posture. (§4's exact byte
+  table is approximate — full-RR vs RDATA accounting; replace with measured
+  dig receipts once live. Verified per-response estimates: A+RRSIG ≈ 2.5 KB,
+  DNSKEY response ≈ 3.8–5.2 KB, NSEC NXDOMAIN ≈ 5–7.6 KB.)
+- **Draft facts**: current is **-04 (2026-08-11)**, IANA's row cites -03,
+  -04 declares the same codepoint. Pure ML-DSA (not HashML-DSA), empty ctx,
+  raw FIPS 204 §7.2 encodings. §6 worked example is deterministic → usable as
+  a byte-exact KAT. Draft mandates neither hedged nor deterministic; we choose
+  **deterministic** (rnd = 0³²) for re-derivable, diffable RRSIGs.
+- **Rust**: right call, and the earlier Go claim was also right — Go 1.27
+  (2026-08-19) ships `crypto/mldsa`; useful as a third interop verifier.
+
+### Corrections the build must absorb
+
+1. **PowerDNS `master` implements ML-DSA-44 @ 18** (commit 31d80e61,
+   2026-07-21, OpenSSL ≥ 3.5 native; in no release — m4 probe 200 on master /
+   404 on auth-5.1.4, re-verified first-hand). §2's implicit "nobody implements
+   18" is stale; baseline updated to v5. Use PowerDNS master as interop peer.
+2. **The deSEC testbed is live, not receded** — `dilithium2.pdns.pq-dnssec.dedyn.io`
+   serves DS 47389 18 2 + alg-18 RRSIGs today (inception 2026-08-20; measured
+   first-hand, UDP/1232 truncates → TCP full). Wire-labeled 18, round-3
+   Dilithium2 semantics, byte-size-identical to ML-DSA-44 → our fixture's claim
+   sharpens to **first FIPS-204-valid algorithm-18 zone**, with the testbed as
+   standing negative control (verify-fail receipt planned).
+3. **Crypto backend is contested, not settled.** The verification pass
+   recommends **aws-lc-rs 1.18.0** (ML-DSA APIs stabilized 2026-08-07;
+   FIPS 140-3-validated backing module; documented pure-mode + empty-ctx —
+   exactly draft §4; seed-based deterministic keygen). §2's `fips204` was not
+   in the verified set, and its "constant-time, production-quality" line is
+   currently unsourced prose. RustCrypto `ml-dsa` 0.1.1 is disqualified for
+   KSK custody (never audited; three medium advisories in its RC series).
+   Action: run the same verification protocol on `fips204`, head-to-head, then
+   pick and record. Winner must clear cargo-deny gates.
+4. **Serve with stock NSD, not hickory-server.** Verified at parser source:
+   NSD (simdzone `scan_algorithm`→`scan_int8`) and BIND (`dns_secalg_fromtext`)
+   both accept decimal `18` and both reject unknown mnemonics — zone files must
+   say `18`, never `MLDSA44`. hickory's `Algorithm::Unknown(18)` encodes but
+   its `is_supported()` gates are unaudited for serving. Cleanest signing path,
+   verified at source: `domain` 0.12.2 `unstable-sign` + a 3-method `SignRaw`
+   impl + `SecurityAlgorithm::from_int(18)` (u8 newtype, round-trips).
+5. **§3 delegation mechanics corrected.** (a) "secondary port" is not viable —
+   resolvers only speak 53; measured 2026-08-30: the ENI's :53 is FREE
+   (systemd-resolved stubs bind only 127.0.0.53/54 — no resolved surgery
+   needed), and SG `sg-06fe9448f84977713` (`dnstool-app-sg`,
+   i-098e3d8ed90737280, us-west-2) has **no 53 rule** — one
+   authorize-security-group-ingress for 53/udp+tcp is required. (b) Prefer an
+   **out-of-bailiwick NS name** (`pqns.resolutionscope.com` A in the parent) —
+   no glue question, small referrals. (c) **Route 53's acceptance of DS RDATA
+   with algorithm 18 is unverified** — settle with one ChangeResourceRecordSets
+   test before anything else depends on it. (d) Order: NS first, DS last.
+6. **RFC 4035 §2.2 completeness**: with an alg-18 DNSKEY published, *every*
+   RRset needs an alg-18 RRSIG, or real ML-DSA validators (PowerDNS master
+   exists now) see bogus, not insecure. Single-CSK, whole-zone signing, NSEC
+   (not NSEC3 — larger proofs, worse field results).
+7. **§4 "AD flag clear on most resolvers"** is right today, but "no validator
+   supports 18" already has one exception on the bleeding edge; expect real
+   validators within the fixture's lifetime — sign the zone properly.
+8. **Q5 resolved (review answer)**: the fixture is legitimate as a **labeled
+   control** — TXT self-declaration on the zone, pre-registration in the
+   baseline, and exclusion from our own corpus statistics (the 0-of-N surveys
+   must never count our own plant). This closes the scoping-doc/deep-report §7
+   contradiction, subject to the ledger decision.
+9. Housekeeping: the reference clone lives at `/tmp/pqc-dnssec`
+   (https://github.com/desec-io/pqc-dnssec.git, HEAD 86f758ae) — volatile,
+   now recorded here; its five Jupyter notebooks hold the field study's
+   measured packet data (also in the RIPE 89 deck). §2/§3 spellings
+   "DNSEKEY"/"namesever" left as written per R-B convention; read as
+   DNSKEY/nameserver.
+
+### Gate
+
+Build waits on the ledger's `DECISION NEEDED pq-fixture-go` (Carey + hermes),
+then: Route 53 DS test → SPEC doc (backend head-to-head, deterministic signing,
+key custody) → signer + KATs (draft §6 byte-exact) → triple interop verify
+(PowerDNS master, Go 1.27, self) → NSD on dnstool-app :53 → NS then DS →
+engine run (ChainUnverified fires, D5b live) → baseline completes the fixture
+pre-registration. Estimate unchanged from §5 plus the gates: ~3–4 elapsed days.
