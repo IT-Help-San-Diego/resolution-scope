@@ -16,6 +16,6 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 RUN openssl version && cargo --version
 RUN git clone --depth 50 https://github.com/PowerDNS/pdns.git /src/pdns
 WORKDIR /src/pdns/pdns/recursordist
-RUN meson setup build && ninja -C build pdns_recursor rec_control || \
+RUN meson setup build && ninja -C build -j2 pdns_recursor rec_control || \
     (echo 'MESON BUILD FAILED — dumping log'; tail -50 build/meson-logs/meson-log.txt; exit 1)
 RUN ./build/pdns_recursor --version 2>&1 | head -5
