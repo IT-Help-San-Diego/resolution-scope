@@ -346,7 +346,7 @@ fn nsec_presentation(rdata: &[u8]) -> String {
 
 /// Zone content — single source of truth, shared by --preview (unsigned
 /// placeholder) and the production signing run. Schema per SPEC §3.
-const TXT_DECLARATION: &str = "v=pqexperiment1; domain=pq.resolutionscope.com; algorithm=18; algorithm-name=ML-DSA-44; draft=draft-westerbaan-dnssec-mldsa-04; purpose=field-specimen-only; corpus-excluded=YES; dual-sign=NO; label=EXPERIMENT-NOT-PRODUCTION; contact=security@it-help.tech";
+const TXT_DECLARATION: &str = "v=pqexperiment2; alg=18; alg-name=ML-DSA-44; keytag=33846; keybytes=1312; iana-assigned-between=2026-08-04..2026-08-11; ref=draft-westerbaan-dnssec-mldsa-04; purpose=field-specimen-only; corpus-excluded=YES; dual-sign=NO; contact=security@it-help.tech";
 
 /// No-mail fixture lock (family standard, WHOIS/mail doctrine 2026-08-21):
 /// null MX declares "accepts no mail" (null-MX spec — README.md citation map), SPF -all declares no
