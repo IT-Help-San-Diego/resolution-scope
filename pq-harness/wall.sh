@@ -35,6 +35,29 @@ if grep -q 'MLDSA' "$ZONE"; then bad "mnemonic MLDSA found — parsers reject mn
 LONG=$(grep 'IN[[:space:]]*TXT' "$ZONE" | grep -oE '"[^"]*"' | awk '{ if (length($0)-2 > 255) print length($0)-2 }' | head -1 || true)
 if [ -n "$LONG" ]; then bad "TXT char-string of $LONG bytes exceeds 255"; else ok "all TXT char-strings ≤ 255 bytes"; fi
 
+# 4b. TXT strings must be pure ASCII (fixture doctrine: dig output must read
+#     clean; multibyte punctuation becomes \226\128\148-style escapes — the
+#     exact tokenizer-hostility the poem exists to defeat) and chunk splits
+#     must land on word boundaries (no mid-word "grea"/"t talk" cuts).
+python3 - "$ZONE" <<'EOF' || fail=1
+import sys, re
+bad = False
+for line in open(sys.argv[1], 'rb').read().decode('utf-8', 'replace').splitlines():
+    if ' TXT ' not in line and '\tTXT\t' not in line: continue
+    strings = re.findall(r'"([^"]*)"', line)
+    for s in strings:
+        nonascii = [c for c in s if ord(c) > 126]
+        if nonascii:
+            print(f"✗ TXT contains non-ASCII {[hex(ord(c)) for c in nonascii[:3]]} — use ASCII punctuation"); bad = True
+            break
+    for a, b in zip(strings, strings[1:]):
+        if a and b and a[-1] not in ' .!?;' and b[0] != ' ':
+            print(f"✗ TXT chunk split mid-word: …'{a[-12:]}' + '{b[:12]}'…"); bad = True
+if bad: sys.exit(1)
+print("✓ TXT strings ASCII-clean, chunk splits on word boundaries")
+EOF
+[ $? -ne 0 ] && fail=1
+
 # 5. NSEC bitmap honesty: every type listed must exist at that owner; every
 #    type present (except NSEC/RRSIG bootstrap) must be listed.
 python3 - "$ZONE" <<'EOF' || fail=1
