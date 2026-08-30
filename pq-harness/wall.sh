@@ -67,6 +67,17 @@ print("✓ TXT strings ASCII-clean, chunk splits space-retained")
 EOF
 [ $? -ne 0 ] && fail=1
 
+# 4c. No placeholder tokens in emitted record data (claude-science assertion:
+#     a name that doesn't exist is honest; a record asserting <PENDING> under a
+#     real signature is not — and post-publish fixes re-sign everything and
+#     invalidate decay receipts).
+if grep -nE '<|>|PENDING|TODO|TBD' "$ZONE" | grep -vE '^\s*[0-9]*:?\s*;' | grep -qE 'IN[[:space:]]'; then
+    bad "placeholder token (< > PENDING TODO TBD) in emitted record data:"
+    grep -nE 'PENDING|TODO|TBD|<|>' "$ZONE" | grep -E 'IN[[:space:]]' | head -3 | sed 's/^/    /'
+else
+    ok "no placeholder tokens in record data"
+fi
+
 # 5. NSEC bitmap honesty: every type listed must exist at that owner; every
 #    type present (except NSEC/RRSIG bootstrap) must be listed.
 python3 - "$ZONE" <<'EOF' || fail=1
