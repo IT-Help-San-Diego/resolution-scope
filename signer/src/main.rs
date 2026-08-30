@@ -366,7 +366,8 @@ const TXT_DECLARATION_W2: &str = "v=pqexperiment3; alg=18; alg-name=ML-DSA-44; k
 /// never the append-only ledger (relay ruling 2026-08-30: a ledger hash goes
 /// stale in hours; the SPEC document is the stable contract target).
 const TXT_SPEC: &str = "v=pqspec1; doc=docs/SPEC-mldsa44-signer-20260830.md; sha=2ea61f490c8cf4bb";
-const TXT_PROOF: &str = "v=pqproof1; build=053fc78; verify=4-impl KAT + wall green; receipts=policy/LANES.md";
+const TXT_PROOF: &str =
+    "v=pqproof1; build=053fc78; verify=4-impl KAT + wall green; receipts=policy/LANES.md";
 const TXT_REPO: &str = "v=pqrepo1; url=https://github.com/IT-Help-San-Diego/resolution-scope";
 
 const TXT_POEM: &str = "Come home to the data, stay spooky at a distance on that sidewalk with a foundation that is better than concrete, seek logic and reason, mathematical validation not con-firmation -- that is just social media likes, not the tour -- that is just applause, great talk now back to the lab! Decide to mathematically, logically work for the future. One less champagne lobster dinner is a lot more science. Immutable reality checks and mathematical validation my love that is the data we come home to.";
@@ -380,18 +381,14 @@ fn sign_rrset(
     ctx: &SigningContext,
 ) -> (RrsigFields, Vec<u8>) {
     let mut f = ctx.fields_for(type_covered);
-    // RFC 4034 §3.1.3: the RRSIG Labels field is the number of labels in the
+    // RRSIG Labels field (canonical-form spec, engine holds the RFC cite): the
     // RRset's OWNER name, not the zone origin's. An apex-only zone never
     // exposed this (owner == origin); multi-name zones (window 2's sidecars
     // and chain NSECs) break validation if every RRset inherits the apex's
     // label count — validators reconstruct the signed data from the owner
     // minus `labels` labels, so a wrong count verifies against a different
     // message and the RRset reads bogus.
-    let owner_labels = rrs[0]
-        .owner
-        .trim_end_matches('.')
-        .split('.')
-        .count() as u8;
+    let owner_labels = rrs[0].owner.trim_end_matches('.').split('.').count() as u8;
     f.labels = owner_labels;
     let msg = rrsig_signed_data(&f, rrs);
     let sig = sk
@@ -434,7 +431,7 @@ fn main() -> io::Result<()> {
     let mut serial = 2026083001u32;
     let mut preview = false;
     // window2 mode: the reset specimen (Science-approved 2026-08-31) —
-    // dual-NS (SPOF fix, RFC 2182 §5), _spec/_proof/_repo sidecars, canonical
+    // dual-NS (SPOF fix per the nameserver-recommendation rule), sidecars, canonical
     // multi-name NSEC chain, SOA-MIN 3600 (matches the other two specimens).
     let mut window2 = false;
 
@@ -575,7 +572,7 @@ fn main() -> io::Result<()> {
 
     let mut ns_names: Vec<&str> = vec!["pqns.resolutionscope.com."];
     if window2 {
-        // RFC 2182 §5: at least two nameservers on separate networks —
+        // Nameserver-recommendation rule (engine cites): at least two on
         // pqns (us-west-2c) + pqns2 (us-west-2a) are separate AZs.
         ns_names.push("pqns2.resolutionscope.com.");
     }
@@ -647,19 +644,51 @@ fn main() -> io::Result<()> {
         let proof_name = format!("_proof.{zone_origin}");
         let repo_name = format!("_repo.{zone_origin}");
         let spec_name = format!("_spec.{zone_origin}");
-        // TRUE canonical order (RFC 4034 §6.1, verified by sort): the apex
+        // TRUE canonical name order (verified by independent sort): the apex
         // (fewer labels at the divergence point) sorts FIRST, then the
         // underscore names in byte order _proof < _repo < _spec. Chain:
         // apex -> _proof -> _repo -> _spec -> wrap to apex.
-        nsec_rrs.push(Rr { owner: zone_origin.clone(), class: 1, rdata: nsec_rdata(&proof_name, &APEX_BITMAP) });
-        nsec_rrs.push(Rr { owner: proof_name.clone(), class: 1, rdata: nsec_rdata(&repo_name, &SIDECAR_BITMAP) });
-        nsec_rrs.push(Rr { owner: repo_name.clone(), class: 1, rdata: nsec_rdata(&spec_name, &SIDECAR_BITMAP) });
-        nsec_rrs.push(Rr { owner: spec_name.clone(), class: 1, rdata: nsec_rdata(&zone_origin, &SIDECAR_BITMAP) });
-        sidecar_rrs.push(Rr { owner: proof_name, class: 1, rdata: txt_rdata(TXT_PROOF) });
-        sidecar_rrs.push(Rr { owner: repo_name, class: 1, rdata: txt_rdata(TXT_REPO) });
-        sidecar_rrs.push(Rr { owner: spec_name, class: 1, rdata: txt_rdata(TXT_SPEC) });
+        nsec_rrs.push(Rr {
+            owner: zone_origin.clone(),
+            class: 1,
+            rdata: nsec_rdata(&proof_name, &APEX_BITMAP),
+        });
+        nsec_rrs.push(Rr {
+            owner: proof_name.clone(),
+            class: 1,
+            rdata: nsec_rdata(&repo_name, &SIDECAR_BITMAP),
+        });
+        nsec_rrs.push(Rr {
+            owner: repo_name.clone(),
+            class: 1,
+            rdata: nsec_rdata(&spec_name, &SIDECAR_BITMAP),
+        });
+        nsec_rrs.push(Rr {
+            owner: spec_name.clone(),
+            class: 1,
+            rdata: nsec_rdata(&zone_origin, &SIDECAR_BITMAP),
+        });
+        sidecar_rrs.push(Rr {
+            owner: proof_name,
+            class: 1,
+            rdata: txt_rdata(TXT_PROOF),
+        });
+        sidecar_rrs.push(Rr {
+            owner: repo_name,
+            class: 1,
+            rdata: txt_rdata(TXT_REPO),
+        });
+        sidecar_rrs.push(Rr {
+            owner: spec_name,
+            class: 1,
+            rdata: txt_rdata(TXT_SPEC),
+        });
     } else {
-        nsec_rrs.push(Rr { owner: zone_origin.clone(), class: 1, rdata: nsec_rdata(&zone_origin, &APEX_BITMAP) });
+        nsec_rrs.push(Rr {
+            owner: zone_origin.clone(),
+            class: 1,
+            rdata: nsec_rdata(&zone_origin, &APEX_BITMAP),
+        });
     }
     let nsec_rd = nsec_rrs[0].rdata.clone();
     let nsec_rr = Rr {
@@ -736,7 +765,11 @@ fn main() -> io::Result<()> {
         "{zone_origin} 3600 IN SOA {}",
         soa_presentation(&soa_rd)
     )?;
-    writeln!(out, "{}", rrsig_presentation(&zone_origin, &soa_f, &soa_sig))?;
+    writeln!(
+        out,
+        "{}",
+        rrsig_presentation(&zone_origin, &soa_f, &soa_sig)
+    )?;
     for ns_rr in &ns_rrs {
         writeln!(
             out,
@@ -756,7 +789,11 @@ fn main() -> io::Result<()> {
         "{zone_origin} 3600 IN TXT {}",
         txt_presentation(TXT_SPF)
     )?;
-    writeln!(out, "{}", rrsig_presentation(&zone_origin, &txt_f, &txt_sig))?;
+    writeln!(
+        out,
+        "{}",
+        rrsig_presentation(&zone_origin, &txt_f, &txt_sig)
+    )?;
     writeln!(out, "{zone_origin} 3600 IN MX {}", mx_presentation(&mx_rd))?;
     writeln!(out, "{}", rrsig_presentation(&zone_origin, &mx_f, &mx_sig))?;
     writeln!(
@@ -764,13 +801,21 @@ fn main() -> io::Result<()> {
         "{zone_origin} 3600 IN DNSKEY {}",
         dnskey_presentation(&dnskey_rd)
     )?;
-    writeln!(out, "{}", rrsig_presentation(&zone_origin, &dnskey_f, &dnskey_sig))?;
+    writeln!(
+        out,
+        "{}",
+        rrsig_presentation(&zone_origin, &dnskey_f, &dnskey_sig)
+    )?;
     writeln!(
         out,
         "{zone_origin} 3600 IN NSEC {}",
         nsec_presentation(&nsec_rd)
     )?;
-    writeln!(out, "{}", rrsig_presentation(&zone_origin, &nsec_f, &nsec_sig))?;
+    writeln!(
+        out,
+        "{}",
+        rrsig_presentation(&zone_origin, &nsec_f, &nsec_sig)
+    )?;
     for (rr, f, sig) in &sidecar_sets {
         writeln!(
             out,
