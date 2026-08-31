@@ -25,7 +25,6 @@ fn rsa_sign_rrset(
     ctx: &SigningContext,
     rsa_keytag: u16,
 ) -> (RrsigFields, Vec<u8>) {
-    use rsa::traits::PublicKeyParts;
     use rsa::Pkcs1v15Sign;
     use sha2::Sha256;
     let mut f = ctx.fields_for(type_covered);
@@ -62,7 +61,7 @@ use rsa::traits::PublicKeyParts as _;
 
 fn rsa_ksk_keygen(rng: &mut rand::rngs::StdRng) -> rsa::RsaPrivateKey {
     use rsa::pkcs8::EncodePrivateKey;
-    let mut priv_key = rsa::RsaPrivateKey::new(rng, 2048).expect("rsa 2048 keygen");
+    let priv_key = rsa::RsaPrivateKey::new(rng, 2048).expect("rsa 2048 keygen");
     let _ = priv_key.to_pkcs8_pem(rsa::pkcs8::LineEnding::LF);
     priv_key
 }
