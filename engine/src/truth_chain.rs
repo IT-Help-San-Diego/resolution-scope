@@ -936,13 +936,16 @@ pub const SCORING_VERSION: u32 = 1;
 /// The consequence weight of a control, keyed on its IDENTITY (its absent-state
 /// severity), NOT its current state. Derived from the `*_report` constructor for
 /// that control's "missing" disposition — single producer, so a future severity
-/// re-ruling propagates automatically. Only High (3) and Low (1) are produced:
-/// no control's missing disposition is Medium or Critical.
+/// re-ruling propagates automatically. CSYNC is the ruled zero-weight exception:
+/// `RecordAbsent` is the expected standing state outside a delegation change,
+/// so it is measured and shown but excluded from RWS rather than pretending the
+/// absent-state severity is High or Low.
 pub fn identity_weight(control: ControlId) -> u32 {
     match absent_severity(control) {
         Severity::High => 3,
         Severity::Low => 1,
-        // Unreachable by construction (absent-state severities are High or Low).
+        // CSYNC RecordAbsent is Ok: measured/shown, but zero-weight in RWS by
+        // the staged-control ruling. Other non-High/Low cases remain zero.
         _ => 0,
     }
 }

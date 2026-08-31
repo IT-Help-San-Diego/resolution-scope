@@ -8,7 +8,7 @@
 // logic so it can be compiled for a no_std seL4 compartment in the future.
 
 use crate::analysis::ScoredAnalysis;
-use crate::seal::{canonical_input, engine_version, seal};
+use crate::seal::{canonical_input, engine_version, seal, V4_BOUNDARY_NOTE};
 use crate::tristate::TriState;
 use crate::truth_chain::{risk_weighted_score, truth_chain, Tally, SCORING_VERSION};
 
@@ -81,6 +81,8 @@ pub fn render_text(a: &ScoredAnalysis) -> String {
     // Copy these bytes, run SHA3-512, and the hex digest is the seal above —
     // no side channel, no hand-kept mirror to drift.
     out.push_str("\n── Re-derive the seal (SHA3-512 of these exact bytes) ──\n");
+    out.push_str(V4_BOUNDARY_NOTE);
+    out.push('\n');
     out.push_str(&canonical_input(a, &engine_version()));
     out.push_str("──────────────────────────────────────────────────────────\n");
     out

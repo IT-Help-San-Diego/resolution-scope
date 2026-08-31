@@ -525,6 +525,10 @@ impl core::fmt::Display for TlsaZone {
     }
 }
 
+fn default_unmeasured_tri_state() -> TriState {
+    TriState::Indet
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ScoredAnalysis {
@@ -558,9 +562,13 @@ pub struct ScoredAnalysis {
     pub caa_disposition: CaaDisposition,
     pub cds_cdnskey: TriState,
     pub cds_disposition: CdsDisposition,
+    #[serde(default = "default_unmeasured_tri_state")]
     pub tls_rpt: TriState,
+    #[serde(default = "TlsRptDisposition::default_unmeasured")]
     pub tls_rpt_disposition: TlsRptDisposition,
+    #[serde(default = "default_unmeasured_tri_state")]
     pub csync: TriState,
+    #[serde(default = "CsyncDisposition::default_unmeasured")]
     pub csync_disposition: CsyncDisposition,
 }
 
@@ -757,6 +765,42 @@ mod tests {
         );
     }
 
+    #[test]
+    fn legacy_eight_control_rows_deserialize_with_unmeasured_new_controls() {
+        let json = r#"{
+            "domain":"example.com",
+            "session_id":1,
+            "timestamp_local":1700000000,
+            "resolver_identity":"default",
+            "dnssec_chain":"Present",
+            "dnssec_disposition":"SignedAndDelegated",
+            "spf":"Present",
+            "spf_disposition":"HardFail",
+            "dkim":"Absent",
+            "dkim_disposition":"NotFoundDefaults",
+            "dmarc":"Present",
+            "dmarc_disposition":"Reject",
+            "dane":"NotApplicable",
+            "dane_disposition":"NoMail",
+            "tlsa_zone":"NoMxHost",
+            "mta_sts":"Present",
+            "mta_sts_disposition":"Enforced",
+            "caa":"Absent",
+            "caa_disposition":"NotConfigured",
+            "cds_cdnskey":"Absent",
+            "cds_disposition":"NotPublished"
+        }"#;
+        let decoded: ScoredAnalysis = serde_json::from_str(json)
+            .expect("pre-PR36 eight-control stored rows must keep reading");
+        assert_eq!(decoded.tls_rpt, TriState::Indet);
+        assert_eq!(
+            decoded.tls_rpt_disposition,
+            TlsRptDisposition::TransientError
+        );
+        assert_eq!(decoded.csync, TriState::Indet);
+        assert_eq!(decoded.csync_disposition, CsyncDisposition::TransientError);
+    }
+
     /// chain() is the single collapse point (disposition -> TriState). The
     /// engine derives every score through it, never hand-paired.
     #[test]
@@ -796,6 +840,10 @@ pub enum TlsRptDisposition {
 }
 
 impl TlsRptDisposition {
+    pub fn default_unmeasured() -> Self {
+        TlsRptDisposition::TransientError
+    }
+
     pub fn chain(self) -> TriState {
         match self {
             TlsRptDisposition::Published => TriState::Present,
@@ -841,6 +889,10 @@ pub enum CsyncDisposition {
 }
 
 impl CsyncDisposition {
+    pub fn default_unmeasured() -> Self {
+        CsyncDisposition::TransientError
+    }
+
     pub fn chain(self) -> TriState {
         match self {
             CsyncDisposition::Published => TriState::Present,

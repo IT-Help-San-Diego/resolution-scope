@@ -37,7 +37,7 @@
 // unique and unrecoverable; a verdict seal is reproducible and checkable
 // forever.
 //
-// ── CANONICAL FORM (v2) ────────────────────────────────────────────────────
+// ── CANONICAL FORM (v4 boundary) ───────────────────────────────────────────
 // The digested byte sequence is, in order, newline-terminated:
 //
 //   resolution-scope-sha3-512-v2
@@ -53,6 +53,12 @@
 //   mta_sts=<disposition>=<tri>
 //   caa=<disposition>=<tri>
 //   cds=<disposition>=<tri>
+//
+// Stage boundary (PR #36): the engine/report surface may emit additional
+// controls (currently TLS-RPT and CSYNC) beside this seal while the v4 seal
+// preimage still binds exactly the founding eight controls above. That staging
+// is intentional and visible; the v5 seal event will decide whether/how those
+// additional controls enter the preimage.
 //
 // Dispositions and tri-states are encoded as their Rust variant names (the
 // enum's public, stable identity — renaming a verdict is a breaking change
@@ -77,7 +83,12 @@ use resolution_scope_types::SealSpelling;
 /// become unverifiable — a seal scheme that drifts is a seal that lies.
 /// v2 added `resolver_identity` (the observer's vantage) to the input set.
 /// v3 added `tlsa_zone` (the MX-host zone relationship — DANE attribution).
+/// v4 binds exactly the founding eight controls; staged controls such as
+/// TLS-RPT and CSYNC are rendered/stored beside the seal until the v5 event.
 pub const SEAL_SCHEME: &str = "resolution-scope-sha3-512-v4";
+
+/// Human-readable declaration of the current staged seal boundary.
+pub const V4_BOUNDARY_NOTE: &str = "v4 seal binds the founding eight controls (DNSSEC, SPF, DKIM, DMARC, DANE, MTA-STS, CAA, CDS/CDNSKEY); TLS-RPT and CSYNC are staged beside the seal and are not v4 seal inputs";
 
 /// The immediately prior scheme, retained so the store can RE-DERIVE rows
 /// sealed before the v4 bump. v3→v4 changed the disposition token
@@ -89,8 +100,8 @@ pub const SEAL_SCHEME_V3: &str = "resolution-scope-sha3-512-v3";
 
 /// Compute the hex-encoded SHA3-512 seal of a measurement's verdict content.
 ///
-/// Deterministic: identical `ScoredAnalysis` verdict fields (domain + the
-/// eight dispositions/tri-states) yield the identical seal, regardless of
+/// Deterministic: identical v4-sealed verdict fields (domain + the
+/// founding eight dispositions/tri-states) yield the identical seal, regardless of
 /// `session_id` or `timestamp_local`. See the module doc for the exact
 /// canonical form.
 pub fn seal(analysis: &ScoredAnalysis) -> String {
@@ -364,6 +375,28 @@ mod tests {
             "20745a96ae762f15146184233c64149fad3a09415e1b6014990b3168f7ac2e97\
              92fa6b1418ab259908f515f863ee0d7ace22685ab8a957006e1f438621dbd26d"
         );
+    }
+
+    #[test]
+    fn v4_seal_membership_is_exactly_the_original_eight_controls() {
+        let input = canonical_input(&baseline(), "0.0.0-kat");
+        let lines: Vec<&str> = input.lines().collect();
+        let controls: Vec<&str> = lines
+            .iter()
+            .copied()
+            .filter_map(|line| line.split_once('=').map(|(name, _)| name))
+            .filter(|name| *name != "tlsa_zone")
+            .collect();
+        assert_eq!(
+            controls,
+            ["dnssec", "spf", "dkim", "dmarc", "dane", "mta_sts", "caa", "cds"],
+            "v4 intentionally binds only the founding eight controls; TLS-RPT and CSYNC are staged beside the seal until the v5 seal event"
+        );
+        assert!(
+            !input.contains("tls_rpt="),
+            "TLS-RPT is not a v4 seal input"
+        );
+        assert!(!input.contains("csync="), "CSYNC is not a v4 seal input");
     }
 
     #[test]

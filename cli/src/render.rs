@@ -14,7 +14,7 @@
 
 use resolution_scope_engine::report::render_text;
 use resolution_scope_engine::seal::{
-    canonical_input, engine_version, seal, seal_versioned, SEAL_SCHEME,
+    canonical_input, engine_version, seal, seal_versioned, SEAL_SCHEME, V4_BOUNDARY_NOTE,
 };
 use resolution_scope_engine::truth_chain::{
     by_severity, risk_weighted_score, truth_chain, Audience, ControlReport, Severity, Tally,
@@ -37,6 +37,8 @@ pub const SEAL_NOTE: &str =
     "tamper-evidence only: hash these exact bytes under the named scheme (every line, the last \
 included, ends in a newline) and you re-derive the seal — it proves the verdict you hold is the \
 one that was sealed, nothing more";
+/// Current staged boundary: visible everywhere the v4 seal is explained.
+pub const SEAL_BOUNDARY_NOTE: &str = V4_BOUNDARY_NOTE;
 
 /// Tier labels — layout over the engine's Severity ordering.
 pub const TIER_FINDINGS: &str = "FINDINGS";
@@ -275,6 +277,8 @@ fn render_text_surface(analyses: &[ScoredAnalysis], audience: Audience, opts: Te
                 "\n\u{2500}\u{2500} Re-derive the seal \u{2014} scheme {} \u{2500}\u{2500}\n",
                 obs.scheme
             ));
+            s.push_str(SEAL_BOUNDARY_NOTE);
+            s.push('\n');
             s.push_str(&canonical_input(a, &obs.engine));
             s.push_str(
                 "\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\n",
@@ -499,8 +503,9 @@ pub fn render_html_page(analyses: &[ScoredAnalysis], audience: Audience) -> Stri
 
         body.push_str(&format!(
             "<details class=\"rederive\" open>\n<summary>Re-derive the seal \u{2014} scheme {scheme}</summary>\n\
-             <pre>{pre}</pre>\n<p class=\"note\">{note}</p>\n</details>\n</section>\n",
+             <p class=\"note\">{boundary}</p>\n<pre>{pre}</pre>\n<p class=\"note\">{note}</p>\n</details>\n</section>\n",
             scheme = esc(obs.scheme),
+            boundary = esc(SEAL_BOUNDARY_NOTE),
             pre = esc(&canonical_input(a, &obs.engine)),
             note = esc(SEAL_NOTE),
         ));
@@ -782,6 +787,22 @@ mod tests {
         assert_eq!(v["engine_version"], engine_version());
         assert_eq!(v["session_hex"], "0000000000000000");
         assert_eq!(v["timestamp_utc"], "2026-08-23T17:52:13Z");
+    }
+
+    #[test]
+    fn report_declares_v4_seal_boundary_for_staged_controls() {
+        let a = fixture("example.test");
+        let report = render_report(std::slice::from_ref(&a), Audience::BlueTeam);
+        assert!(
+            report.contains("v4 seal binds the original 8 controls")
+                || report.contains("v4 seal binds the founding eight controls"),
+            "report must disclose that TLS-RPT/CSYNC are staged beside, not inside, the v4 seal"
+        );
+        assert!(report.contains("TLS-RPT") && report.contains("CSYNC"));
+        assert!(
+            report.contains("not v4 seal inputs") || report.contains("not inside the v4 seal"),
+            "must name the unsealed boundary, not merely say controls exist"
+        );
     }
 
     #[test]
