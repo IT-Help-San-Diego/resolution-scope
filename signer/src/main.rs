@@ -32,6 +32,19 @@ fn rsa_sign_rrset(
     f.keytag = rsa_keytag;
     f.labels = rrs[0].owner.trim_end_matches('.').split('.').count() as u8;
     let msg = rrsig_signed_data(&f, rrs);
+    {
+        use sha2::Digest as _;
+        if std::env::args().any(|a| a == "--debug-sd") {
+            eprintln!(
+                "SD-DEBUG alg-8 type={:?} labels={} kt={} sha256={} sd-prefix={}",
+                f.type_covered,
+                f.labels,
+                f.keytag,
+                hex::encode(sha2::Sha256::digest(&msg)),
+                hex::encode(&msg[..msg.len().min(900)])
+            );
+        }
+    }
     // RSA-SHA256 (PKCS#1 v1.5, DigestInfo over SHA-256): hash the canonical
     // signed-data, then sign the 32-byte digest — Pkcs1v15Sign wraps it in
     // DigestInfo internally.
@@ -491,6 +504,9 @@ fn main() -> io::Result<()> {
     // multi-name NSEC chain, SOA-MIN 3600 (matches the other two specimens).
     let mut window2 = false;
     let mut dualds = false;
+    // Debug: dump the sha256 of every signed-data blob (the stale-input class
+    // hunts by exact hash — CC's method, made a flag).
+    let mut debug_sd = false;
 
     let mut i = 1;
     while i < args.len() {
@@ -516,6 +532,9 @@ fn main() -> io::Result<()> {
             }
             "--window2" => {
                 window2 = true;
+            }
+            "--debug-sd" => {
+                debug_sd = true;
             }
             "--dualds" => {
                 window2 = true;
@@ -735,27 +754,6 @@ fn main() -> io::Result<()> {
         rdata: mx_rd.clone(),
     };
 
-    let mut dnskey_rdatas: Vec<Vec<u8>> = vec![dnskey_rd.clone()];
-    if let Some(ref key) = rsa_key {
-        // DNSKEY RDATA for RSA (RFC 3110): exponent-length-prefixed
-        // exponent + modulus, big-endian.
-        let pubk = key.to_public_key();
-        let (n_c, e_c) = (pubk.n().clone(), pubk.e().clone());
-        let e = e_c.to_bytes_be();
-        let n = n_c.to_bytes_be();
-        let mut rd8 = Vec::new();
-        if e.len() <= 255 {
-            rd8.push(e.len() as u8);
-        } else {
-            rd8.push(0);
-            rd8.extend_from_slice(&(e.len() as u16).to_be_bytes());
-        }
-        rd8.extend_from_slice(&e);
-        rd8.extend_from_slice(&n);
-        let mut full = vec![1u8, 1, 3, 8]; // flags 257 = 0x0101 (KSK|ZSK), proto 3, alg 8 // flags=257 (KSK), proto=3, alg=8
-        full.extend_from_slice(&rd8);
-        dnskey_rdatas.push(full);
-    }
     let dnskey_rr = Rr {
         owner: zone_origin.clone(),
         class: 1,
@@ -838,7 +836,25 @@ fn main() -> io::Result<()> {
     let ns_set: Vec<&Rr> = ns_rrs.iter().collect();
     let txt_set = vec![&txt_rr, &poem_rr, &spf_rr];
     let mx_set = vec![&mx_rr];
-    let dnskey_set = vec![&dnskey_rr];
+    // The alg-8 RR (from the keytag/digest block's RDATA build).
+    let dnskey_rr8 = if dualds {
+        Some(Rr {
+            owner: zone_origin.clone(),
+            class: 1,
+            rdata: rsa_dnskey_rd.clone(),
+        })
+    } else {
+        None
+    };
+    // THE DNSKEY RRSET IS COMPLETE BEFORE ANY RRSIG OVER IT.
+    // (The dual-DS signing bug CC located by exact-hash match: the alg-8
+    // signature covered the one-key RRset while the emitted zone carried
+    // both — a signature over stale input. RRsets are frozen first, then
+    // signed, never appended-to after signing begins.)
+    let mut dnskey_set: Vec<&Rr> = vec![&dnskey_rr];
+    if let Some(ref r8) = dnskey_rr8 {
+        dnskey_set.push(r8);
+    }
     let nsec_set = vec![&nsec_rr];
 
     // Sign each RRset
