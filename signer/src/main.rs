@@ -504,9 +504,6 @@ fn main() -> io::Result<()> {
     // multi-name NSEC chain, SOA-MIN 3600 (matches the other two specimens).
     let mut window2 = false;
     let mut dualds = false;
-    // Debug: dump the sha256 of every signed-data blob (the stale-input class
-    // hunts by exact hash — CC's method, made a flag).
-    let mut debug_sd = false;
 
     let mut i = 1;
     while i < args.len() {
@@ -534,7 +531,9 @@ fn main() -> io::Result<()> {
                 window2 = true;
             }
             "--debug-sd" => {
-                debug_sd = true;
+                // Consumed positionally; the sign helpers read this flag
+                // straight from env::args so the hash dump works from any
+                // call depth without threading a parameter.
             }
             "--dualds" => {
                 window2 = true;
@@ -631,8 +630,8 @@ fn main() -> io::Result<()> {
     } else {
         None
     };
-    // KSK-8 keytag + DS digest (RFC 4034 App. B over the alg-8 DNSKEY RDATA;
-    // DS = SHA-256 over owner | rdata, same as the alg-18 half).
+    // KSK-8 keytag + DS digest (standard keytag arithmetic over the alg-8
+    // DNSKEY RDATA; DS = SHA-256 over owner | rdata, same as the alg-18 half).
     let (rsa_kt, rsa_ds, rsa_dnskey_rd) = match &rsa_key {
         // (PublicKeyParts trait imported at module scope for n()/e())
         Some(key) => {
@@ -716,9 +715,10 @@ fn main() -> io::Result<()> {
     // the signed text can never describe a different key than the one signing it.
     let txt_str: String = if dualds {
         // SciSpace design 2026-08-30T18:35Z — the MANDATORY security label:
-        // the RFC 6840 §5.11 strip attack (MITM strips the alg-18 RRSIG, zone
-        // degrades to alg-8 with no alarm) is the scientific POINT of this
-        // specimen, stated in its own signed words.
+        // the algorithm-strip attack (a MITM strips the alg-18 RRSIGs and the
+        // zone degrades to alg-8 with no alarm) is the scientific POINT of
+        // this specimen, stated in its own signed words; citation lives with
+        // the engine's DNSSEC control text.
         TXT_DECLARATION_DUALDS
             .replace("{KT18}", &kt.to_string())
             .replace("{KT8}", &rsa_kt.to_string())
