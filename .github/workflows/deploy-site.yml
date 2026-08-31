@@ -105,9 +105,15 @@ jobs:
         # --delete scopes to the include set, so a page removed from site/
         # is removed from the bucket too. (txt/xml/css use cp below — retiring
         # one of those files needs a manual `aws s3 rm`.)
+        # The trailing r/* exclude wins over the include (last match rules):
+        # published scan reports live at r/<domain>/<date>.html OUT-OF-BAND
+        # (scripts/publish-report.sh), so without this guard every site deploy
+        # would sync-delete them from the bucket. Keep in lockstep with the
+        # script's key prefix.
         run: |
           aws s3 sync site/ "s3://$BUCKET/" \
             --exclude "*" --include "*.html" \
+            --exclude "r/*" \
             --cache-control "public,max-age=3600,stale-while-revalidate=86400" \
             --metadata-directive REPLACE --delete
 
