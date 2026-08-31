@@ -1,4 +1,4 @@
-// dispositions.rs — the eight per-control disposition enums + the IPC payload
+// dispositions.rs — the per-control disposition enums + the IPC payload
 //
 // Extracted from engine/src/analysis.rs (the former single location) into this
 // shared crate so the engine (std) and the native store compartment (no_std)

@@ -39,10 +39,11 @@ use crate::analysis::{
     TlsRptDisposition, TlsaZone,
 };
 use crate::tristate::TriState;
+use resolution_scope_types::SealSpelling;
 use serde::{Deserialize, Serialize};
 
 // =============================================================================
-// ControlId — the eight controls, in canonical (protocol-layer) order
+// ControlId — controls in canonical (protocol-layer) order
 // =============================================================================
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -156,6 +157,10 @@ pub enum Audience {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct ControlReport {
     pub control: ControlId,
+    /// Seal-layer spelling of the disposition that produced this report. This
+    /// lets the seal preimage read the same one-control-per-row truth_chain()
+    /// producer as the renderers, instead of re-enumerating the controls by hand.
+    pub seal_disposition: &'static str,
     /// Layer 1 — the RFC requirement, including optionality.
     pub rfc_requirement: &'static str,
     /// Layer 2 — the measured state at full fidelity (disposition label).
@@ -325,6 +330,7 @@ fn dnssec_report(d: DnssecDisposition) -> ControlReport {
     };
     ControlReport {
         control: ControlId::Dnssec,
+        seal_disposition: d.seal_spelling(),
         rfc_requirement: rfc_requirement(ControlId::Dnssec),
         measured,
         tri: d.chain(),
@@ -382,6 +388,7 @@ fn spf_report(d: SpfDisposition) -> ControlReport {
     };
     ControlReport {
         control: ControlId::Spf,
+        seal_disposition: d.seal_spelling(),
         rfc_requirement: rfc_requirement(ControlId::Spf),
         measured,
         tri: d.chain(),
@@ -445,6 +452,7 @@ fn dkim_report(d: DkimDisposition) -> ControlReport {
     };
     ControlReport {
         control: ControlId::Dkim,
+        seal_disposition: d.seal_spelling(),
         rfc_requirement: rfc_requirement(ControlId::Dkim),
         measured,
         tri: d.chain(),
@@ -502,6 +510,7 @@ fn dmarc_report(d: DmarcDisposition) -> ControlReport {
     };
     ControlReport {
         control: ControlId::Dmarc,
+        seal_disposition: d.seal_spelling(),
         rfc_requirement: rfc_requirement(ControlId::Dmarc),
         measured,
         tri: d.chain(),
@@ -572,6 +581,7 @@ fn dane_report(d: DaneDisposition, z: TlsaZone) -> ControlReport {
     };
     ControlReport {
         control: ControlId::Dane,
+        seal_disposition: d.seal_spelling(),
         rfc_requirement: rfc_requirement(ControlId::Dane),
         measured,
         tri: d.chain(),
@@ -623,6 +633,7 @@ fn mta_sts_report(d: MtaStsDisposition) -> ControlReport {
     };
     ControlReport {
         control: ControlId::MtaSts,
+        seal_disposition: d.seal_spelling(),
         rfc_requirement: rfc_requirement(ControlId::MtaSts),
         measured,
         tri: d.chain(),
@@ -674,6 +685,7 @@ fn caa_report(d: CaaDisposition) -> ControlReport {
     };
     ControlReport {
         control: ControlId::Caa,
+        seal_disposition: d.seal_spelling(),
         rfc_requirement: rfc_requirement(ControlId::Caa),
         measured,
         tri: d.chain(),
@@ -736,6 +748,7 @@ fn cds_report(d: CdsDisposition) -> ControlReport {
     };
     ControlReport {
         control: ControlId::Cds,
+        seal_disposition: d.seal_spelling(),
         rfc_requirement: rfc_requirement(ControlId::Cds),
         measured,
         tri: d.chain(),
@@ -781,6 +794,7 @@ fn tls_rpt_report(d: TlsRptDisposition) -> ControlReport {
     };
     ControlReport {
         control: ControlId::TlsRpt,
+        seal_disposition: d.seal_spelling(),
         rfc_requirement: rfc_requirement(ControlId::TlsRpt),
         measured,
         tri: d.chain(),
@@ -826,6 +840,7 @@ fn csync_report(d: CsyncDisposition) -> ControlReport {
     };
     ControlReport {
         control: ControlId::Csync,
+        seal_disposition: d.seal_spelling(),
         rfc_requirement: rfc_requirement(ControlId::Csync),
         measured,
         tri: d.chain(),
@@ -840,7 +855,7 @@ fn csync_report(d: CsyncDisposition) -> ControlReport {
 // truth_chain — the model constructor, and the severity ordering
 // =============================================================================
 
-/// Build the eight-control render model from a ScoredAnalysis. Canonical
+/// Build the ten-control render model from a ScoredAnalysis. Canonical
 /// (protocol-layer) order; use [`by_severity`] for worst-first ordering.
 pub fn truth_chain(a: &ScoredAnalysis) -> [ControlReport; 10] {
     [
@@ -1942,6 +1957,6 @@ mod tests {
         // with a seal-scheme bump). The one load-bearing fact: the seal scheme
         // string identifies the SEAL scheme, not the scoring formula.
         assert_eq!(SCORING_VERSION, 1);
-        assert_eq!(SEAL_SCHEME, "resolution-scope-sha3-512-v4");
+        assert_eq!(SEAL_SCHEME, "resolution-scope-sha3-512-v5");
     }
 }

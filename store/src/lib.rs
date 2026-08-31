@@ -29,6 +29,7 @@ use resolution_scope_engine::denial_proof::{
 use resolution_scope_engine::flux::{FluxObservation, FluxVantage};
 use resolution_scope_engine::seal::{
     engine_version, seal_versioned, seal_versioned_under_scheme, SEAL_SCHEME, SEAL_SCHEME_V3,
+    SEAL_SCHEME_V4,
 };
 use resolution_scope_engine::ScoredAnalysis;
 
@@ -89,6 +90,8 @@ pub enum SealCheck {
 fn check_stored_seal(scan: StoredScan) -> SealCheck {
     let recomputed = if scan.seal_scheme == SEAL_SCHEME {
         seal_versioned(&scan.verdict, &scan.engine_version)
+    } else if scan.seal_scheme == SEAL_SCHEME_V4 {
+        seal_versioned_under_scheme(&scan.verdict, &scan.engine_version, SEAL_SCHEME_V4)
     } else if scan.seal_scheme == SEAL_SCHEME_V3 {
         seal_versioned_under_scheme(&scan.verdict, &scan.engine_version, SEAL_SCHEME_V3)
     } else {
@@ -758,6 +761,19 @@ mod tests {
     /// stay VERIFIABLE, because v3's canonical form is byte-identical to
     /// v4's apart from the scheme line.
     ///
+    /// v4 rows were written before TLS-RPT/CSYNC joined the seal preimage.
+    /// They must keep verifying through the frozen v4 builder, never be
+    /// re-hashed under v5 and false-labeled tampered.
+    #[test]
+    fn v4_sealed_row_rederives_to_verified() {
+        let a = verdict("v4row.test");
+        let s = seal_versioned_under_scheme(&a, "0.1.0", SEAL_SCHEME_V4);
+        assert_eq!(
+            check_stored_seal(planted(SEAL_SCHEME_V4, s, a)),
+            SealCheck::Verified
+        );
+    }
+
     /// DISPATCH test only: expected and actual both ride the shared builder,
     /// so a byte-drift common to both sides passes here. The byte-honesty of
     /// the v3 path rests on the engine's frozen known-answer pin

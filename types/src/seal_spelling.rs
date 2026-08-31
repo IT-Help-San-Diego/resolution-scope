@@ -22,8 +22,9 @@
 // SEAL-LOAD-BEARING: every string in this file is hashed into seals.
 
 use crate::dispositions::{
-    CaaDisposition, CdsDisposition, DaneDisposition, DkimDisposition, DmarcDisposition,
-    DnssecDisposition, MtaStsDisposition, SpfDisposition, TlsaZone,
+    CaaDisposition, CdsDisposition, CsyncDisposition, DaneDisposition, DkimDisposition,
+    DmarcDisposition, DnssecDisposition, MtaStsDisposition, SpfDisposition, TlsRptDisposition,
+    TlsaZone,
 };
 use crate::tristate::TriState;
 
@@ -180,6 +181,30 @@ impl SealSpelling for TlsaZone {
     }
 }
 
+impl SealSpelling for TlsRptDisposition {
+    fn seal_spelling(&self) -> &'static str {
+        match self {
+            Self::Published => "Published",
+            Self::RecordAbsent => "RecordAbsent",
+            Self::NoZone => "NoZone",
+            Self::TransientError => "TransientError",
+            Self::PolicyInvalid => "PolicyInvalid",
+        }
+    }
+}
+
+impl SealSpelling for CsyncDisposition {
+    fn seal_spelling(&self) -> &'static str {
+        match self {
+            Self::Published => "Published",
+            Self::RecordAbsent => "RecordAbsent",
+            Self::NoZone => "NoZone",
+            Self::TransientError => "TransientError",
+            Self::PolicyInvalid => "PolicyInvalid",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -258,6 +283,16 @@ mod tests {
         check(CdsDisposition::NotPublished, "NotPublished");
         check(CdsDisposition::NoZone, "NoZone");
         check(CdsDisposition::TransientError, "TransientError");
+        check(TlsRptDisposition::Published, "Published");
+        check(TlsRptDisposition::RecordAbsent, "RecordAbsent");
+        check(TlsRptDisposition::NoZone, "NoZone");
+        check(TlsRptDisposition::TransientError, "TransientError");
+        check(TlsRptDisposition::PolicyInvalid, "PolicyInvalid");
+        check(CsyncDisposition::Published, "Published");
+        check(CsyncDisposition::RecordAbsent, "RecordAbsent");
+        check(CsyncDisposition::NoZone, "NoZone");
+        check(CsyncDisposition::TransientError, "TransientError");
+        check(CsyncDisposition::PolicyInvalid, "PolicyInvalid");
         check(TlsaZone::SameZone, "SameZone");
         check(TlsaZone::DescendantZone, "DescendantZone");
         check(TlsaZone::ForeignZone, "ForeignZone");
@@ -390,6 +425,16 @@ mod tests {
         guard(CdsDisposition::NotPublished);
         guard(CdsDisposition::NoZone);
         guard(CdsDisposition::TransientError);
+        guard(TlsRptDisposition::Published);
+        guard(TlsRptDisposition::RecordAbsent);
+        guard(TlsRptDisposition::NoZone);
+        guard(TlsRptDisposition::TransientError);
+        guard(TlsRptDisposition::PolicyInvalid);
+        guard(CsyncDisposition::Published);
+        guard(CsyncDisposition::RecordAbsent);
+        guard(CsyncDisposition::NoZone);
+        guard(CsyncDisposition::TransientError);
+        guard(CsyncDisposition::PolicyInvalid);
         guard(TlsaZone::SameZone);
         guard(TlsaZone::DescendantZone);
         guard(TlsaZone::ForeignZone);
