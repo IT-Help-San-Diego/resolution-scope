@@ -821,7 +821,7 @@ fn main() -> io::Result<()> {
             out,
             "{} 3600 IN TXT {}",
             rr.owner,
-            txt_presentation(&String::from_utf8_lossy(&rr.rdata[1..]).to_string())
+            txt_presentation(String::from_utf8_lossy(&rr.rdata[1..]).as_ref())
         )?;
         writeln!(out, "{}", rrsig_presentation(&rr.owner, f, sig))?;
     }
