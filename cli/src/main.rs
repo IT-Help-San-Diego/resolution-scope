@@ -291,6 +291,18 @@ async fn scan(args: ScanArgs) -> Result<()> {
     // one Vec per domain, index-paired with `analyses`.
     let mut all_records = Vec::with_capacity(domains.len());
     for domain in &domains {
+        // Corpus exclusion guard — the FIRST check, before any resolution,
+        // scoring, store write, or seal (anti-badge-cheat: a fixture that
+        // could count as a discovery is manufactured evidence). Both PQ
+        // windows carry this in their signed TXT; this makes it mechanical
+        // for every surface that reaches the engine.
+        if resolution_scope_engine::corpus_filter::is_corpus_excluded(domain) {
+            eprintln!(
+                "info: {domain} is excluded from corpus statistics (labeled experimental fixture; corpus-excluded=YES in its signed TXT)"
+            );
+            eprintln!("      scanned by other instruments, never counted by this one");
+            std::process::exit(2); // exit 2 = excluded (distinct from scan error 1)
+        }
         // Real progress only: what is being measured, from where, and how
         // long it took. Per-control progress needs an engine hook (the
         // scorers run inside one call); until then the instrument says what

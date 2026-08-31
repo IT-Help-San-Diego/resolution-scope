@@ -41,6 +41,7 @@ compile_error!(
 
 pub mod analysis;
 pub mod asn_classification;
+pub mod corpus_filter;
 pub mod denial_proof;
 pub mod flux;
 pub mod ipc;
