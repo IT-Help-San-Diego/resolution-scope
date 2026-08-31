@@ -103,7 +103,16 @@ mod tests {
     fn other_subdomain_of_apex_not_excluded() {
         assert!(!is_corpus_excluded("api.resolutionscope.com"));
         assert!(!is_corpus_excluded("www.resolutionscope.com"));
-        assert!(!is_corpus_excluded("mx.dane.resolutionscope.com"));
+    }
+
+    #[test]
+    fn dane_fixture_subtree_is_excluded() {
+        // The DANE fixture's own subtree — including the specimen receiver's
+        // MX host — is our plant: mx.dane is the TLSA-pinned receiver itself.
+        // Excluding dane.resolutionscope.com means excluding the whole
+        // fixture, not just its delegation point.
+        assert!(is_corpus_excluded("mx.dane.resolutionscope.com"));
+        assert!(is_corpus_excluded("dane.resolutionscope.com"));
     }
 
     #[test]
