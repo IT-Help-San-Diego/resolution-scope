@@ -43,7 +43,7 @@ resolution-scope-types = { path = "../types" }
 # SHA3-512 for the verdict seal. Pure Rust, no_std, no C sources — this is what
 # removed the `ring` → `assert.h` cross-compile blocker that stalled the pre-B
 # shape (ring has C; sha3 does not).
-sha3 = { version = "0.10", default-features = false }
+sha3 = { version = "0.12", default-features = false }
 
 # JSON wire format for the IPC boundary (ffi.rs). This is the SAME format the
 # engine emits (serde_json on the std side), so a verdict serialised by the
