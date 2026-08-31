@@ -65,3 +65,14 @@ filter must gain pq-dualds.resolutionscope.com BEFORE the zone goes live
 (fixture-never-counts rule); (3) this specimen deliberately reproduces the
 kochen-specker dual-alg DNSKEY size class — the EDNS/fragmentation behavior IS
 the experiment; wall + battery vantages should record transport mode per query.
+
+---
+
+## UPDATE — B-plan ARRIVED (export 1788137340, verified by claude-code)
+
+- Zone name **confirmed**: `pq-dualds.resolutionscope.com` (builder: `pq-signing/build_zone_dualds.py` in the export). Purpose: dual-alg (18+8) DS teaching fixture illustrating the RFC 6840 §5.11 algorithm-strip class — our own controlled kochen-specker shape.
+- Extended `wall.sh` with checks 11 (in-bailiwick glue) and 12 (NSEC3 absence) is in the export — B4 becomes runnable once the zone exists.
+- **Template NS stands, builder NS is wrong**: the builder hardcodes `NS = ns1.resolutionscope.com.` — a host that does not exist in the estate. Fix to pqns/pqns2 (this template) before any build.
+- **Dependency**: pq-sign has no algorithm-8 RRSIG path; the builder itself documents that wall check 3 fails until the signer is extended. Order: signer alg-8 support → hermes KSK-8 keygen → build → wall (1–12) → these upserts → deploy.
+- Declaration string in builder says `v=pqexperiment2` — collides with history (pq2 uses pqexperiment3); pick a fresh label at build time.
+- DS values remain `<FILL>` until hermes runs keygen. Corpus filter must gain the name first.
