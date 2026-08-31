@@ -48,6 +48,24 @@ OUT="$WORK/report.html"
 "$RESCOPE" "$DOMAIN" --format html -o "$OUT"
 [ -s "$OUT" ] || { echo "CLI produced no report for $DOMAIN" >&2; exit 1; }
 
+# Tier-3 tripwire at the artifact boundary (the deferral-ships-tripwire
+# standard, instance 1). The page's own re-derive block names its scheme
+# and carries one name=Disposition=Tri line per SEALED control; the v4
+# scheme seals exactly 8. A binary that renders more controls than its
+# scheme seals would publish a page whose seal is silent on rendered
+# verdicts — the forbidden artifact. Refuse it here, mechanically, not
+# in anyone's memory. (Exit 3 = tripwire, distinct from scan-error 1.)
+SCHEME=$(grep -oE 'resolution-scope-sha3-512-v[0-9]+' "$OUT" | head -1 || true)
+CONTROL_LINES=$(grep -cE '^[a-z_]+=[A-Za-z0-9]+=(Present|Absent|Indet|NotApplicable)$' "$OUT" || true)
+if [ -z "$SCHEME" ]; then
+  echo "tripwire: no seal scheme found in the report — refusing to publish an unsealed page" >&2
+  exit 3
+fi
+if [ "$SCHEME" = "resolution-scope-sha3-512-v4" ] && [ "$CONTROL_LINES" -ne 8 ]; then
+  echo "tripwire: $SCHEME seals exactly 8 controls but this page carries $CONTROL_LINES sealed-control lines — refusing to publish (a v4 seal cannot cover this report; ship the seal event first)" >&2
+  exit 3
+fi
+
 KEY="r/${DOMAIN}/${STAMP}.html"
 aws s3api put-object \
   --bucket "$RS_S3_BUCKET" \
