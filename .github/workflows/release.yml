@@ -1,0 +1,103 @@
+name: Release binaries
+
+# A tag build is the distributable path: today "using Resolution Scope"
+# means cloning and building; a v* tag turns into a GitHub Release carrying
+# the CLI for the four native targets, each with a sha256 receipt beside
+# it. Native runners only — no cross toolchain, no third-party build
+# actions (every action here is the repo's pinned checkout).
+#
+# The binary stamps its own provenance (CARGO_PKG_VERSION + git-describe
+# via engine/build.rs), so a tagged build prints a clean version and the
+# smoke step refuses to ship a binary that cannot say what it is.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  create-draft:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Create draft release for the tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
+              --title "resolution-scope $GITHUB_REF_NAME" \
+              --notes "Sealed-verdict DNS posture instrument — CLI binaries. Verify each artifact against its .sha256 receipt."
+
+  build:
+    needs: create-draft
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            target: aarch64-apple-darwin
+          - runner: macos-13
+            target: x86_64-apple-darwin
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # build.rs stamps git-describe; a shallow clone would stamp a
+          # bare hash instead of the tag (the SciSpace-flagged edge).
+          fetch-depth: 0
+      - name: Build release binary (locked)
+        working-directory: cli
+        run: cargo build --release --locked
+      - name: Smoke — the binary must say what it is
+        run: |
+          set -euo pipefail
+          OUT=$(cli/target/release/resolution-scope --version)
+          echo "$OUT"
+          case "$OUT" in
+            *resolution-scope*) ;;
+            *) echo "::error::--version output unrecognized"; exit 1 ;;
+          esac
+      - name: Package with sha256 receipt
+        run: |
+          set -euo pipefail
+          NAME="resolution-scope-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          cp cli/target/release/resolution-scope "$NAME"
+          if command -v sha256sum >/dev/null; then
+            sha256sum "$NAME" > "$NAME.sha256"
+          else
+            shasum -a 256 "$NAME" > "$NAME.sha256"
+          fi
+          cat "$NAME.sha256"
+      - name: Upload to the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NAME="resolution-scope-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          gh release upload "$GITHUB_REF_NAME" "$NAME" "$NAME.sha256" --clobber
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Publish — all four targets present or the release stays draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ASSETS=$(gh release view "$GITHUB_REF_NAME" --json assets --jq '[.assets[].name] | join(" ")')
+          echo "assets: $ASSETS"
+          for t in aarch64-apple-darwin x86_64-apple-darwin x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
+            case "$ASSETS" in
+              *"$t"*) ;;
+              *) echo "::error::missing target $t — refusing to publish a partial release"; exit 1 ;;
+            esac
+          done
+          gh release edit "$GITHUB_REF_NAME" --draft=false
