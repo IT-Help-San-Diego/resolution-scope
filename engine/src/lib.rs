@@ -55,12 +55,14 @@ pub mod truth_chain;
 // `resolution_scope_engine::ScoredAnalysis` without a full module path.
 pub use analysis::CaaDisposition;
 pub use analysis::CdsDisposition;
+pub use analysis::CsyncDisposition;
 pub use analysis::DaneDisposition;
 pub use analysis::DkimDisposition;
 pub use analysis::DmarcDisposition;
 pub use analysis::MtaStsDisposition;
 pub use analysis::ScoredAnalysis;
 pub use analysis::SpfDisposition;
+pub use analysis::TlsRptDisposition;
 pub use denial_proof::{
     control_from_key, control_key, extract_denial_proof, DenialProof, LookupReceipt, ReceiptRcode,
 };

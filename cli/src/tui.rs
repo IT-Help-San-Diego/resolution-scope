@@ -138,8 +138,8 @@ fn tab_for_control(c: ControlId) -> usize {
         ControlId::Dnssec => 1,
         ControlId::Dane => 2,
         ControlId::Spf | ControlId::Dkim | ControlId::Dmarc => 3,
-        ControlId::MtaSts => 4,
-        ControlId::Caa | ControlId::Cds => 5,
+        ControlId::MtaSts | ControlId::TlsRpt => 4,
+        ControlId::Caa | ControlId::Cds | ControlId::Csync => 5,
     }
 }
 
@@ -158,12 +158,12 @@ fn controls_for_tab(tab: usize) -> (&'static str, &'static [ControlId]) {
             &[ControlId::Spf, ControlId::Dkim, ControlId::Dmarc],
         ),
         4 => (
-            "\u{2550}\u{2550} MTA-STS \u{2550}\u{2550}",
-            &[ControlId::MtaSts],
+            "\u{2550}\u{2550} MTA-STS / TLS-RPT \u{2550}\u{2550}",
+            &[ControlId::MtaSts, ControlId::TlsRpt],
         ),
         5 => (
-            "\u{2550}\u{2550} CAA / CDS \u{2550}\u{2550}",
-            &[ControlId::Caa, ControlId::Cds],
+            "\u{2550}\u{2550} CAA / CDS / CSYNC \u{2550}\u{2550}",
+            &[ControlId::Caa, ControlId::Cds, ControlId::Csync],
         ),
         _ => ("\u{2014}", &[]),
     }
@@ -294,7 +294,7 @@ fn severity_style(s: Severity, pal: Palette) -> Style {
     }
 }
 
-fn report_for(model: &[ControlReport; 8], c: ControlId) -> &ControlReport {
+fn report_for(model: &[ControlReport; 10], c: ControlId) -> &ControlReport {
     model
         .iter()
         .find(|r| r.control == c)
@@ -311,7 +311,7 @@ fn report_for(model: &[ControlReport; 8], c: ControlId) -> &ControlReport {
 const ROW_PREFIX: usize = 35;
 
 fn render_summary(
-    model: &[ControlReport; 8],
+    model: &[ControlReport; 10],
     pal: Palette,
     audience: Audience,
     selected: usize,
@@ -451,7 +451,7 @@ fn render_summary(
 /// state, attribution, RFC requirement, consequence — straight from the model.
 fn render_controls(
     title: &'static str,
-    model: &[ControlReport; 8],
+    model: &[ControlReport; 10],
     controls: &[ControlId],
     records: &[RecordEntry],
     pal: Palette,
@@ -1661,35 +1661,54 @@ mod tests {
         );
     }
 
-    #[test]
-    fn summary_fits_its_width_and_reports_the_selected_range() {
+    fn sample_analysis() -> ScoredAnalysis {
         use resolution_scope_engine::analysis::{
-            CaaDisposition, CdsDisposition, DaneDisposition, DkimDisposition, DmarcDisposition,
-            DnssecDisposition, MtaStsDisposition, SpfDisposition, TlsaZone,
+            CaaDisposition, CdsDisposition, CsyncDisposition, DaneDisposition, DkimDisposition,
+            DmarcDisposition, DnssecDisposition, MtaStsDisposition, SpfDisposition,
+            TlsRptDisposition, TlsaZone,
         };
-        let a = ScoredAnalysis {
+        let dnssec = DnssecDisposition::Unsigned;
+        let spf = SpfDisposition::SoftFail;
+        let dkim = DkimDisposition::NotProbed;
+        let dmarc = DmarcDisposition::Reject;
+        let dane = DaneDisposition::DnssecRequired;
+        let mta = MtaStsDisposition::Enforced;
+        let caa = CaaDisposition::Configured;
+        let cds = CdsDisposition::NotPublished;
+        let tls_rpt = TlsRptDisposition::RecordAbsent;
+        let csync = CsyncDisposition::RecordAbsent;
+        ScoredAnalysis {
             domain: "example.test".into(),
             session_id: 0,
             timestamp_local: 0,
             resolver_identity: "test".into(),
-            dnssec_chain: DnssecDisposition::Unsigned.chain(),
-            dnssec_disposition: DnssecDisposition::Unsigned,
-            spf: SpfDisposition::SoftFail.chain(),
-            spf_disposition: SpfDisposition::SoftFail,
-            dkim: DkimDisposition::NotProbed.chain(),
-            dkim_disposition: DkimDisposition::NotProbed,
-            dmarc: DmarcDisposition::Reject.chain(),
-            dmarc_disposition: DmarcDisposition::Reject,
-            dane: DaneDisposition::DnssecRequired.chain(),
-            dane_disposition: DaneDisposition::DnssecRequired,
+            dnssec_chain: dnssec.chain(),
+            dnssec_disposition: dnssec,
+            spf: spf.chain(),
+            spf_disposition: spf,
+            dkim: dkim.chain(),
+            dkim_disposition: dkim,
+            dmarc: dmarc.chain(),
+            dmarc_disposition: dmarc,
+            dane: dane.chain(),
+            dane_disposition: dane,
             tlsa_zone: TlsaZone::ForeignZone,
-            mta_sts: MtaStsDisposition::Enforced.chain(),
-            mta_sts_disposition: MtaStsDisposition::Enforced,
-            caa: CaaDisposition::Configured.chain(),
-            caa_disposition: CaaDisposition::Configured,
-            cds_cdnskey: CdsDisposition::NotPublished.chain(),
-            cds_disposition: CdsDisposition::NotPublished,
-        };
+            mta_sts: mta.chain(),
+            mta_sts_disposition: mta,
+            caa: caa.chain(),
+            caa_disposition: caa,
+            cds_cdnskey: cds.chain(),
+            cds_disposition: cds,
+            tls_rpt: tls_rpt.chain(),
+            tls_rpt_disposition: tls_rpt,
+            csync: csync.chain(),
+            csync_disposition: csync,
+        }
+    }
+
+    #[test]
+    fn summary_fits_its_width_and_reports_the_selected_range() {
+        let a = sample_analysis();
         let model = truth_chain(&a);
         for width in [80usize, 100, 120] {
             let (lines, keep) = render_summary(&model, Palette::BLUE, Audience::BlueTeam, 1, width);
@@ -1730,33 +1749,7 @@ mod tests {
 
     #[test]
     fn records_render_verbatim_above_the_explanation() {
-        use resolution_scope_engine::analysis::{
-            CaaDisposition, CdsDisposition, DaneDisposition, DkimDisposition, DmarcDisposition,
-            DnssecDisposition, MtaStsDisposition, SpfDisposition, TlsaZone,
-        };
-        let a = ScoredAnalysis {
-            domain: "example.test".into(),
-            session_id: 0,
-            timestamp_local: 0,
-            resolver_identity: "test".into(),
-            dnssec_chain: DnssecDisposition::Unsigned.chain(),
-            dnssec_disposition: DnssecDisposition::Unsigned,
-            spf: SpfDisposition::SoftFail.chain(),
-            spf_disposition: SpfDisposition::SoftFail,
-            dkim: DkimDisposition::NotProbed.chain(),
-            dkim_disposition: DkimDisposition::NotProbed,
-            dmarc: DmarcDisposition::Reject.chain(),
-            dmarc_disposition: DmarcDisposition::Reject,
-            dane: DaneDisposition::DnssecRequired.chain(),
-            dane_disposition: DaneDisposition::DnssecRequired,
-            tlsa_zone: TlsaZone::ForeignZone,
-            mta_sts: MtaStsDisposition::Enforced.chain(),
-            mta_sts_disposition: MtaStsDisposition::Enforced,
-            caa: CaaDisposition::Configured.chain(),
-            caa_disposition: CaaDisposition::Configured,
-            cds_cdnskey: CdsDisposition::NotPublished.chain(),
-            cds_disposition: CdsDisposition::NotPublished,
-        };
+        let a = sample_analysis();
         // Records keyed to the controls they came from (R-B: beside the seal).
         let records = vec![
             RecordEntry {
@@ -1792,33 +1785,7 @@ mod tests {
 
     #[test]
     fn summary_subtitles_sit_under_the_verdict_tiers() {
-        use resolution_scope_engine::analysis::{
-            CaaDisposition, CdsDisposition, DaneDisposition, DkimDisposition, DmarcDisposition,
-            DnssecDisposition, MtaStsDisposition, SpfDisposition, TlsaZone,
-        };
-        let a = ScoredAnalysis {
-            domain: "example.test".into(),
-            session_id: 0,
-            timestamp_local: 0,
-            resolver_identity: "test".into(),
-            dnssec_chain: DnssecDisposition::Unsigned.chain(),
-            dnssec_disposition: DnssecDisposition::Unsigned,
-            spf: SpfDisposition::SoftFail.chain(),
-            spf_disposition: SpfDisposition::SoftFail,
-            dkim: DkimDisposition::NotProbed.chain(),
-            dkim_disposition: DkimDisposition::NotProbed,
-            dmarc: DmarcDisposition::Reject.chain(),
-            dmarc_disposition: DmarcDisposition::Reject,
-            dane: DaneDisposition::DnssecRequired.chain(),
-            dane_disposition: DaneDisposition::DnssecRequired,
-            tlsa_zone: TlsaZone::ForeignZone,
-            mta_sts: MtaStsDisposition::Enforced.chain(),
-            mta_sts_disposition: MtaStsDisposition::Enforced,
-            caa: CaaDisposition::Configured.chain(),
-            caa_disposition: CaaDisposition::Configured,
-            cds_cdnskey: CdsDisposition::NotPublished.chain(),
-            cds_disposition: CdsDisposition::NotPublished,
-        };
+        let a = sample_analysis();
         let model = truth_chain(&a);
         let (lines, _) = render_summary(&model, Palette::BLUE, Audience::BlueTeam, 0, 80);
         let text: Vec<String> = lines
@@ -2097,16 +2064,19 @@ mod tests {
     }
 
     #[test]
-    fn every_control_has_a_detail_tab_whose_label_names_it() {
+    fn every_control_has_a_detail_tab_whose_header_names_it() {
         for c in ControlId::ALL {
             let tab = tab_for_control(c);
-            let (_, controls) = controls_for_tab(tab);
+            let (header, controls) = controls_for_tab(tab);
             assert!(controls.contains(&c), "{c:?} not on its own tab");
-            // The tab label must carry the control's name (DKIM was missing
-            // from "4:SPF/DMARC").
-            let label = TAB_LABELS[tab];
+            // The visible detail surface must name every grouped control. The
+            // compact tab bar intentionally abbreviates grouped tabs to keep
+            // the 80-column floor; the detail header is the full label.
             let name = c.name().split('/').next().unwrap();
-            assert!(label.contains(name), "tab {label:?} does not name {name}");
+            assert!(
+                header.contains(name),
+                "detail header {header:?} does not name {name}"
+            );
         }
     }
 

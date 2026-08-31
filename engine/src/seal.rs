@@ -274,8 +274,8 @@ fn hex(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
     use crate::analysis::{
-        CaaDisposition, CdsDisposition, DaneDisposition, DkimDisposition, DmarcDisposition,
-        MtaStsDisposition, ScoredAnalysis, SpfDisposition,
+        CaaDisposition, CdsDisposition, CsyncDisposition, DaneDisposition, DkimDisposition,
+        DmarcDisposition, MtaStsDisposition, ScoredAnalysis, SpfDisposition, TlsRptDisposition,
     };
     use crate::TriState;
 
@@ -304,6 +304,10 @@ mod tests {
             caa_disposition: CaaDisposition::NotConfigured,
             cds_cdnskey: TriState::Absent,
             cds_disposition: CdsDisposition::NotPublished,
+            tls_rpt: TriState::Absent,
+            tls_rpt_disposition: TlsRptDisposition::RecordAbsent,
+            csync: TriState::Absent,
+            csync_disposition: CsyncDisposition::RecordAbsent,
         }
     }
 

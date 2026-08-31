@@ -523,8 +523,9 @@ fn vantage_from_label(s: &str) -> Result<FluxVantage> {
 mod tests {
     use super::*;
     use resolution_scope_engine::analysis::{
-        CaaDisposition, CdsDisposition, DaneDisposition, DkimDisposition, DmarcDisposition,
-        DnssecDisposition, MtaStsDisposition, SpfDisposition, TlsaZone,
+        CaaDisposition, CdsDisposition, CsyncDisposition, DaneDisposition, DkimDisposition,
+        DmarcDisposition, DnssecDisposition, MtaStsDisposition, SpfDisposition, TlsRptDisposition,
+        TlsaZone,
     };
     use resolution_scope_engine::flux::dispersion;
     use resolution_scope_engine::flux::FluxAssessment;
@@ -539,6 +540,8 @@ mod tests {
         let mta = MtaStsDisposition::RecordAbsent;
         let caa = CaaDisposition::Configured;
         let cds = CdsDisposition::Published;
+        let tls_rpt = TlsRptDisposition::Published;
+        let csync = CsyncDisposition::RecordAbsent;
         ScoredAnalysis {
             domain: domain.to_string(),
             session_id: 1,
@@ -561,6 +564,10 @@ mod tests {
             caa_disposition: caa,
             cds_cdnskey: cds.chain(),
             cds_disposition: cds,
+            tls_rpt: tls_rpt.chain(),
+            tls_rpt_disposition: tls_rpt,
+            csync: csync.chain(),
+            csync_disposition: csync,
         }
     }
 

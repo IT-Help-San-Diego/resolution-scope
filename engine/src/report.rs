@@ -99,7 +99,7 @@ fn row(label: &str, t: TriState, measured: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::analysis::ScoredAnalysis;
+    use crate::analysis::{CsyncDisposition, ScoredAnalysis, TlsRptDisposition};
     use crate::truth_chain::truth_chain;
 
     /// A minimal, fully-Indet verdict — every control honest "couldn't
@@ -130,6 +130,10 @@ mod tests {
             caa_disposition: crate::analysis::CaaDisposition::NoZone,
             cds_cdnskey: TriState::Indet,
             cds_disposition: crate::analysis::CdsDisposition::NoZone,
+            tls_rpt: TriState::Absent,
+            tls_rpt_disposition: TlsRptDisposition::RecordAbsent,
+            csync: TriState::Absent,
+            csync_disposition: CsyncDisposition::RecordAbsent,
         }
     }
 

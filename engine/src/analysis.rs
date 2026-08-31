@@ -25,8 +25,9 @@ use crate::TriState;
 // enum VARIANT NAMES are load-bearing — the verdict seal hashes the Debug repr
 // — which is exactly why the definitions must not be duplicated anywhere.
 pub use resolution_scope_types::{
-    CaaDisposition, CdsDisposition, DaneDisposition, DkimDisposition, DmarcDisposition,
-    DnssecDisposition, MtaStsDisposition, ScoredAnalysis, SpfDisposition, TlsaZone,
+    CaaDisposition, CdsDisposition, CsyncDisposition, DaneDisposition, DkimDisposition,
+    DmarcDisposition, DnssecDisposition, MtaStsDisposition, ScoredAnalysis, SpfDisposition,
+    TlsRptDisposition, TlsaZone,
 };
 
 // =============================================================================
@@ -123,10 +124,17 @@ pub async fn analyse_domain_with_receipts(
     let cds_disposition = score_cds_cdnskey(resolver, domain, &mut r_cds, &mut records).await;
     let cds_cdnskey = cds_disposition.chain();
 
+    let mut r_tls_rpt = None;
+    let tls_rpt_disposition = score_tls_rpt(resolver, domain, &mut r_tls_rpt).await;
+    let tls_rpt = tls_rpt_disposition.chain();
+    let mut r_csync = None;
+    let csync_disposition = score_csync(resolver, domain, &mut r_csync).await;
+    let csync = csync_disposition.chain();
+
     // ControlId declaration order — one receipt per control that yielded one
     // (a transport error outside the vocabulary yields none, loudly logged).
     let receipts: Vec<LookupReceipt> = [
-        r_dnssec, r_spf, r_dkim, r_dmarc, r_dane, r_mta_sts, r_caa, r_cds,
+        r_dnssec, r_spf, r_dkim, r_dmarc, r_dane, r_mta_sts, r_caa, r_cds, r_tls_rpt, r_csync,
     ]
     .into_iter()
     .flatten()
@@ -154,6 +162,10 @@ pub async fn analyse_domain_with_receipts(
         caa_disposition,
         cds_cdnskey,
         cds_disposition,
+        tls_rpt,
+        tls_rpt_disposition,
+        csync,
+        csync_disposition,
     };
     Ok((analysis, receipts, records))
 }
@@ -1553,8 +1565,146 @@ fn mta_sts_policy_state(policy: &str) -> MtaStsPolicyState {
     }
 }
 
-/// Back-compat shim for the existing tests: "enforced" = the three-way state
-/// reads Enforce.
+// Back-compat shim for the existing tests: "enforced" = the three-way state
+// reads Enforce.
+// ── TLS-RPT (RFC 8460) ─────────────────────────────────────────────────────
+//
+// TXT at _smtp._tls.<domain>: `v=TLSRPTv1; rua=<uri>[,<uri>...]`. The
+// measurement is one lookup + the RFC's own three validity rules, read
+// first-hand from the corpus:
+//   * records not beginning `v=TLSRPTv1;` are DISCARDED;
+//   * after discarding, the count must be EXACTLY ONE — "If the number of
+//     resulting records is not one, senders MUST assume the recipient domain
+//     does not implement TLSRPT" (§3);
+//   * rua is required and must carry at least one parseable mailto:/https:
+//     URI (commas, !, ; must be percent-encoded inside the URI — bare ones
+//     break the field parser).
+async fn score_tls_rpt(
+    resolver: &TokioResolver,
+    domain: &str,
+    receipt: &mut Option<LookupReceipt>,
+) -> TlsRptDisposition {
+    let tlsrpt_name = format!("_smtp._tls.{}", domain);
+    match observed_txt_lookup(resolver, ControlId::TlsRpt, tlsrpt_name.as_str(), receipt).await {
+        Ok(rdata) => {
+            // Gather every TXT string at the name; each ANSWER record's
+            // char-strings are first concatenated per the RFC's multi-string
+            // rule ("treated as if those strings are concatenated").
+            let mut records_text: Vec<String> = Vec::new();
+            for rec in rdata.answers() {
+                if let hickory_proto::rr::RData::TXT(txt) = &rec.data {
+                    let joined: String = txt
+                        .txt_data
+                        .iter()
+                        .map(|s| String::from_utf8_lossy(s).to_string())
+                        .collect();
+                    records_text.push(joined);
+                }
+            }
+            if records_text.is_empty() {
+                // Zone exists (the lookup succeeded), no records: NODATA
+                // handled by the error path; an empty Ok with answers means
+                // the resolver returned something odd — treat as absent.
+                return TlsRptDisposition::RecordAbsent;
+            }
+            // RFC rule 1: discard records not beginning "v=TLSRPTv1;"
+            let valid: Vec<&String> = records_text
+                .iter()
+                .filter(|t| t.trim_start().starts_with("v=TLSRPTv1;"))
+                .collect();
+            // RFC rule 2: exactly one valid record counts
+            if valid.len() != 1 {
+                if valid.is_empty() {
+                    return TlsRptDisposition::RecordAbsent;
+                }
+                return TlsRptDisposition::PolicyInvalid; // >1 valid record
+            }
+            // RFC rule 3: rua present + at least one parseable URI
+            let record = valid[0];
+            let rua_ok = record.split(';').any(|f| {
+                let f = f.trim();
+                if let Some(rest) = f.strip_prefix("rua=") {
+                    rest.split(',').any(|uri| {
+                        let uri = uri.trim();
+                        (uri.starts_with("mailto:") && uri.len() > "mailto:".len() + 3)
+                            || (uri.starts_with("https://") && uri.len() > "https://".len() + 3)
+                    })
+                } else {
+                    false
+                }
+            });
+            if rua_ok {
+                TlsRptDisposition::Published
+            } else {
+                TlsRptDisposition::PolicyInvalid // no parseable rua endpoint
+            }
+        }
+        Err(e) => tls_rpt_err_to_disposition(&e, domain),
+    }
+}
+
+fn tls_rpt_err_to_disposition(e: &NetError, domain: &str) -> TlsRptDisposition {
+    if e.is_nx_domain() {
+        // SOA-disambiguated elsewhere in the codebase for _mta-sts; the same
+        // two-state suffices here: NXDOMAIN on _smtp._tls with a parent-zone
+        // SOA means "zone exists, record absent" only when the PARENT zone is
+        // this domain's own zone. The conservative read (matching the CDS
+        // precedent) treats NXDOMAIN as NoZone; a RecordAbsent refinement can
+        // come with the SOA-check port if measurements show it firing.
+        let _ = domain;
+        TlsRptDisposition::NoZone
+    } else if e.is_no_records_found() {
+        TlsRptDisposition::RecordAbsent // definitive NODATA: zone exists, no record
+    } else {
+        TlsRptDisposition::TransientError
+    }
+}
+
+// ── CSYNC (RFC 7477) ───────────────────────────────────────────────────────
+//
+// One CSYNC RR at the apex (type 62): SOA serial + flags + type bit map. The
+// measurement only asks IS the automation signal published and is it singular
+// — the parental-agent processing rules (validation, serial comparison) are
+// the PARENT's behavior, not this domain's posture. RFC 7477 §2: "parental
+// agents MUST ignore a child's CSYNC RDATA set if multiple CSYNC resource
+// records are found; only a single CSYNC record should ever be present."
+async fn score_csync(
+    resolver: &TokioResolver,
+    domain: &str,
+    receipt: &mut Option<LookupReceipt>,
+) -> CsyncDisposition {
+    use hickory_proto::rr::RecordType;
+    match observed_lookup(
+        resolver,
+        ControlId::Csync,
+        domain,
+        RecordType::Unknown(62),
+        receipt,
+    )
+    .await
+    {
+        Ok(resp) => {
+            let count = resp.answers().len();
+            if count == 0 {
+                CsyncDisposition::RecordAbsent
+            } else if count == 1 {
+                CsyncDisposition::Published
+            } else {
+                CsyncDisposition::PolicyInvalid // multiple: parents MUST ignore
+            }
+        }
+        Err(e) => {
+            if e.is_nx_domain() {
+                CsyncDisposition::NoZone
+            } else if e.is_no_records_found() {
+                CsyncDisposition::RecordAbsent
+            } else {
+                CsyncDisposition::TransientError
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 fn mta_sts_enforced(policy: &str) -> bool {
     mta_sts_policy_state(policy) == MtaStsPolicyState::Enforce
