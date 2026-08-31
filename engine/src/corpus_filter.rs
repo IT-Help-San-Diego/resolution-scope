@@ -28,7 +28,15 @@
 ///     that claim mechanical.
 ///   - `pq2.resolutionscope.com` — window 2: the reset specimen (dual-NS,
 ///     sidecars, DS TTL 900). Same fixture class, same exclusion.
-pub const CORPUS_EXCLUDED_DOMAINS: &[&str] = &["pq.resolutionscope.com", "pq2.resolutionscope.com"];
+///   - `dane.resolutionscope.com` — the DANE receiver fixture (labeled owned
+///     specimen today; becomes the PQ-DANE specimen at phase 2 — DANE-adoption
+///     receipts are a named future receipt class and must never be inflated
+///     by our own plant).
+pub const CORPUS_EXCLUDED_DOMAINS: &[&str] = &[
+    "pq.resolutionscope.com",
+    "pq2.resolutionscope.com",
+    "dane.resolutionscope.com",
+];
 
 /// Returns `true` if `domain` is on the corpus exclusion list.
 ///

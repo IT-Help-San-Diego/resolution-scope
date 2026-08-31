@@ -636,7 +636,11 @@ fn main() -> io::Result<()> {
     // (ledger 2026-08-30 structural requirement). Window 1 keeps the frozen
     // apex-only self-pointing shape.
     const APEX_BITMAP: [u16; 7] = [2, 6, 15, 16, 48, 47, 46]; // NS SOA MX TXT DNSKEY NSEC RRSIG
-    const SIDECAR_BITMAP: [u16; 2] = [16, 47]; // TXT NSEC
+    // Sidecar names own TXT + NSEC + the RRSIGs covering both (type 46):
+    // RFC 4034 §4.1.2 requires the bitmap to list EVERY type at the owner —
+    // omitting 46 made the chain assert a signed false denial of the very
+    // signatures standing beside it (CC's wire receipt, 4th signer defect).
+    const SIDECAR_BITMAP: [u16; 3] = [16, 46, 47]; // TXT RRSIG NSEC
 
     let mut nsec_rrs: Vec<Rr> = Vec::new();
     let mut sidecar_rrs: Vec<Rr> = Vec::new();
