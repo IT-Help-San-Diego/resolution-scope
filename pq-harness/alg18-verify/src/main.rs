@@ -13,7 +13,7 @@
 //! wall's check 13 uses (validated byte-for-byte against the signer's own
 //! debug hashes).
 
-use ml_dsa::{VerifyingKey, MlDsa44};
+use ml_dsa::{MlDsa44, VerifyingKey};
 
 fn name_wire(n: &str) -> Vec<u8> {
     let t = n.trim_end_matches('.');
@@ -31,7 +31,7 @@ fn name_wire(n: &str) -> Vec<u8> {
 }
 
 fn zt_to_epoch(s: &str) -> u32 {
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::time::UNIX_EPOCH;
     // YYYYMMDDHHMMSS -> epoch via the civil-days algorithm (same as the signer's
     // inverse). Simple portable version:
     let (y, mo, d, h, mi, sec) = (
@@ -90,7 +90,7 @@ fn main() {
         .get(2)
         .cloned()
         .unwrap_or_else(|| "pq.resolutionscope.com.".into());
-    let text = std::fs::read_to_string(&path).expect("read zone");
+    let text = std::fs::read_to_string(path).expect("read zone");
     let mut lines: Vec<&str> = text
         .lines()
         .filter(|l| !l.trim_start().starts_with(';') && !l.trim().is_empty())
@@ -245,7 +245,7 @@ fn main() {
             sd.extend_from_slice(&r.rdata);
         }
 
-        use ml_dsa::signature::{SignatureEncoding, Verifier};
+        use ml_dsa::signature::Verifier;
         let sig_arr: [u8; 2420] = sig[..]
             .try_into()
             .expect("ML-DSA-44 signature must be 2420 bytes");
