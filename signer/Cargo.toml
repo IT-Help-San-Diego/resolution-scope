@@ -8,7 +8,9 @@ publish = false
 description = "ML-DSA-44 (algorithm 18) offline zone signer for the pq.resolutionscope.com fixture. Per SPEC-mldsa44-signer-20260830.md: deterministic CSK keygen from a 32-byte seed, DNSKEY/DS emission, zone signing with NSEC chain, and self-verification. This crate signs; it never serves. The seed never enters the repo."
 
 [dependencies]
+rsa = "0.9"
+sha2 = { version = "0.10", features = ["oid"] }
+rand = "0.8"
 fips204 = { version = "=0.4.6", default-features = false, features = ["ml-dsa-44"] }
-sha2 = "0.10"
 base64 = "0.22"
 hex = "0.4"

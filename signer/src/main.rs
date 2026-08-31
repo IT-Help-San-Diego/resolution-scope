@@ -15,6 +15,58 @@ use sha2::{Digest, Sha256};
 
 // ---------- wire helpers ----------
 
+/// Alg-8 RRSIG: RSA PKCS#1 v1.5 SHA-256 signature over the canonical
+/// signed-data blob (the RRSIG format is algorithm-agnostic; the covered
+/// type/labels/ttl/expiry/inception/keytag/signer fields are per-signature).
+fn rsa_sign_rrset(
+    key: &rsa::RsaPrivateKey,
+    rrs: &[&Rr],
+    type_covered: u16,
+    ctx: &SigningContext,
+    rsa_keytag: u16,
+) -> (RrsigFields, Vec<u8>) {
+    use rsa::traits::PublicKeyParts;
+    use rsa::Pkcs1v15Sign;
+    use sha2::Sha256;
+    let mut f = ctx.fields_for(type_covered);
+    f.algorithm = 8;
+    f.keytag = rsa_keytag;
+    f.labels = rrs[0].owner.trim_end_matches('.').split('.').count() as u8;
+    let msg = rrsig_signed_data(&f, rrs);
+    // RSA-SHA256 (PKCS#1 v1.5, DigestInfo over SHA-256): hash the canonical
+    // signed-data, then sign the 32-byte digest — Pkcs1v15Sign wraps it in
+    // DigestInfo internally.
+    use sha2::Digest as _;
+    let digest = Sha256::digest(&msg);
+    let mut rng = seeded_rng(&[0u8; 32]);
+    let sig = key
+        .sign_with_rng(&mut rng, Pkcs1v15Sign::new::<Sha256>(), &digest)
+        .expect("rsa sign");
+    (f, sig)
+}
+
+/// Deterministic RNG for the RSA keygen, seeded from the production seed —
+/// the dual-DS build is as reproducible as the ML-DSA half (fixture doctrine:
+/// seed in, byte-identical zone out).
+fn seeded_rng(seed: &[u8; 32]) -> rand::rngs::StdRng {
+    use rand::SeedableRng;
+    // StdRng takes a 32-byte seed directly.
+    rand::rngs::StdRng::from_seed(*seed)
+}
+
+/// KSK-8 keygen: RSA-2048 (the pragmatic default for DNSSEC RSA; Route 53's
+/// own managed keys are RSA-2048/SHA-256 — the classical chain this specimen
+/// migrates FROM). Returns (dnskey_rdata, signer closure) — algorithm 8
+/// signs SHA-256(PKCS#1 v1.5) over the RRSIG signed-data blob.
+use rsa::traits::PublicKeyParts as _;
+
+fn rsa_ksk_keygen(rng: &mut rand::rngs::StdRng) -> rsa::RsaPrivateKey {
+    use rsa::pkcs8::EncodePrivateKey;
+    let mut priv_key = rsa::RsaPrivateKey::new(rng, 2048).expect("rsa 2048 keygen");
+    let _ = priv_key.to_pkcs8_pem(rsa::pkcs8::LineEnding::LF);
+    priv_key
+}
+
 fn name_wire(name: &str) -> Vec<u8> {
     let mut out = Vec::new();
     let trimmed = name.trim_end_matches('.');
@@ -370,6 +422,11 @@ const TXT_PROOF: &str =
     "v=pqproof1; build=053fc78; verify=4-impl KAT + wall green; receipts=policy/LANES.md";
 const TXT_REPO: &str = "v=pqrepo1; url=https://github.com/IT-Help-San-Diego/resolution-scope";
 
+/// Dual-DS specimen self-declaration (v=pqexperiment4): the migration state
+/// no live specimen holds. dual-sign=YES and the strip-attack label are the
+/// scientific statement, not a warning.
+const TXT_DECLARATION_DUALDS: &str = "v=pqexperiment4; alg=18+8; alg-name=ML-DSA-44+RSA-SHA256; keytag-18={KT18}; keytag-8={KT8}; state=dual-DS-migration; dual-sign=YES; rfc6840-5.11=STRIP-ATTACK-VULNERABLE; purpose=field-specimen-only; corpus-excluded=YES; contact=security@it-help.tech";
+
 const TXT_POEM: &str = "Come home to the data, stay spooky at a distance on that sidewalk with a foundation that is better than concrete, seek logic and reason, mathematical validation not con-firmation -- that is just social media likes, not the tour -- that is just applause, great talk now back to the lab! Decide to mathematically, logically work for the future. One less champagne lobster dinner is a lot more science. Immutable reality checks and mathematical validation my love that is the data we come home to.";
 
 // ---------- sign + verify ----------
@@ -434,6 +491,7 @@ fn main() -> io::Result<()> {
     // dual-NS (SPOF fix per the nameserver-recommendation rule), sidecars, canonical
     // multi-name NSEC chain, SOA-MIN 3600 (matches the other two specimens).
     let mut window2 = false;
+    let mut dualds = false;
 
     let mut i = 1;
     while i < args.len() {
@@ -459,6 +517,15 @@ fn main() -> io::Result<()> {
             }
             "--window2" => {
                 window2 = true;
+            }
+            "--dualds" => {
+                window2 = true;
+                // SciSpace design 2026-08-30T18:35Z — the migration-state
+                // specimen: KSK-8 (RSA-SHA256) + KSK-18 (ML-DSA-44), every
+                // RRset carries BOTH signatures, parent publishes TWO DS
+                // records. The no-live-specimen state between huque (pure
+                // 18) and kochen (DS-8-only).
+                dualds = true;
             }
             _ => {
                 eprintln!("unknown flag: {}", args[i]);
@@ -537,6 +604,43 @@ fn main() -> io::Result<()> {
     let pk2 = fips204::ml_dsa_44::PublicKey::try_from_bytes(pk_bytes.clone().try_into().unwrap())
         .unwrap();
 
+    // KSK-8 (dual-DS specimen only): RSA-2048/SHA-256, deterministic from the
+    // same seed file (fixture reproducibility). The classical half of the
+    // migration state.
+    let rsa_key = if dualds {
+        let mut rng = seeded_rng(&seed);
+        Some(rsa_ksk_keygen(&mut rng))
+    } else {
+        None
+    };
+    // KSK-8 keytag + DS digest (RFC 4034 App. B over the alg-8 DNSKEY RDATA;
+    // DS = SHA-256 over owner | rdata, same as the alg-18 half).
+    let (rsa_kt, rsa_ds, rsa_dnskey_rd) = match &rsa_key {
+        // (PublicKeyParts trait imported at module scope for n()/e())
+        Some(key) => {
+            let pubk = key.to_public_key();
+            let n_c = pubk.n().clone();
+            let e_c = pubk.e().clone();
+            let e = e_c.to_bytes_be();
+            let n = n_c.to_bytes_be();
+            let mut rd8 = Vec::new();
+            if e.len() <= 255 {
+                rd8.push(e.len() as u8);
+            } else {
+                rd8.push(0);
+                rd8.extend_from_slice(&(e.len() as u16).to_be_bytes());
+            }
+            rd8.extend_from_slice(&e);
+            rd8.extend_from_slice(&n);
+            let mut full = vec![1u8, 1, 3, 8]; // flags 257 = 0x0101 (KSK|ZSK), proto 3, alg 8
+            full.extend_from_slice(&rd8);
+            let kt = keytag(&full);
+            let ds = ds_sha256(&zone_origin, &full);
+            (kt, ds, full)
+        }
+        None => (0u16, [0u8; 32], Vec::new()),
+    };
+
     // DNSKEY + DS
     let dnskey_rd = dnskey_rdata(257, 3, 18, &pk_bytes);
     let kt = keytag(&dnskey_rd);
@@ -592,7 +696,15 @@ fn main() -> io::Result<()> {
     // Carey's words, ASCII-only by fixture doctrine.
     // Window 2's declaration carries the RUNTIME keytag (v=pqexperiment3) —
     // the signed text can never describe a different key than the one signing it.
-    let txt_str: String = if window2 {
+    let txt_str: String = if dualds {
+        // SciSpace design 2026-08-30T18:35Z — the MANDATORY security label:
+        // the RFC 6840 §5.11 strip attack (MITM strips the alg-18 RRSIG, zone
+        // degrades to alg-8 with no alarm) is the scientific POINT of this
+        // specimen, stated in its own signed words.
+        TXT_DECLARATION_DUALDS
+            .replace("{KT18}", &kt.to_string())
+            .replace("{KT8}", &rsa_kt.to_string())
+    } else if window2 {
         TXT_DECLARATION_W2.replace("{KEYTAG}", &kt.to_string())
     } else {
         TXT_DECLARATION.to_string()
@@ -624,6 +736,27 @@ fn main() -> io::Result<()> {
         rdata: mx_rd.clone(),
     };
 
+    let mut dnskey_rdatas: Vec<Vec<u8>> = vec![dnskey_rd.clone()];
+    if let Some(ref key) = rsa_key {
+        // DNSKEY RDATA for RSA (RFC 3110): exponent-length-prefixed
+        // exponent + modulus, big-endian.
+        let pubk = key.to_public_key();
+        let (n_c, e_c) = (pubk.n().clone(), pubk.e().clone());
+        let e = e_c.to_bytes_be();
+        let n = n_c.to_bytes_be();
+        let mut rd8 = Vec::new();
+        if e.len() <= 255 {
+            rd8.push(e.len() as u8);
+        } else {
+            rd8.push(0);
+            rd8.extend_from_slice(&(e.len() as u16).to_be_bytes());
+        }
+        rd8.extend_from_slice(&e);
+        rd8.extend_from_slice(&n);
+        let mut full = vec![1u8, 1, 3, 8]; // flags 257 = 0x0101 (KSK|ZSK), proto 3, alg 8 // flags=257 (KSK), proto=3, alg=8
+        full.extend_from_slice(&rd8);
+        dnskey_rdatas.push(full);
+    }
     let dnskey_rr = Rr {
         owner: zone_origin.clone(),
         class: 1,
@@ -728,11 +861,35 @@ fn main() -> io::Result<()> {
     }
 
     let (soa_f, soa_sig) = sign_rrset(&sk, &soa_set, 6, &signing_ctx);
+    let (soa_f8, soa_sig8) = rsa_key
+        .as_ref()
+        .map(|k| rsa_sign_rrset(k, &soa_set, 6, &signing_ctx, rsa_kt))
+        .unzip();
     let (ns_f, ns_sig) = sign_rrset(&sk, &ns_set, 2, &signing_ctx);
+    let (ns_f8, ns_sig8) = rsa_key
+        .as_ref()
+        .map(|k| rsa_sign_rrset(k, &ns_set, 2, &signing_ctx, rsa_kt))
+        .unzip();
     let (txt_f, txt_sig) = sign_rrset(&sk, &txt_set, 16, &signing_ctx);
+    let (txt_f8, txt_sig8) = rsa_key
+        .as_ref()
+        .map(|k| rsa_sign_rrset(k, &txt_set, 16, &signing_ctx, rsa_kt))
+        .unzip();
     let (mx_f, mx_sig) = sign_rrset(&sk, &mx_set, 15, &signing_ctx);
+    let (mx_f8, mx_sig8) = rsa_key
+        .as_ref()
+        .map(|k| rsa_sign_rrset(k, &mx_set, 15, &signing_ctx, rsa_kt))
+        .unzip();
     let (dnskey_f, dnskey_sig) = sign_rrset(&sk, &dnskey_set, 48, &signing_ctx);
+    let (dnskey_f8, dnskey_sig8) = rsa_key
+        .as_ref()
+        .map(|k| rsa_sign_rrset(k, &dnskey_set, 48, &signing_ctx, rsa_kt))
+        .unzip();
     let (nsec_f, nsec_sig) = sign_rrset(&sk, &nsec_set, 47, &signing_ctx);
+    let (nsec_f8, nsec_sig8) = rsa_key
+        .as_ref()
+        .map(|k| rsa_sign_rrset(k, &nsec_set, 47, &signing_ctx, rsa_kt))
+        .unzip();
     // Chain NSECs beyond the first (window 2): each name's NSEC is its own RRset.
     let mut extra_nsec_sets: Vec<(&Rr, RrsigFields, Vec<u8>)> = Vec::new();
     for nsec in nsec_rrs.iter().skip(1) {
@@ -758,11 +915,21 @@ fn main() -> io::Result<()> {
         Box::new(io::stdout().lock())
     };
 
-    writeln!(
-        out,
-        "; pq.resolutionscope.com — ML-DSA-44 algorithm-18 signed zone"
-    )?;
-    writeln!(out, "; DNSKEY keytag={kt} DS={}", hex::encode(ds))?;
+    if dualds {
+        writeln!(
+            out,
+            "; pq-dualds.resolutionscope.com — DUAL-ALGORITHM migration specimen (KSK-18 ML-DSA-44 + KSK-8 RSA-SHA256)"
+        )?;
+        writeln!(
+            out,
+            "; DNSKEY keytag-18={kt} DS-18={} keytag-8={rsa_kt} DS-8={}",
+            hex::encode(ds),
+            hex::encode(rsa_ds)
+        )?;
+    } else {
+        writeln!(out, "; {zone_origin} — ML-DSA-44 algorithm-18 signed zone")?;
+        writeln!(out, "; DNSKEY keytag={kt} DS={}", hex::encode(ds))?;
+    }
     writeln!(out)?;
 
     writeln!(
@@ -775,6 +942,9 @@ fn main() -> io::Result<()> {
         "{}",
         rrsig_presentation(&zone_origin, &soa_f, &soa_sig)
     )?;
+    if let (Some(f8), Some(sig8)) = (&soa_f8, &soa_sig8) {
+        writeln!(out, "{}", rrsig_presentation(&zone_origin, f8, sig8))?;
+    }
     for ns_rr in &ns_rrs {
         writeln!(
             out,
@@ -783,6 +953,9 @@ fn main() -> io::Result<()> {
         )?;
     }
     writeln!(out, "{}", rrsig_presentation(&zone_origin, &ns_f, &ns_sig))?;
+    if let (Some(f8), Some(sig8)) = (&ns_f8, &ns_sig8) {
+        writeln!(out, "{}", rrsig_presentation(&zone_origin, f8, sig8))?;
+    }
     writeln!(
         out,
         "{zone_origin} 3600 IN TXT {}",
@@ -799,8 +972,14 @@ fn main() -> io::Result<()> {
         "{}",
         rrsig_presentation(&zone_origin, &txt_f, &txt_sig)
     )?;
+    if let (Some(f8), Some(sig8)) = (&txt_f8, &txt_sig8) {
+        writeln!(out, "{}", rrsig_presentation(&zone_origin, f8, sig8))?;
+    }
     writeln!(out, "{zone_origin} 3600 IN MX {}", mx_presentation(&mx_rd))?;
     writeln!(out, "{}", rrsig_presentation(&zone_origin, &mx_f, &mx_sig))?;
+    if let (Some(f8), Some(sig8)) = (&mx_f8, &mx_sig8) {
+        writeln!(out, "{}", rrsig_presentation(&zone_origin, f8, sig8))?;
+    }
     writeln!(
         out,
         "{zone_origin} 3600 IN DNSKEY {}",
@@ -811,6 +990,17 @@ fn main() -> io::Result<()> {
         "{}",
         rrsig_presentation(&zone_origin, &dnskey_f, &dnskey_sig)
     )?;
+    if let (Some(f8), Some(sig8)) = (&dnskey_f8, &dnskey_sig8) {
+        // The alg-8 KSK: same RRset, second key, second signature — the
+        // dual-DS migration state's DNSKEY RRset.
+        writeln!(
+            out,
+            "{} 3600 IN DNSKEY {}",
+            zone_origin,
+            dnskey_presentation(&rsa_dnskey_rd)
+        )?;
+        writeln!(out, "{}", rrsig_presentation(&zone_origin, f8, sig8))?;
+    }
     writeln!(
         out,
         "{zone_origin} 3600 IN NSEC {}",
@@ -821,6 +1011,9 @@ fn main() -> io::Result<()> {
         "{}",
         rrsig_presentation(&zone_origin, &nsec_f, &nsec_sig)
     )?;
+    if let (Some(f8), Some(sig8)) = (&nsec_f8, &nsec_sig8) {
+        writeln!(out, "{}", rrsig_presentation(&zone_origin, f8, sig8))?;
+    }
     for (rr, f, sig) in &sidecar_sets {
         writeln!(
             out,
