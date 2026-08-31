@@ -558,6 +558,10 @@ pub struct ScoredAnalysis {
     pub caa_disposition: CaaDisposition,
     pub cds_cdnskey: TriState,
     pub cds_disposition: CdsDisposition,
+    pub tls_rpt: TriState,
+    pub tls_rpt_disposition: TlsRptDisposition,
+    pub csync: TriState,
+    pub csync_disposition: CsyncDisposition,
 }
 
 #[cfg(test)]
@@ -765,5 +769,97 @@ mod tests {
         assert_eq!(DnssecDisposition::NoZone.chain(), TriState::Indet);
         assert_eq!(DaneDisposition::NoMail.chain(), TriState::NotApplicable);
         assert_eq!(SpfDisposition::SoftFail.chain(), TriState::Present);
+    }
+}
+
+/// SMTP TLS Reporting — RFC 8460. TXT at `_smtp._tls.<domain>`: `v=TLSRPTv1`
+/// plus `rua=` (comma-separated mailto:/https: URIs). Records not beginning
+/// `v=TLSRPTv1;` are discarded; after discarding, exactly one record means
+/// implemented (RFC 8460 §3: "If the number of resulting records is not one,
+/// senders MUST assume the recipient domain does not implement TLSRPT").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TlsRptDisposition {
+    /// Valid record: v=TLSRPTv1 with at least one parseable rua URI.
+    Published,
+    /// Zone exists but no _smtp._tls TXT — the domain could receive reports
+    /// but has not opted in. Distinguished from NoZone by SOA disambiguation.
+    RecordAbsent,
+    /// NXDOMAIN on _smtp._tls — the domain does not exist.
+    NoZone,
+    /// The lookup errored (SERVFAIL/timeout) — nothing measured.
+    TransientError,
+    /// Record present but malformed: missing/unparseable rua, wrong version,
+    /// or multiple valid records (RFC 8460's not-one rule) — a measured,
+    /// non-functional deployment (T1-1: advertised but unservable is measured
+    /// absence, never "couldn't measure").
+    PolicyInvalid,
+}
+
+impl TlsRptDisposition {
+    pub fn chain(self) -> TriState {
+        match self {
+            TlsRptDisposition::Published => TriState::Present,
+            TlsRptDisposition::RecordAbsent => TriState::Absent,
+            TlsRptDisposition::NoZone => TriState::Indet,
+            TlsRptDisposition::TransientError => TriState::Indet,
+            TlsRptDisposition::PolicyInvalid => TriState::Absent,
+        }
+    }
+}
+
+impl core::fmt::Display for TlsRptDisposition {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            TlsRptDisposition::Published => write!(f, "published"),
+            TlsRptDisposition::RecordAbsent => write!(f, "record-absent"),
+            TlsRptDisposition::NoZone => write!(f, "no-zone"),
+            TlsRptDisposition::TransientError => write!(f, "transient-error"),
+            TlsRptDisposition::PolicyInvalid => write!(f, "policy-invalid"),
+        }
+    }
+}
+
+/// Child-to-Parent Synchronization — RFC 7477 (CSYNC RR, type 62, apex).
+/// SOA serial + flags (bit 0 immediate, bit 1 soaminimum) + type bit map.
+/// A parental agent copies delegation records (NS/A/AAAA) from the child on
+/// the child's signal. NOT for DS sync (that is CDS/RFC 7344).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CsyncDisposition {
+    /// A single CSYNC RR present — delegation-sync automation is signaled.
+    Published,
+    /// Zone exists but no CSYNC — the standing state outside a delegation
+    /// change (the CDS precedent: absence is normal, not a deficiency).
+    RecordAbsent,
+    /// NXDOMAIN — the domain does not exist.
+    NoZone,
+    /// The lookup errored — nothing measured.
+    TransientError,
+    /// Multiple CSYNC RRs present — RFC 7477 §2: parental agents MUST ignore
+    /// the set ("only a single CSYNC record should ever be present"). A
+    /// measured, non-functional publication.
+    PolicyInvalid,
+}
+
+impl CsyncDisposition {
+    pub fn chain(self) -> TriState {
+        match self {
+            CsyncDisposition::Published => TriState::Present,
+            CsyncDisposition::RecordAbsent => TriState::Absent,
+            CsyncDisposition::NoZone => TriState::Indet,
+            CsyncDisposition::TransientError => TriState::Indet,
+            CsyncDisposition::PolicyInvalid => TriState::Absent,
+        }
+    }
+}
+
+impl core::fmt::Display for CsyncDisposition {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            CsyncDisposition::Published => write!(f, "published"),
+            CsyncDisposition::RecordAbsent => write!(f, "record-absent"),
+            CsyncDisposition::NoZone => write!(f, "no-zone"),
+            CsyncDisposition::TransientError => write!(f, "transient-error"),
+            CsyncDisposition::PolicyInvalid => write!(f, "policy-invalid"),
+        }
     }
 }

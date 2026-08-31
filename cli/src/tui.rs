@@ -138,8 +138,8 @@ fn tab_for_control(c: ControlId) -> usize {
         ControlId::Dnssec => 1,
         ControlId::Dane => 2,
         ControlId::Spf | ControlId::Dkim | ControlId::Dmarc => 3,
-        ControlId::MtaSts => 4,
-        ControlId::Caa | ControlId::Cds => 5,
+        ControlId::MtaSts | ControlId::TlsRpt => 4,
+        ControlId::Caa | ControlId::Cds | ControlId::Csync => 5,
     }
 }
 
@@ -158,12 +158,12 @@ fn controls_for_tab(tab: usize) -> (&'static str, &'static [ControlId]) {
             &[ControlId::Spf, ControlId::Dkim, ControlId::Dmarc],
         ),
         4 => (
-            "\u{2550}\u{2550} MTA-STS \u{2550}\u{2550}",
-            &[ControlId::MtaSts],
+            "\u{2550}\u{2550} MTA-STS / TLS-RPT \u{2550}\u{2550}",
+            &[ControlId::MtaSts, ControlId::TlsRpt],
         ),
         5 => (
-            "\u{2550}\u{2550} CAA / CDS \u{2550}\u{2550}",
-            &[ControlId::Caa, ControlId::Cds],
+            "\u{2550}\u{2550} CAA / CDS / CSYNC \u{2550}\u{2550}",
+            &[ControlId::Caa, ControlId::Cds, ControlId::Csync],
         ),
         _ => ("\u{2014}", &[]),
     }
@@ -294,7 +294,7 @@ fn severity_style(s: Severity, pal: Palette) -> Style {
     }
 }
 
-fn report_for(model: &[ControlReport; 8], c: ControlId) -> &ControlReport {
+fn report_for(model: &[ControlReport; 10], c: ControlId) -> &ControlReport {
     model
         .iter()
         .find(|r| r.control == c)
@@ -311,7 +311,7 @@ fn report_for(model: &[ControlReport; 8], c: ControlId) -> &ControlReport {
 const ROW_PREFIX: usize = 35;
 
 fn render_summary(
-    model: &[ControlReport; 8],
+    model: &[ControlReport; 10],
     pal: Palette,
     audience: Audience,
     selected: usize,
@@ -451,7 +451,7 @@ fn render_summary(
 /// state, attribution, RFC requirement, consequence — straight from the model.
 fn render_controls(
     title: &'static str,
-    model: &[ControlReport; 8],
+    model: &[ControlReport; 10],
     controls: &[ControlId],
     records: &[RecordEntry],
     pal: Palette,

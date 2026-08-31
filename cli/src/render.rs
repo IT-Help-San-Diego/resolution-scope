@@ -79,7 +79,7 @@ pub fn tier_of(s: Severity) -> &'static str {
 /// print "none" rather than silently omit the heading. Display order must
 /// follow the Severity declaration order so the tier concatenation equals
 /// the by_severity order — the TUI cursor walks that equality.
-pub fn tiers(model: &[ControlReport; 8]) -> [(&'static str, Vec<ControlReport>); 5] {
+pub fn tiers(model: &[ControlReport; 10]) -> [(&'static str, Vec<ControlReport>); 5] {
     let ordered = by_severity(model);
     let pick = |tier: &'static str| -> Vec<ControlReport> {
         ordered
@@ -203,7 +203,7 @@ fn render_text_surface(analyses: &[ScoredAnalysis], audience: Audience, opts: Te
     s.push_str(&format!("framing: {}\n", audience_label(audience)));
 
     for a in analyses {
-        let model: [ControlReport; 8] = truth_chain(a);
+        let model: [ControlReport; 10] = truth_chain(a);
         let t = Tally::of(&model);
         let obs = Observation::of(a);
 
@@ -424,7 +424,7 @@ fn seal_check_label(s: &StoredScan) -> &'static str {
 pub fn render_html_page(analyses: &[ScoredAnalysis], audience: Audience) -> String {
     let mut body = String::new();
     for a in analyses {
-        let model: [ControlReport; 8] = truth_chain(a);
+        let model: [ControlReport; 10] = truth_chain(a);
         let t = Tally::of(&model);
         let obs = Observation::of(a);
 
@@ -547,7 +547,7 @@ fn esc(s: &str) -> String {
 /// DERIVED view over the same sealed dispositions (never sealed itself),
 /// tagged with SCORING_VERSION; reads "unmeasured" when nothing is
 /// measurable. Always shown BESIDE Coverage, never instead of it.
-pub fn weighted_label(model: &[ControlReport; 8]) -> String {
+pub fn weighted_label(model: &[ControlReport; 10]) -> String {
     match risk_weighted_score(model) {
         Some(rws) => format!("{rws}%  (scoring v{SCORING_VERSION})"),
         None => format!("unmeasured  (scoring v{SCORING_VERSION})"),

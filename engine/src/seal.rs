@@ -69,7 +69,7 @@
 
 use sha3::{Digest, Sha3_512};
 
-use crate::analysis::ScoredAnalysis;
+use crate::analysis::{CsyncDisposition, ScoredAnalysis, TlsRptDisposition};
 use resolution_scope_types::SealSpelling;
 
 /// Versioned identifier for the seal scheme. Changing the canonical form
@@ -304,6 +304,10 @@ mod tests {
             caa_disposition: CaaDisposition::NotConfigured,
             cds_cdnskey: TriState::Absent,
             cds_disposition: CdsDisposition::NotPublished,
+            tls_rpt: TriState::Absent,
+            tls_rpt_disposition: TlsRptDisposition::RecordAbsent,
+            csync: TriState::Absent,
+            csync_disposition: CsyncDisposition::RecordAbsent,
         }
     }
 

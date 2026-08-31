@@ -30,8 +30,9 @@ mod seal_spelling;
 mod tristate;
 
 pub use dispositions::{
-    CaaDisposition, CdsDisposition, DaneDisposition, DkimDisposition, DmarcDisposition,
-    DnssecDisposition, MtaStsDisposition, ScoredAnalysis, SpfDisposition, TlsaZone,
+    CaaDisposition, CdsDisposition, CsyncDisposition, DaneDisposition, DkimDisposition,
+    DmarcDisposition, DnssecDisposition, MtaStsDisposition, ScoredAnalysis, SpfDisposition,
+    TlsRptDisposition, TlsaZone,
 };
 pub use seal_spelling::SealSpelling;
 pub use tristate::TriState;

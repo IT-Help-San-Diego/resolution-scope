@@ -148,6 +148,8 @@ pub fn control_key(c: ControlId) -> &'static str {
         ControlId::MtaSts => "mta_sts",
         ControlId::Caa => "caa",
         ControlId::Cds => "cds",
+        ControlId::TlsRpt => "tls_rpt",
+        ControlId::Csync => "csync",
     }
 }
 
