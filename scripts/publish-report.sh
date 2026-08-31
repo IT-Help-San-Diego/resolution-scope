@@ -50,19 +50,47 @@ OUT="$WORK/report.html"
 
 # Tier-3 tripwire at the artifact boundary (the deferral-ships-tripwire
 # standard, instance 1). The page's own re-derive block names its scheme
-# and carries one name=Disposition=Tri line per SEALED control; the v4
-# scheme seals exactly 8. A binary that renders more controls than its
-# scheme seals would publish a page whose seal is silent on rendered
-# verdicts — the forbidden artifact. Refuse it here, mechanically, not
-# in anyone's memory. (Exit 3 = tripwire, distinct from scan-error 1.)
+# and carries one name=Disposition=Tri line per SEALED control; every
+# scheme seals an exact count (v3/v4: the founding eight; v5: ten). A
+# binary that renders more controls than its scheme seals would publish
+# a page whose seal is silent on rendered verdicts — the forbidden
+# artifact. Refuse it here, mechanically, not in anyone's memory.
+# (Exit 3 = tripwire, distinct from scan-error 1.)
+#
+# The table is exhaustive BY DESIGN (verifier-seat finding, 2026-08-31):
+# the v4-only equality condition expired the moment #36 ships v5 — any
+# future scheme published clean, hazards included. Unknown schemes
+# refuse here (the next bump becomes impossible to forget), and a
+# non-numeric count refuses here too (grep error → empty string →
+# integer-expression error → previously fell through to publish; that
+# fail-open path is closed). The guard-in-the-direction-of-the-real-
+# mistake principle applied to the guard itself: refuse FIRST, publish
+# only on a known-scheme/exact-count match.
 SCHEME=$(grep -oE 'resolution-scope-sha3-512-v[0-9]+' "$OUT" | head -1 || true)
 CONTROL_LINES=$(grep -cE '^[a-z_]+=[A-Za-z0-9]+=(Present|Absent|Indet|NotApplicable)$' "$OUT" || true)
 if [ -z "$SCHEME" ]; then
   echo "tripwire: no seal scheme found in the report — refusing to publish an unsealed page" >&2
   exit 3
 fi
-if [ "$SCHEME" = "resolution-scope-sha3-512-v4" ] && [ "$CONTROL_LINES" -ne 8 ]; then
-  echo "tripwire: $SCHEME seals exactly 8 controls but this page carries $CONTROL_LINES sealed-control lines — refusing to publish (a v4 seal cannot cover this report; ship the seal event first)" >&2
+# Fail-closed on a non-numeric count: a grep error must never fall through.
+if ! [[ "$CONTROL_LINES" =~ ^[0-9]+$ ]]; then
+  echo "tripwire: sealed-control line count is not a number (got '$CONTROL_LINES') — refusing to publish" >&2
+  exit 3
+fi
+case "$SCHEME" in
+  resolution-scope-sha3-512-v3|resolution-scope-sha3-512-v4)
+    EXPECTED=8
+    ;;
+  resolution-scope-sha3-512-v5)
+    EXPECTED=10
+    ;;
+  *)
+    echo "tripwire: unknown seal scheme '$SCHEME' — refusing to publish (add its exact control count to the tripwire table when the scheme is minted; the seal event must ship WITH its tripwire, never after)" >&2
+    exit 3
+    ;;
+esac
+if [ "$CONTROL_LINES" -ne "$EXPECTED" ]; then
+  echo "tripwire: $SCHEME seals exactly $EXPECTED controls but this page carries $CONTROL_LINES sealed-control lines — refusing to publish (the page's seal cannot cover this report; ship the seal event first)" >&2
   exit 3
 fi
 

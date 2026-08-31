@@ -47,7 +47,7 @@ done
 {
   echo '<html><title>fake report</title>'
   if [ "${FAKE_NO_SCHEME:-0}" != "1" ]; then
-    echo '<pre>resolution-scope-sha3-512-v4'
+    echo "<pre>resolution-scope-sha3-512-v${FAKE_SCHEME_VERSION:-4}"
   else
     echo '<pre>unsealed'
   fi
@@ -175,10 +175,54 @@ def test_tripwire_refuses_page_with_no_seal_scheme() -> None:
     assert "s3api put-object" not in result.stdout
 
 
+def test_tripwire_refuses_unknown_scheme() -> None:
+    # Verifier-seat finding: the v4-only equality expired at #36's v5, so
+    # any future scheme published clean. Unknown schemes must refuse.
+    result = run_publish("resolutionscope.com", extra_env={"FAKE_SCHEME_VERSION": "9"})
+    assert result.returncode == 3, (
+        f"unknown scheme must trip (exit 3), got {result.returncode}\nstderr:\n{result.stderr}"
+    )
+    assert "unknown seal scheme" in result.stderr
+    assert "s3api put-object" not in result.stdout, "tripwire must fire before any upload"
+
+
+def test_tripwire_refuses_v5_page_with_eight_controls() -> None:
+    # The mirror of the v4/10 case: after #36 ships v5 (10 sealed), a v5
+    # page carrying the OLD eight-control count is the same forbidden
+    # artifact in the other direction — count must match the scheme.
+    result = run_publish(
+        "resolutionscope.com", extra_env={"FAKE_SCHEME_VERSION": "5"}
+    )
+    assert result.returncode == 3, (
+        f"v5 page with 8 sealed-control lines must trip (exit 3), got {result.returncode}\n"
+        f"stderr:\n{result.stderr}"
+    )
+    assert "cannot cover" in result.stderr
+    assert "s3api put-object" not in result.stdout
+
+
+def test_tripwire_passes_v5_page_with_ten_controls() -> None:
+    # The post-#36 happy path: v5 seals exactly ten, ten sealed lines
+    # publish. This is the path the v4-only condition would have skipped
+    # the count check on entirely (verifier-seat finding).
+    result = run_publish(
+        "resolutionscope.com",
+        extra_env={"FAKE_SCHEME_VERSION": "5", "FAKE_CONTROLS": "10"},
+    )
+    assert result.returncode == 0, (
+        f"v5 page with 10 sealed-control lines must publish (exit 0), got {result.returncode}\n"
+        f"stderr:\n{result.stderr}"
+    )
+    assert "s3api put-object" in result.stdout, "happy path must reach the upload"
+
+
 if __name__ == "__main__":
     test_default_publish_key_uses_utc_second_stamp()
     test_explicit_publish_stamp_is_preserved()
     test_upload_refuses_to_overwrite_existing_report_key()
     test_tripwire_refuses_v4_page_carrying_ten_controls()
     test_tripwire_refuses_page_with_no_seal_scheme()
+    test_tripwire_refuses_unknown_scheme()
+    test_tripwire_refuses_v5_page_with_eight_controls()
+    test_tripwire_passes_v5_page_with_ten_controls()
     print("publish-report tests passed")
