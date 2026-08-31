@@ -1,0 +1,19 @@
+[package]
+name = "alg18-verify"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0"
+
+[[bin]]
+name = "alg18-verify"
+path = "src/main.rs"
+
+[dependencies]
+# INDEPENDENT of the signer's crate by design: the signer uses fips204;
+# this verifier uses RustCrypto ml-dsa — the proven independent KAT
+# verifier (bake-off 2026-08-30, byte-exact agreement on draft §6).
+ml-dsa = "0.1"
+hex = "0.4"
+
+[profile.release]
+strip = true

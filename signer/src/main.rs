@@ -460,6 +460,17 @@ fn sign_rrset(
     let owner_labels = rrs[0].owner.trim_end_matches('.').split('.').count() as u8;
     f.labels = owner_labels;
     let msg = rrsig_signed_data(&f, rrs);
+    if std::env::args().any(|a| a == "--debug-sd") {
+        use sha2::Digest as _;
+        eprintln!(
+            "SD-DEBUG alg-18 type={:?} labels={} kt={} sha256={} sd-prefix={}",
+            f.type_covered,
+            f.labels,
+            f.keytag,
+            hex::encode(sha2::Sha256::digest(&msg)),
+            hex::encode(&msg[..msg.len().min(900)])
+        );
+    }
     let sig = sk
         .try_sign_with_seed(&[0u8; 32], &msg, &[])
         .expect("deterministic sign ");
