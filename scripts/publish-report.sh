@@ -13,12 +13,15 @@
 #   - RS_S3_BUCKET and RS_CF_DIST_ID in the environment (same values as the
 #     deploy workflow's secrets)
 #
-# Persistence: the scan records to the sealed-history store per the
-# persist-by-default ruling (set RS_STORE_URL or run the compose store).
-# This script deliberately does NOT pass --discard — a published report
-# whose verdict was never recorded would be a report without a history row.
-# If no store is reachable the CLI refuses and instructs; that refusal is
-# correct, not a script failure.
+# PRECONDITION — a store must be reachable (compose store up, or
+# RS_STORE_URL set): the scan records to the sealed-history store per the
+# persist-by-default ruling. This script deliberately does NOT pass
+# --discard — a published report whose verdict was never recorded would be
+# a report without a history row. On store refusal the CLI exits nonzero
+# (its only exit codes: 2 = corpus-excluded fixture, 1 = propagated error;
+# there is NO findings-based exit) and `set -e` aborts BEFORE any s3 cp —
+# an unpersisted report is never published. Do not add an exit-code
+# bypass; the abort is the doctrine working.
 #
 # Bucket-lifetime invariant: deploy-site.yml's HTML sync step carries
 # --exclude "r/*" so published reports survive `s3 sync --delete` on site
