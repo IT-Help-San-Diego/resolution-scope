@@ -145,10 +145,14 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5 tag @ 2026-08-29
         with:
           persist-credentials: false
-      - name: Python syntax
-        run: python3 -m py_compile scripts/pq_fixture_monitor.py scripts/test_pq_fixture_monitor.py
+      - name: Script syntax
+        run: |
+          python3 -m py_compile scripts/pq_fixture_monitor.py scripts/test_pq_fixture_monitor.py scripts/test_publish_report.py
+          bash -n scripts/publish-report.sh
       - name: Unit tests
-        run: python3 scripts/test_pq_fixture_monitor.py
+        run: |
+          python3 scripts/test_pq_fixture_monitor.py
+          python3 scripts/test_publish_report.py
 
   # Store integration: the sealed-history contract runs against a REAL
   # postgres — sealed roundtrip, tamper detection, cross-version
