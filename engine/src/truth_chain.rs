@@ -951,7 +951,8 @@ pub const SCORING_VERSION: u32 = 1;
 /// The consequence weight of a control, keyed on its IDENTITY (its absent-state
 /// severity), NOT its current state. Derived from the `*_report` constructor for
 /// that control's "missing" disposition — single producer, so a future severity
-/// re-ruling propagates automatically. CSYNC is the ruled zero-weight exception:
+/// re-ruling propagates automatically. CSYNC is the ruled zero-weight exception
+/// (policy/RULING_csync_20260901.md, ratified 2026-09-01):
 /// `RecordAbsent` is the expected standing state outside a delegation change,
 /// so it is measured and shown but excluded from RWS rather than pretending the
 /// absent-state severity is High or Low.
@@ -960,13 +961,14 @@ pub fn identity_weight(control: ControlId) -> u32 {
         Severity::High => 3,
         Severity::Low => 1,
         // CSYNC RecordAbsent is Ok: measured/shown, but zero-weight in RWS —
-        // pending Carey's ruling (asked three times on the ledger, still
-        // open; the zero band is the current behavior this comment pins,
-        // NOT a ruling). Outside a delegation-change window an absent
+        // RULED (policy/RULING_csync_20260901.md, ratified 2026-09-01): RFC
+        // 7477 §5 partitions CSYNC out of the security domain by
+        // construction, and the measured operator asymmetry (elites leave
+        // CDS standing; nobody leaves CSYNC standing — three sweeps, 0/N)
+        // corroborates. Outside a delegation-change window an absent
         // CDS/CSYNC is the expected standing state, so the zero band shows
-        // and measures it but excludes it from RWS. If the ruling comes
-        // back Low, absent_severity's Csync arm changes and this zero
-        // becomes 1 automatically — the single-producer link holds.
+        // and measures it but excludes it from RWS. Reopening criterion and
+        // the DnssecRequired follow-up live in the ruling document.
         _ => 0,
     }
 }
@@ -1473,18 +1475,19 @@ mod tests {
             "TLS-RPT's missing disposition is Low; identity_weight derives 1 from it"
         );
         // CSYNC absent is the EXPECTED standing state outside a delegation
-        // change — zero band (measured + shown, excluded from RWS). This
-        // pin is the honest open state, not a ruling: Carey's word is the
-        // only thing that can turn this into 1 (see identity_weight).
+        // change — zero band (measured + shown, excluded from RWS), RULED:
+        // policy/RULING_csync_20260901.md (ratified 2026-09-01). The pin
+        // is now the ruled state; the reopening criterion lives in the
+        // ruling document (see identity_weight).
         assert_eq!(
             identity_weight(ControlId::Csync),
             0,
-            "CSYNC identity weight is the zero band (open ruling, current behavior)"
+            "CSYNC identity weight is the ruled zero band (policy/RULING_csync_20260901.md)"
         );
         assert_eq!(
             csync_report(CsyncDisposition::RecordAbsent).severity,
             Severity::Ok,
-            "CSYNC's absent-state severity is Ok — measured as the expected standing state (the zero band's source); a Low ruling changes this arm and the weight follows automatically"
+            "CSYNC's absent-state severity is Ok — measured as the expected standing state (the ruled zero band's source); a future re-ruling changes this arm and the weight follows automatically"
         );
     }
 
