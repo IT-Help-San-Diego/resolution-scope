@@ -74,6 +74,13 @@ impl ControlId {
         ControlId::Csync,
     ];
 
+    /// The one number every hand-kept "how many controls" site should derive
+    /// from instead of restating. First caller: the identity-weight
+    /// enumeration loop in `identity_weight_is_derived_not_hardcoded`
+    /// (Science's 2026-09-01 residual — a hand-enumerated pin list lets
+    /// control 11 ship weightless with nothing failing).
+    pub const COUNT: usize = Self::ALL.len();
+
     pub fn name(self) -> &'static str {
         match self {
             ControlId::Dnssec => "DNSSEC",
@@ -837,6 +844,16 @@ fn csync_report(d: CsyncDisposition) -> ControlReport {
             "The lookup errored — nothing was measured.",
             "Measurement unavailable.",
         ),
+        // Mirrors DaneDisposition::DnssecRequired exactly: the DNSSEC row
+        // already carries the unsigned finding; charging it here again would
+        // count one deficiency twice — and under the ruled zero band the
+        // honest label costs nothing (policy/RULING_csync_20260901.md).
+        CsyncDisposition::DnssecRequired => (
+            "not applicable — zone is unsigned, so CSYNC cannot apply",
+            Severity::NotApplicable,
+            "CSYNC only means something inside a signed zone (RFC 7477 §5: the child zone must be signed and DS-linked, and the parent MUST validate the signal as DNSSEC-secure). This is not an unknown: the apex was measured and is unsigned. Sign the zone first — then delegation-sync signaling becomes possible and this control starts applying.",
+            "CSYNC is structurally unavailable here, not merely undeployed: an unsigned zone cannot publish a validatable delegation-sync signal.",
+        ),
     };
     ControlReport {
         control: ControlId::Csync,
@@ -1440,7 +1457,8 @@ mod tests {
     /// source, per the mutation method).
     #[test]
     fn identity_weight_is_derived_not_hardcoded() {
-        // The five High controls → 3, the three Low → 1 (spec §5).
+        // The five High controls → 3, the four Low → 1, CSYNC the ruled
+        // zero (spec §5; policy/RULING_csync_20260901.md).
         assert_eq!(identity_weight(ControlId::Dnssec), 3);
         assert_eq!(identity_weight(ControlId::Spf), 3);
         assert_eq!(identity_weight(ControlId::Dkim), 3);
@@ -1489,6 +1507,45 @@ mod tests {
             Severity::Ok,
             "CSYNC's absent-state severity is Ok — measured as the expected standing state (the ruled zero band's source); a future re-ruling changes this arm and the weight follows automatically"
         );
+        // Coverage lock (Science's 2026-09-01 residual): the pins above are
+        // hand-enumerated, so a control 11 could ship weightless with nothing
+        // failing. This loop closes the mechanism, not just the instance:
+        // every ControlId::ALL member must appear in the expected-weight
+        // match, extending ALL without extending it is a compile error
+        // (non-exhaustive match), and ControlId::COUNT gets its first caller.
+        assert_eq!(
+            ControlId::ALL.len(),
+            ControlId::COUNT,
+            "ALL and COUNT must agree"
+        );
+        for c in ControlId::ALL {
+            let expected = match c {
+                ControlId::Dnssec
+                | ControlId::Spf
+                | ControlId::Dkim
+                | ControlId::Dmarc
+                | ControlId::MtaSts => 3,
+                ControlId::Dane | ControlId::Caa | ControlId::Cds | ControlId::TlsRpt => 1,
+                ControlId::Csync => 0,
+            };
+            assert_eq!(
+                identity_weight(c),
+                expected,
+                "identity_weight({c:?}) drifted from the ruled table"
+            );
+        }
+    }
+
+    /// The DnssecRequired arm is the ruling's shipped defect fix
+    /// (policy/RULING_csync_20260901.md §independent defect): an unsigned
+    /// zone's absent CSYNC is inapplicability, never a gap — and never Absent,
+    /// which would attribute the DNSSEC finding to CSYNC twice.
+    #[test]
+    fn csync_dnssec_required_is_not_applicable_not_absent() {
+        let r = csync_report(CsyncDisposition::DnssecRequired);
+        assert_eq!(r.severity, Severity::NotApplicable);
+        assert_eq!(r.tri, TriState::NotApplicable);
+        assert_eq!(r.seal_disposition, "DnssecRequired");
     }
 
     /// The CDS/CDNSKEY `NotPublished` copy is RULED, not stylistic:

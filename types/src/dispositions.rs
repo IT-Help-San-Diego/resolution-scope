@@ -886,6 +886,13 @@ pub enum CsyncDisposition {
     /// the set ("only a single CSYNC record should ever be present"). A
     /// measured, non-functional publication.
     PolicyInvalid,
+    /// The apex is measured unsigned, so an absent CSYNC is inapplicability,
+    /// not a gap: RFC 7477 §5 requires clients deploying CSYNC to "ensure
+    /// their zones are signed, current and properly linked to the parent zone
+    /// with a DS record", and parental agents MUST validate the signal as
+    /// DNSSEC-"secure" — impossible without a chain. The DaneDisposition
+    /// precedent, earlier in this file (policy/RULING_csync_20260901.md).
+    DnssecRequired,
 }
 
 impl CsyncDisposition {
@@ -900,6 +907,11 @@ impl CsyncDisposition {
             CsyncDisposition::NoZone => TriState::Indet,
             CsyncDisposition::TransientError => TriState::Indet,
             CsyncDisposition::PolicyInvalid => TriState::Absent,
+            // Indet would claim CSYNC failed to determine something the
+            // DNSSEC row already determined; Absent would attribute the
+            // DNSSEC gap to CSYNC and count one deficiency twice. Same
+            // reasoning as DaneDisposition::DnssecRequired.
+            CsyncDisposition::DnssecRequired => TriState::NotApplicable,
         }
     }
 }
@@ -912,6 +924,7 @@ impl core::fmt::Display for CsyncDisposition {
             CsyncDisposition::NoZone => write!(f, "no-zone"),
             CsyncDisposition::TransientError => write!(f, "transient-error"),
             CsyncDisposition::PolicyInvalid => write!(f, "policy-invalid"),
+            CsyncDisposition::DnssecRequired => write!(f, "dnssec-required"),
         }
     }
 }
