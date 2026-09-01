@@ -46,6 +46,7 @@ const MIGRATIONS: &[(i32, &str)] = &[
     (3, include_str!("../migrations/003_lookup_receipts.sql")),
     (4, include_str!("../migrations/004_receipt_domain_key.sql")),
     (5, include_str!("../migrations/005_records.sql")),
+    (6, include_str!("../migrations/006_new_control_keys.sql")),
 ];
 
 /// Advisory-lock key for migration serialization — arbitrary but fixed;
