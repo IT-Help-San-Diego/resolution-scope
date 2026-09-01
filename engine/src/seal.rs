@@ -77,6 +77,7 @@
 use sha3::{Digest, Sha3_512};
 
 use crate::analysis::ScoredAnalysis;
+use crate::denial_proof::control_key;
 use crate::truth_chain::{truth_chain, ControlId, ControlReport};
 use resolution_scope_types::SealSpelling;
 
@@ -267,21 +268,6 @@ fn control_report_line(report: ControlReport) -> String {
         report.seal_disposition,
         report.tri.seal_spelling()
     )
-}
-
-fn control_key(control: ControlId) -> &'static str {
-    match control {
-        ControlId::Dnssec => "dnssec",
-        ControlId::Spf => "spf",
-        ControlId::Dkim => "dkim",
-        ControlId::Dmarc => "dmarc",
-        ControlId::Dane => "dane",
-        ControlId::MtaSts => "mta_sts",
-        ControlId::Caa => "caa",
-        ControlId::Cds => "cds",
-        ControlId::TlsRpt => "tls_rpt",
-        ControlId::Csync => "csync",
-    }
 }
 
 /// The engine version that produced a verdict. Combines the crate version
@@ -554,5 +540,37 @@ mod tests {
         let json = serde_json::to_string(&baseline()).expect("serialize");
         let roundtrip: ScoredAnalysis = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(seal(&baseline()), seal(&roundtrip));
+    }
+
+    /// Current-scheme known-answer (v5 KAT, punch-list F1). Minted by
+    /// EXECUTION at c436ba1+ (the seal of `baseline()` under SEAL_SCHEME
+    /// with produced_by_version "0.0.0-kat"), never derived by hand. This
+    /// literal is the byte-pin: an ALL-reorder, an emission-order change,
+    /// a header drift, or a SealSpelling change rewrites v5 preimages
+    /// test-green unless this exists — the exact blindness the KAT
+    /// doctrine kills, closed on the new scheme's birthday. Re-pin ONLY
+    /// on a deliberate scheme change (which bumps SEAL_SCHEME and mints
+    /// a new KAT alongside).
+    #[test]
+    fn v5_known_answer_seal_is_byte_frozen() {
+        let s = seal_versioned_under_scheme(&baseline(), "0.0.0-kat", SEAL_SCHEME);
+        assert_eq!(
+            s,
+            "50470d7119da23afc4b794c71ef6f084294a9df1fee03b71078b91f45fcbba7ad\
+             ee40b3a4265ae661d5ab1c1af617d0e417d70db7e6f276297ca6891a73608c6"
+        );
+    }
+    // throwaway probe 2: full v5 preimage to /tmp for the native golden.
+    #[test]
+    fn probe_native_golden_v5_full() {
+        let mut f = baseline();
+        f.spf_disposition = crate::analysis::SpfDisposition::SoftFail;
+        f.mta_sts_disposition = crate::analysis::MtaStsDisposition::Enforced;
+        f.dkim_disposition = crate::analysis::DkimDisposition::NotFoundDefaults;
+        std::fs::write(
+            "/tmp/v5_native_preimage.txt",
+            canonical_input_under_scheme(&f, "0.1.0", SEAL_SCHEME),
+        )
+        .expect("write probe file");
     }
 }

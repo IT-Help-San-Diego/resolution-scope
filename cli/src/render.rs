@@ -1022,11 +1022,12 @@ mod tests {
         assert_eq!(v["dnssec_chain"], "Absent");
     }
 
-    /// The Arm-1 join contract: ALL EIGHT disposition keys and ALL EIGHT
-    /// tri-state keys must be present by their exact field names AND their
-    /// original types. The additions (seal, scores) are siblings; a renamed
-    /// or re-typed verdict key is a silent broken join, not a test failure —
-    /// so the names are the contract, asserted here in full.
+    /// The Arm-1 join contract: ALL disposition keys and ALL tri-state keys
+    /// must be present by their exact field names AND their original types.
+    /// The additions (seal, scores) are siblings; a renamed or re-typed
+    /// verdict key is a silent broken join, not a test failure — so the
+    /// names are the contract, asserted here in full (the count rides
+    /// ControlId::ALL today: ten controls, twenty verdict keys).
     #[test]
     fn json_carries_all_sixteen_verdict_keys_unchanged_plus_seal_and_scores() {
         let a = fixture("example.test");

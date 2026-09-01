@@ -9,7 +9,7 @@
 //! The dashboard paints BEFORE the first measurement returns and shows a real
 //! measuring state — what is being measured, from where, elapsed time — then
 //! the truth-chain the moment the engine delivers it. No fake progress: the
-//! engine measures the eight controls inside one call, so until it exposes
+//! engine measures all ten controls inside one call, so until it exposes
 //! per-control events the honest state is "measuring … {elapsed}s".
 //!
 //! Keyboard: `1`-`6` + `9` jump between tabs (9 = the seal; 7/8 reserved). `q` / Ctrl-C quit.
@@ -298,7 +298,7 @@ fn report_for(model: &[ControlReport; 10], c: ControlId) -> &ControlReport {
     model
         .iter()
         .find(|r| r.control == c)
-        .expect("truth_chain always carries all eight controls")
+        .expect("truth_chain always carries every ControlId::ALL control")
 }
 
 // ── section renderers ──────────────────────────────────────────────

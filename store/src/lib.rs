@@ -918,29 +918,27 @@ mod tests {
 
         let mut store = test_store().await;
         let a = verdict("receipt.test");
-        let receipts = vec![
-            LookupReceipt {
-                control: ControlId::Dnssec,
-                rcode: ReceiptRcode::NoError,
-                answer_count: 1,
+        // Census fix (foundation-audit item 6, 2026-08-31): the fixture was
+        // three hand-picked controls; the audit's 54-vs-64 census found the
+        // write-only asymmetry hiding in exactly this kind of hand-list. One
+        // receipt per ControlId::ALL entry — the 11th control forces this
+        // test to cover its receipts or fail, the same discipline as the
+        // engine's ALL-driven round-trip guard.
+        let receipts: Vec<LookupReceipt> = ControlId::ALL
+            .iter()
+            .enumerate()
+            .map(|(i, control)| LookupReceipt {
+                control: *control,
+                rcode: if i % 2 == 0 {
+                    ReceiptRcode::NoError
+                } else {
+                    ReceiptRcode::NxDomain
+                },
+                answer_count: i as u16,
                 denial_proof: DenialProof::Nsec,
-                elapsed_ms: 42,
-            },
-            LookupReceipt {
-                control: ControlId::Spf,
-                rcode: ReceiptRcode::NxDomain,
-                answer_count: 0,
-                denial_proof: DenialProof::SoaOnly,
-                elapsed_ms: 7,
-            },
-            LookupReceipt {
-                control: ControlId::Caa,
-                rcode: ReceiptRcode::Timeout,
-                answer_count: 0,
-                denial_proof: DenialProof::None,
-                elapsed_ms: 1000,
-            },
-        ];
+                elapsed_ms: 10 + i as u64,
+            })
+            .collect();
         let id = store.record_scan(&a, &receipts, &[]).await.unwrap();
 
         // Receipts roundtrip through the TEXT vocabulary in a stable order.
