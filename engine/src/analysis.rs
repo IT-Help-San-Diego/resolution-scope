@@ -128,7 +128,7 @@ pub async fn analyse_domain_with_receipts(
     let tls_rpt_disposition = score_tls_rpt(resolver, domain, &mut r_tls_rpt).await;
     let tls_rpt = tls_rpt_disposition.chain();
     let mut r_csync = None;
-    let csync_disposition = score_csync(resolver, domain, &mut r_csync).await;
+    let csync_disposition = score_csync(resolver, domain, dnssec_disposition, &mut r_csync).await;
     let csync = csync_disposition.chain();
 
     // ControlId declaration order — one receipt per control that yielded one
@@ -1668,12 +1668,33 @@ fn tls_rpt_err_to_disposition(e: &NetError, domain: &str) -> TlsRptDisposition {
 // the PARENT's behavior, not this domain's posture. RFC 7477 §2: "parental
 // agents MUST ignore a child's CSYNC RDATA set if multiple CSYNC resource
 // records are found; only a single CSYNC record should ever be present."
+/// Pure gate (RFC 7477 §5): CSYNC requires the child zone "signed, current
+/// and properly linked to the parent zone with a DS record", and the parental
+/// agent MUST validate the signal as DNSSEC-"secure" — impossible without a
+/// chain. On a measured-unsigned apex an absent CSYNC is inapplicability, not
+/// a gap (policy/RULING_csync_20260901.md; the DANE DnssecRequired
+/// precedent). Only `Unsigned` fires: `NoZone` is carried by CSYNC's own
+/// probe (the apex IS the probed zone, unlike DANE's separate MX-host zone),
+/// and the chain anomalies (`SignedNotDelegated`, `BrokenChain`,
+/// `ChainUnverified`, `Unreachable`) pass through rather than over-assert —
+/// the DANE gate's conservatism, kept deliberately.
+fn csync_absent_is_inapplicable(apex: DnssecDisposition) -> bool {
+    matches!(apex, DnssecDisposition::Unsigned)
+}
+
 async fn score_csync(
     resolver: &TokioResolver,
     domain: &str,
+    apex_dnssec: DnssecDisposition,
     receipt: &mut Option<LookupReceipt>,
 ) -> CsyncDisposition {
     use hickory_proto::rr::RecordType;
+    // The lookup always runs, gate or no gate: the receipt census (one
+    // receipt per ControlId::ALL) must hold, and a genuinely Published
+    // record on an unsigned zone stays measured as Published — the parent's
+    // refusal to consume it is the parent's layer. Only measured ABSENCE is
+    // reinterpreted: on an unsigned apex it is inapplicability (§5), not a
+    // gap.
     match observed_lookup(
         resolver,
         ControlId::Csync,
@@ -1686,7 +1707,11 @@ async fn score_csync(
         Ok(resp) => {
             let count = resp.answers().len();
             if count == 0 {
-                CsyncDisposition::RecordAbsent
+                if csync_absent_is_inapplicable(apex_dnssec) {
+                    CsyncDisposition::DnssecRequired
+                } else {
+                    CsyncDisposition::RecordAbsent
+                }
             } else if count == 1 {
                 CsyncDisposition::Published
             } else {
@@ -1697,7 +1722,11 @@ async fn score_csync(
             if e.is_nx_domain() {
                 CsyncDisposition::NoZone
             } else if e.is_no_records_found() {
-                CsyncDisposition::RecordAbsent
+                if csync_absent_is_inapplicable(apex_dnssec) {
+                    CsyncDisposition::DnssecRequired
+                } else {
+                    CsyncDisposition::RecordAbsent
+                }
             } else {
                 CsyncDisposition::TransientError
             }
@@ -3011,6 +3040,37 @@ mod tests {
             DnssecDisposition::ChainUnverified
         ));
         assert!(!dane_host_zone_requires_dnssec(
+            DnssecDisposition::Unreachable
+        ));
+    }
+
+    // --- the CSYNC apex gate (RFC 7477 §5; policy/RULING_csync_20260901.md) --
+    // Narrower than DANE's on purpose: the apex IS the probed zone, so NoZone
+    // is carried by CSYNC's own probe rather than the gate.
+
+    #[test]
+    fn csync_unsigned_apex_makes_absence_inapplicable() {
+        assert!(csync_absent_is_inapplicable(DnssecDisposition::Unsigned));
+    }
+
+    #[test]
+    fn csync_gate_passes_everything_but_unsigned() {
+        // One-contributor rule, same as the DANE gate tests above: each
+        // pass-through is its own assertion.
+        assert!(!csync_absent_is_inapplicable(
+            DnssecDisposition::SignedAndDelegated
+        ));
+        assert!(!csync_absent_is_inapplicable(
+            DnssecDisposition::SignedNotDelegated
+        ));
+        assert!(!csync_absent_is_inapplicable(
+            DnssecDisposition::BrokenChain
+        ));
+        assert!(!csync_absent_is_inapplicable(
+            DnssecDisposition::ChainUnverified
+        ));
+        assert!(!csync_absent_is_inapplicable(DnssecDisposition::NoZone));
+        assert!(!csync_absent_is_inapplicable(
             DnssecDisposition::Unreachable
         ));
     }

@@ -201,6 +201,7 @@ impl SealSpelling for CsyncDisposition {
             Self::NoZone => "NoZone",
             Self::TransientError => "TransientError",
             Self::PolicyInvalid => "PolicyInvalid",
+            Self::DnssecRequired => "DnssecRequired",
         }
     }
 }
@@ -293,6 +294,7 @@ mod tests {
         check(CsyncDisposition::NoZone, "NoZone");
         check(CsyncDisposition::TransientError, "TransientError");
         check(CsyncDisposition::PolicyInvalid, "PolicyInvalid");
+        check(CsyncDisposition::DnssecRequired, "DnssecRequired");
         check(TlsaZone::SameZone, "SameZone");
         check(TlsaZone::DescendantZone, "DescendantZone");
         check(TlsaZone::ForeignZone, "ForeignZone");
@@ -435,6 +437,7 @@ mod tests {
         guard(CsyncDisposition::NoZone);
         guard(CsyncDisposition::TransientError);
         guard(CsyncDisposition::PolicyInvalid);
+        guard(CsyncDisposition::DnssecRequired);
         guard(TlsaZone::SameZone);
         guard(TlsaZone::DescendantZone);
         guard(TlsaZone::ForeignZone);
