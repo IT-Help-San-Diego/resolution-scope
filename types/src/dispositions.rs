@@ -1,4 +1,4 @@
-// dispositions.rs — the eight per-control disposition enums + the IPC payload
+// dispositions.rs — the per-control disposition enums + the IPC payload
 //
 // Extracted from engine/src/analysis.rs (the former single location) into this
 // shared crate so the engine (std) and the native store compartment (no_std)
@@ -525,6 +525,10 @@ impl core::fmt::Display for TlsaZone {
     }
 }
 
+fn default_unmeasured_tri_state() -> TriState {
+    TriState::Indet
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ScoredAnalysis {
@@ -558,6 +562,14 @@ pub struct ScoredAnalysis {
     pub caa_disposition: CaaDisposition,
     pub cds_cdnskey: TriState,
     pub cds_disposition: CdsDisposition,
+    #[serde(default = "default_unmeasured_tri_state")]
+    pub tls_rpt: TriState,
+    #[serde(default = "TlsRptDisposition::default_unmeasured")]
+    pub tls_rpt_disposition: TlsRptDisposition,
+    #[serde(default = "default_unmeasured_tri_state")]
+    pub csync: TriState,
+    #[serde(default = "CsyncDisposition::default_unmeasured")]
+    pub csync_disposition: CsyncDisposition,
 }
 
 #[cfg(test)]
@@ -753,6 +765,42 @@ mod tests {
         );
     }
 
+    #[test]
+    fn legacy_eight_control_rows_deserialize_with_unmeasured_new_controls() {
+        let json = r#"{
+            "domain":"example.com",
+            "session_id":1,
+            "timestamp_local":1700000000,
+            "resolver_identity":"default",
+            "dnssec_chain":"Present",
+            "dnssec_disposition":"SignedAndDelegated",
+            "spf":"Present",
+            "spf_disposition":"HardFail",
+            "dkim":"Absent",
+            "dkim_disposition":"NotFoundDefaults",
+            "dmarc":"Present",
+            "dmarc_disposition":"Reject",
+            "dane":"NotApplicable",
+            "dane_disposition":"NoMail",
+            "tlsa_zone":"NoMxHost",
+            "mta_sts":"Present",
+            "mta_sts_disposition":"Enforced",
+            "caa":"Absent",
+            "caa_disposition":"NotConfigured",
+            "cds_cdnskey":"Absent",
+            "cds_disposition":"NotPublished"
+        }"#;
+        let decoded: ScoredAnalysis = serde_json::from_str(json)
+            .expect("pre-PR36 eight-control stored rows must keep reading");
+        assert_eq!(decoded.tls_rpt, TriState::Indet);
+        assert_eq!(
+            decoded.tls_rpt_disposition,
+            TlsRptDisposition::TransientError
+        );
+        assert_eq!(decoded.csync, TriState::Indet);
+        assert_eq!(decoded.csync_disposition, CsyncDisposition::TransientError);
+    }
+
     /// chain() is the single collapse point (disposition -> TriState). The
     /// engine derives every score through it, never hand-paired.
     #[test]
@@ -765,5 +813,105 @@ mod tests {
         assert_eq!(DnssecDisposition::NoZone.chain(), TriState::Indet);
         assert_eq!(DaneDisposition::NoMail.chain(), TriState::NotApplicable);
         assert_eq!(SpfDisposition::SoftFail.chain(), TriState::Present);
+    }
+}
+
+/// SMTP TLS Reporting — RFC 8460. TXT at `_smtp._tls.<domain>`: `v=TLSRPTv1`
+/// plus `rua=` (comma-separated mailto:/https: URIs). Records not beginning
+/// `v=TLSRPTv1;` are discarded; after discarding, exactly one record means
+/// implemented (RFC 8460 §3: "If the number of resulting records is not one,
+/// senders MUST assume the recipient domain does not implement TLSRPT").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TlsRptDisposition {
+    /// Valid record: v=TLSRPTv1 with at least one parseable rua URI.
+    Published,
+    /// Zone exists but no _smtp._tls TXT — the domain could receive reports
+    /// but has not opted in. Distinguished from NoZone by SOA disambiguation.
+    RecordAbsent,
+    /// NXDOMAIN on _smtp._tls — the domain does not exist.
+    NoZone,
+    /// The lookup errored (SERVFAIL/timeout) — nothing measured.
+    TransientError,
+    /// Record present but malformed: missing/unparseable rua, wrong version,
+    /// or multiple valid records (RFC 8460's not-one rule) — a measured,
+    /// non-functional deployment (T1-1: advertised but unservable is measured
+    /// absence, never "couldn't measure").
+    PolicyInvalid,
+}
+
+impl TlsRptDisposition {
+    pub fn default_unmeasured() -> Self {
+        TlsRptDisposition::TransientError
+    }
+
+    pub fn chain(self) -> TriState {
+        match self {
+            TlsRptDisposition::Published => TriState::Present,
+            TlsRptDisposition::RecordAbsent => TriState::Absent,
+            TlsRptDisposition::NoZone => TriState::Indet,
+            TlsRptDisposition::TransientError => TriState::Indet,
+            TlsRptDisposition::PolicyInvalid => TriState::Absent,
+        }
+    }
+}
+
+impl core::fmt::Display for TlsRptDisposition {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            TlsRptDisposition::Published => write!(f, "published"),
+            TlsRptDisposition::RecordAbsent => write!(f, "record-absent"),
+            TlsRptDisposition::NoZone => write!(f, "no-zone"),
+            TlsRptDisposition::TransientError => write!(f, "transient-error"),
+            TlsRptDisposition::PolicyInvalid => write!(f, "policy-invalid"),
+        }
+    }
+}
+
+/// Child-to-Parent Synchronization — RFC 7477 (CSYNC RR, type 62, apex).
+/// SOA serial + flags (bit 0 immediate, bit 1 soaminimum) + type bit map.
+/// A parental agent copies delegation records (NS/A/AAAA) from the child on
+/// the child's signal. NOT for DS sync (that is CDS/RFC 7344).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CsyncDisposition {
+    /// A single CSYNC RR present — delegation-sync automation is signaled.
+    Published,
+    /// Zone exists but no CSYNC — the standing state outside a delegation
+    /// change (the CDS precedent: absence is normal, not a deficiency).
+    RecordAbsent,
+    /// NXDOMAIN — the domain does not exist.
+    NoZone,
+    /// The lookup errored — nothing measured.
+    TransientError,
+    /// Multiple CSYNC RRs present — RFC 7477 §2: parental agents MUST ignore
+    /// the set ("only a single CSYNC record should ever be present"). A
+    /// measured, non-functional publication.
+    PolicyInvalid,
+}
+
+impl CsyncDisposition {
+    pub fn default_unmeasured() -> Self {
+        CsyncDisposition::TransientError
+    }
+
+    pub fn chain(self) -> TriState {
+        match self {
+            CsyncDisposition::Published => TriState::Present,
+            CsyncDisposition::RecordAbsent => TriState::Absent,
+            CsyncDisposition::NoZone => TriState::Indet,
+            CsyncDisposition::TransientError => TriState::Indet,
+            CsyncDisposition::PolicyInvalid => TriState::Absent,
+        }
+    }
+}
+
+impl core::fmt::Display for CsyncDisposition {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            CsyncDisposition::Published => write!(f, "published"),
+            CsyncDisposition::RecordAbsent => write!(f, "record-absent"),
+            CsyncDisposition::NoZone => write!(f, "no-zone"),
+            CsyncDisposition::TransientError => write!(f, "transient-error"),
+            CsyncDisposition::PolicyInvalid => write!(f, "policy-invalid"),
+        }
     }
 }

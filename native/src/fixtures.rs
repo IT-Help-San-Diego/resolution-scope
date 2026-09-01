@@ -11,11 +11,12 @@
 //
 // It is a DEMO fixture, not an API: it stands in for "a ScoredAnalysis received
 // over the IPC channel" until the receive path is wired. It deliberately
-// exercises every TriState variant and all 8 distinct dispositions.
+// exercises every TriState variant and all 10 control slots.
 
 use resolution_scope_types::{
-    CaaDisposition, CdsDisposition, DaneDisposition, DkimDisposition, DmarcDisposition,
-    DnssecDisposition, MtaStsDisposition, ScoredAnalysis, SpfDisposition, TlsaZone, TriState,
+    CaaDisposition, CdsDisposition, CsyncDisposition, DaneDisposition, DkimDisposition,
+    DmarcDisposition, DnssecDisposition, MtaStsDisposition, ScoredAnalysis, SpfDisposition,
+    TlsRptDisposition, TlsaZone, TriState,
 };
 
 pub fn demo_verdict() -> ScoredAnalysis {
@@ -41,5 +42,9 @@ pub fn demo_verdict() -> ScoredAnalysis {
         caa_disposition: CaaDisposition::NotConfigured,
         cds_cdnskey: TriState::Absent,
         cds_disposition: CdsDisposition::NotPublished,
+        tls_rpt: TriState::Absent,
+        tls_rpt_disposition: TlsRptDisposition::RecordAbsent,
+        csync: TriState::Absent,
+        csync_disposition: CsyncDisposition::RecordAbsent,
     }
 }

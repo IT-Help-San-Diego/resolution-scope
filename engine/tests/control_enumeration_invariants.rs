@@ -29,8 +29,9 @@
 
 use resolution_scope_engine::truth_chain::{by_severity, truth_chain, ControlId, Tally};
 use resolution_scope_engine::{
-    CaaDisposition, CdsDisposition, DaneDisposition, DkimDisposition, DmarcDisposition,
-    MtaStsDisposition, ScoredAnalysis, SpfDisposition, TriState,
+    CaaDisposition, CdsDisposition, CsyncDisposition, DaneDisposition, DkimDisposition,
+    DmarcDisposition, MtaStsDisposition, ScoredAnalysis, SpfDisposition, TlsRptDisposition,
+    TriState,
 };
 
 /// A fully-Indet ScoredAnalysis: every control "couldn't measure". Built
@@ -61,6 +62,10 @@ fn all_indeterminate() -> ScoredAnalysis {
         caa_disposition: CaaDisposition::NoZone,
         cds_cdnskey: TriState::Indet,
         cds_disposition: CdsDisposition::NoZone,
+        tls_rpt: TriState::Indet,
+        tls_rpt_disposition: TlsRptDisposition::TransientError,
+        csync: TriState::Indet,
+        csync_disposition: CsyncDisposition::TransientError,
     }
 }
 

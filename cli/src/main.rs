@@ -40,9 +40,10 @@ const ABOUT: &str = "Resolution Scope — a sovereign instrument for measuring D
 what a domain actually publishes, verified against the protocol and sealed so anyone can re-check it.";
 
 const LONG_ABOUT: &str = "\
-Resolution Scope measures eight controls on a domain — DNSSEC, SPF, DKIM, DMARC, \
-DANE, MTA-STS, CAA, CDS/CDNSKEY — through one validating resolver, and renders \
-the same truth-chain (RFC requirement → measured state → consequence) on every surface.
+Resolution Scope measures ten controls on a domain — DNSSEC, SPF, DKIM, DMARC, \
+DANE, MTA-STS, TLS-RPT, CAA, CDS/CDNSKEY, CSYNC — through one validating \
+resolver, and renders the same truth-chain (RFC requirement → measured state → \
+consequence) on every surface.
 
 Every verdict carries a SEAL: a SHA3-512 digest over the exact verdict bytes, printed \
 beside the verdict so anyone holding the report can re-derive it. The seal is \

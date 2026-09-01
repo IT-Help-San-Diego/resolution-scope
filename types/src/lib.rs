@@ -1,7 +1,7 @@
 //! # resolution-scope-types
 //!
 //! The single producer of Resolution Scope's verdict type surface: [`TriState`],
-//! the eight per-control disposition enums, and the [`ScoredAnalysis`] IPC
+//! the per-control disposition enums, and the [`ScoredAnalysis`] IPC
 //! payload (spec §5). `#![no_std]` — compiled by both the std engine (Phase 1,
 //! `engine/`) and the bare-metal native compartment (Phase 2 Option B,
 //! `native/`).
@@ -30,8 +30,9 @@ mod seal_spelling;
 mod tristate;
 
 pub use dispositions::{
-    CaaDisposition, CdsDisposition, DaneDisposition, DkimDisposition, DmarcDisposition,
-    DnssecDisposition, MtaStsDisposition, ScoredAnalysis, SpfDisposition, TlsaZone,
+    CaaDisposition, CdsDisposition, CsyncDisposition, DaneDisposition, DkimDisposition,
+    DmarcDisposition, DnssecDisposition, MtaStsDisposition, ScoredAnalysis, SpfDisposition,
+    TlsRptDisposition, TlsaZone,
 };
 pub use seal_spelling::SealSpelling;
 pub use tristate::TriState;

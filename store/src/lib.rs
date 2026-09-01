@@ -29,6 +29,7 @@ use resolution_scope_engine::denial_proof::{
 use resolution_scope_engine::flux::{FluxObservation, FluxVantage};
 use resolution_scope_engine::seal::{
     engine_version, seal_versioned, seal_versioned_under_scheme, SEAL_SCHEME, SEAL_SCHEME_V3,
+    SEAL_SCHEME_V4,
 };
 use resolution_scope_engine::ScoredAnalysis;
 
@@ -45,6 +46,7 @@ const MIGRATIONS: &[(i32, &str)] = &[
     (3, include_str!("../migrations/003_lookup_receipts.sql")),
     (4, include_str!("../migrations/004_receipt_domain_key.sql")),
     (5, include_str!("../migrations/005_records.sql")),
+    (6, include_str!("../migrations/006_new_control_keys.sql")),
 ];
 
 /// Advisory-lock key for migration serialization — arbitrary but fixed;
@@ -89,6 +91,8 @@ pub enum SealCheck {
 fn check_stored_seal(scan: StoredScan) -> SealCheck {
     let recomputed = if scan.seal_scheme == SEAL_SCHEME {
         seal_versioned(&scan.verdict, &scan.engine_version)
+    } else if scan.seal_scheme == SEAL_SCHEME_V4 {
+        seal_versioned_under_scheme(&scan.verdict, &scan.engine_version, SEAL_SCHEME_V4)
     } else if scan.seal_scheme == SEAL_SCHEME_V3 {
         seal_versioned_under_scheme(&scan.verdict, &scan.engine_version, SEAL_SCHEME_V3)
     } else {
@@ -523,8 +527,9 @@ fn vantage_from_label(s: &str) -> Result<FluxVantage> {
 mod tests {
     use super::*;
     use resolution_scope_engine::analysis::{
-        CaaDisposition, CdsDisposition, DaneDisposition, DkimDisposition, DmarcDisposition,
-        DnssecDisposition, MtaStsDisposition, SpfDisposition, TlsaZone,
+        CaaDisposition, CdsDisposition, CsyncDisposition, DaneDisposition, DkimDisposition,
+        DmarcDisposition, DnssecDisposition, MtaStsDisposition, SpfDisposition, TlsRptDisposition,
+        TlsaZone,
     };
     use resolution_scope_engine::flux::dispersion;
     use resolution_scope_engine::flux::FluxAssessment;
@@ -539,6 +544,8 @@ mod tests {
         let mta = MtaStsDisposition::RecordAbsent;
         let caa = CaaDisposition::Configured;
         let cds = CdsDisposition::Published;
+        let tls_rpt = TlsRptDisposition::Published;
+        let csync = CsyncDisposition::RecordAbsent;
         ScoredAnalysis {
             domain: domain.to_string(),
             session_id: 1,
@@ -561,6 +568,10 @@ mod tests {
             caa_disposition: caa,
             cds_cdnskey: cds.chain(),
             cds_disposition: cds,
+            tls_rpt: tls_rpt.chain(),
+            tls_rpt_disposition: tls_rpt,
+            csync: csync.chain(),
+            csync_disposition: csync,
         }
     }
 
@@ -751,6 +762,19 @@ mod tests {
     /// stay VERIFIABLE, because v3's canonical form is byte-identical to
     /// v4's apart from the scheme line.
     ///
+    /// v4 rows were written before TLS-RPT/CSYNC joined the seal preimage.
+    /// They must keep verifying through the frozen v4 builder, never be
+    /// re-hashed under v5 and false-labeled tampered.
+    #[test]
+    fn v4_sealed_row_rederives_to_verified() {
+        let a = verdict("v4row.test");
+        let s = seal_versioned_under_scheme(&a, "0.1.0", SEAL_SCHEME_V4);
+        assert_eq!(
+            check_stored_seal(planted(SEAL_SCHEME_V4, s, a)),
+            SealCheck::Verified
+        );
+    }
+
     /// DISPATCH test only: expected and actual both ride the shared builder,
     /// so a byte-drift common to both sides passes here. The byte-honesty of
     /// the v3 path rests on the engine's frozen known-answer pin
@@ -895,29 +919,27 @@ mod tests {
 
         let mut store = test_store().await;
         let a = verdict("receipt.test");
-        let receipts = vec![
-            LookupReceipt {
-                control: ControlId::Dnssec,
-                rcode: ReceiptRcode::NoError,
-                answer_count: 1,
+        // Census fix (foundation-audit item 6, 2026-08-31): the fixture was
+        // three hand-picked controls; the audit's 54-vs-64 census found the
+        // write-only asymmetry hiding in exactly this kind of hand-list. One
+        // receipt per ControlId::ALL entry — the 11th control forces this
+        // test to cover its receipts or fail, the same discipline as the
+        // engine's ALL-driven round-trip guard.
+        let receipts: Vec<LookupReceipt> = ControlId::ALL
+            .iter()
+            .enumerate()
+            .map(|(i, control)| LookupReceipt {
+                control: *control,
+                rcode: if i % 2 == 0 {
+                    ReceiptRcode::NoError
+                } else {
+                    ReceiptRcode::NxDomain
+                },
+                answer_count: i as u16,
                 denial_proof: DenialProof::Nsec,
-                elapsed_ms: 42,
-            },
-            LookupReceipt {
-                control: ControlId::Spf,
-                rcode: ReceiptRcode::NxDomain,
-                answer_count: 0,
-                denial_proof: DenialProof::SoaOnly,
-                elapsed_ms: 7,
-            },
-            LookupReceipt {
-                control: ControlId::Caa,
-                rcode: ReceiptRcode::Timeout,
-                answer_count: 0,
-                denial_proof: DenialProof::None,
-                elapsed_ms: 1000,
-            },
-        ];
+                elapsed_ms: 10 + i as u64,
+            })
+            .collect();
         let id = store.record_scan(&a, &receipts, &[]).await.unwrap();
 
         // Receipts roundtrip through the TEXT vocabulary in a stable order.

@@ -37,10 +37,10 @@
 // unique and unrecoverable; a verdict seal is reproducible and checkable
 // forever.
 //
-// ── CANONICAL FORM (v2) ────────────────────────────────────────────────────
+// ── CANONICAL FORM (v5) ────────────────────────────────────────────────────
 // The digested byte sequence is, in order, newline-terminated:
 //
-//   resolution-scope-sha3-512-v2
+//   resolution-scope-sha3-512-v5
 //   <domain>
 //   <engine version>
 //   <resolver identity>
@@ -53,6 +53,13 @@
 //   mta_sts=<disposition>=<tri>
 //   caa=<disposition>=<tri>
 //   cds=<disposition>=<tri>
+//   tls_rpt=<disposition>=<tri>
+//   csync=<disposition>=<tri>
+//
+// v3/v4 rows remain verifiable through a frozen builder that ends at CDS. The
+// current v5 builder derives control lines from truth_chain()/ControlId::ALL,
+// so adding a control creates one producer to satisfy instead of two lists to
+// remember.
 //
 // Dispositions and tri-states are encoded as their Rust variant names (the
 // enum's public, stable identity — renaming a verdict is a breaking change
@@ -70,6 +77,8 @@
 use sha3::{Digest, Sha3_512};
 
 use crate::analysis::ScoredAnalysis;
+use crate::denial_proof::control_key;
+use crate::truth_chain::{truth_chain, ControlId, ControlReport};
 use resolution_scope_types::SealSpelling;
 
 /// Versioned identifier for the seal scheme. Changing the canonical form
@@ -77,7 +86,9 @@ use resolution_scope_types::SealSpelling;
 /// become unverifiable — a seal scheme that drifts is a seal that lies.
 /// v2 added `resolver_identity` (the observer's vantage) to the input set.
 /// v3 added `tlsa_zone` (the MX-host zone relationship — DANE attribution).
-pub const SEAL_SCHEME: &str = "resolution-scope-sha3-512-v4";
+/// v4 (retained as SEAL_SCHEME_V4) bound exactly the founding eight controls.
+/// v5 binds the current truth_chain()/ControlId::ALL control set by construction.
+pub const SEAL_SCHEME: &str = "resolution-scope-sha3-512-v5";
 
 /// The immediately prior scheme, retained so the store can RE-DERIVE rows
 /// sealed before the v4 bump. v3→v4 changed the disposition token
@@ -85,12 +96,13 @@ pub const SEAL_SCHEME: &str = "resolution-scope-sha3-512-v4";
 /// the canonical form is identical and differs only in the scheme line, so
 /// v3 rows re-derive exactly. Verification-only: new seals always bind
 /// [`SEAL_SCHEME`].
+pub const SEAL_SCHEME_V4: &str = "resolution-scope-sha3-512-v4";
 pub const SEAL_SCHEME_V3: &str = "resolution-scope-sha3-512-v3";
 
 /// Compute the hex-encoded SHA3-512 seal of a measurement's verdict content.
 ///
-/// Deterministic: identical `ScoredAnalysis` verdict fields (domain + the
-/// eight dispositions/tri-states) yield the identical seal, regardless of
+/// Deterministic: identical truth-chain verdict fields (domain + the
+/// current control dispositions/tri-states) yield the identical seal, regardless of
 /// `session_id` or `timestamp_local`. See the module doc for the exact
 /// canonical form.
 pub fn seal(analysis: &ScoredAnalysis) -> String {
@@ -148,28 +160,29 @@ pub fn canonical_input(analysis: &ScoredAnalysis, produced_by_version: &str) -> 
 
 /// [`canonical_input`] under an explicit scheme label. The scheme string is
 /// the preimage's FIRST line; every re-derivable prior scheme shares the
-/// rest of the builder byte-for-byte (a prior scheme whose field set or
-/// encoding differed could NOT reuse this and would need its own builder).
+/// v3/v4 dispatch to the frozen eight-control builder. The current v5 builder
+/// derives its control lines from truth_chain(), the single control producer.
 fn canonical_input_under_scheme(
     analysis: &ScoredAnalysis,
     produced_by_version: &str,
     scheme: &str,
 ) -> String {
-    let mut s = String::with_capacity(384);
-    s.push_str(scheme);
-    s.push('\n');
-    s.push_str(&analysis.domain);
-    s.push('\n');
-    s.push_str(produced_by_version);
-    s.push('\n');
-    // The observer's vantage: two scans from different resolvers are
-    // different measurements even if their verdicts coincide, so the seal
-    // must bind the resolver identity too (observation-conditions rule).
-    s.push_str(&analysis.resolver_identity);
-    s.push('\n');
+    match scheme {
+        SEAL_SCHEME_V3 | SEAL_SCHEME_V4 => {
+            canonical_input_v4(analysis, produced_by_version, scheme)
+        }
+        _ => canonical_input_v5(analysis, produced_by_version, scheme),
+    }
+}
 
-    // Fixed order — the canonical form's field order is load-bearing. A
-    // reordered seal is a different seal, by design.
+/// Frozen v3/v4 builder for already-published seals: exactly the founding eight
+/// controls plus TLSA-zone attribution, never TLS-RPT/CSYNC.
+fn canonical_input_v4(
+    analysis: &ScoredAnalysis,
+    produced_by_version: &str,
+    scheme: &str,
+) -> String {
+    let mut s = preimage_header(analysis, produced_by_version, scheme);
     s.push_str(&control_line(
         "dnssec",
         &analysis.dnssec_disposition,
@@ -195,10 +208,6 @@ fn canonical_input_under_scheme(
         &analysis.dane_disposition,
         &analysis.dane,
     ));
-    // tlsa_zone is a primary measurement (the DANE attribution zone), sealed
-    // as its own line — its variant NAME is the seal's stable identity, same
-    // as every disposition. Not a control (no tri-state), so a bare
-    // `tlsa_zone=<variant>` line, not the `name=disposition=tri` shape.
     s.push_str("tlsa_zone=");
     s.push_str(analysis.tlsa_zone.seal_spelling());
     s.push('\n');
@@ -217,8 +226,48 @@ fn canonical_input_under_scheme(
         &analysis.cds_disposition,
         &analysis.cds_cdnskey,
     ));
-
     s
+}
+
+/// Current builder: one producer for control enumeration. Adding a ControlId now
+/// forces truth_chain() to compile and the seal follows it by construction.
+fn canonical_input_v5(
+    analysis: &ScoredAnalysis,
+    produced_by_version: &str,
+    scheme: &str,
+) -> String {
+    let mut s = preimage_header(analysis, produced_by_version, scheme);
+    for report in truth_chain(analysis) {
+        s.push_str(&control_report_line(report));
+        if report.control == ControlId::Dane {
+            s.push_str("tlsa_zone=");
+            s.push_str(analysis.tlsa_zone.seal_spelling());
+            s.push('\n');
+        }
+    }
+    s
+}
+
+fn preimage_header(analysis: &ScoredAnalysis, produced_by_version: &str, scheme: &str) -> String {
+    let mut s = String::with_capacity(512);
+    s.push_str(scheme);
+    s.push('\n');
+    s.push_str(&analysis.domain);
+    s.push('\n');
+    s.push_str(produced_by_version);
+    s.push('\n');
+    s.push_str(&analysis.resolver_identity);
+    s.push('\n');
+    s
+}
+
+fn control_report_line(report: ControlReport) -> String {
+    format!(
+        "{}={}={}\n",
+        control_key(report.control),
+        report.seal_disposition,
+        report.tri.seal_spelling()
+    )
 }
 
 /// The engine version that produced a verdict. Combines the crate version
@@ -274,8 +323,8 @@ fn hex(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
     use crate::analysis::{
-        CaaDisposition, CdsDisposition, DaneDisposition, DkimDisposition, DmarcDisposition,
-        MtaStsDisposition, ScoredAnalysis, SpfDisposition,
+        CaaDisposition, CdsDisposition, CsyncDisposition, DaneDisposition, DkimDisposition,
+        DmarcDisposition, MtaStsDisposition, ScoredAnalysis, SpfDisposition, TlsRptDisposition,
     };
     use crate::TriState;
 
@@ -304,19 +353,18 @@ mod tests {
             caa_disposition: CaaDisposition::NotConfigured,
             cds_cdnskey: TriState::Absent,
             cds_disposition: CdsDisposition::NotPublished,
+            tls_rpt: TriState::Absent,
+            tls_rpt_disposition: TlsRptDisposition::RecordAbsent,
+            csync: TriState::Absent,
+            csync_disposition: CsyncDisposition::RecordAbsent,
         }
     }
 
-    /// v4 known-answer: the ONLY byte-frozen pin in the suite. Every other
-    /// seal test compares seal() to seal() and would pass unchanged through a
-    /// silent canonical-form drift; this literal is what catches it. Minted
-    /// BEFORE any v5 builder change — the ordering is load-bearing, because a
-    /// pin minted after a mutation freezes the wrong bytes. When the v5 bump
-    /// lands, re-target this at the frozen canonical_input_v4() builder; the
-    /// literal itself must NEVER be re-pinned.
+    /// v4 known-answer for already-published rows: frozen eight-control builder.
+    /// This literal is never re-pinned; v5 gets its own current-scheme KAT.
     #[test]
     fn v4_known_answer_seal_is_byte_frozen() {
-        let s = seal_versioned(&baseline(), "0.0.0-kat");
+        let s = seal_versioned_under_scheme(&baseline(), "0.0.0-kat", SEAL_SCHEME_V4);
         assert_eq!(
             s,
             "a5e47988770b3a62bdee9ff50a3068604eeddbc2186784c83129c819f161dd4d\
@@ -363,6 +411,41 @@ mod tests {
     }
 
     #[test]
+    fn v5_seal_membership_follows_truth_chain_order() {
+        let input = canonical_input(&baseline(), "0.0.0-kat");
+        let controls: Vec<&str> = input
+            .lines()
+            .filter_map(|line| line.split_once('=').map(|(name, _)| name))
+            .filter(|name| *name != "tlsa_zone")
+            .collect();
+        assert_eq!(
+            controls,
+            [
+                "dnssec", "spf", "dkim", "dmarc", "dane", "mta_sts", "caa", "cds", "tls_rpt",
+                "csync",
+            ],
+            "v5 seal membership must follow truth_chain()/ControlId::ALL order"
+        );
+    }
+
+    #[test]
+    fn v4_seal_membership_is_the_frozen_original_eight_controls() {
+        let input = canonical_input_under_scheme(&baseline(), "0.0.0-kat", SEAL_SCHEME_V4);
+        let controls: Vec<&str> = input
+            .lines()
+            .filter_map(|line| line.split_once('=').map(|(name, _)| name))
+            .filter(|name| *name != "tlsa_zone")
+            .collect();
+        assert_eq!(
+            controls,
+            ["dnssec", "spf", "dkim", "dmarc", "dane", "mta_sts", "caa", "cds"],
+            "v4 remains the frozen already-published eight-control preimage"
+        );
+        assert!(!input.contains("tls_rpt="));
+        assert!(!input.contains("csync="));
+    }
+
+    #[test]
     fn seal_is_deterministic() {
         assert_eq!(seal(&baseline()), seal(&baseline()));
     }
@@ -395,8 +478,9 @@ mod tests {
     #[test]
     fn seal_changes_when_a_verdict_flips() {
         let mut tampered = baseline();
-        // Flip exactly one tri-state — the seal must break.
-        tampered.dnssec_chain = TriState::Absent;
+        // Flip exactly one verdict producer. v5 seals truth_chain() output, so
+        // the disposition is the source and the tri-state is derived from it.
+        tampered.dnssec_disposition = crate::analysis::DnssecDisposition::Unsigned;
         assert_ne!(seal(&baseline()), seal(&tampered));
     }
 
@@ -456,5 +540,37 @@ mod tests {
         let json = serde_json::to_string(&baseline()).expect("serialize");
         let roundtrip: ScoredAnalysis = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(seal(&baseline()), seal(&roundtrip));
+    }
+
+    /// Current-scheme known-answer (v5 KAT, punch-list F1). Minted by
+    /// EXECUTION at c436ba1+ (the seal of `baseline()` under SEAL_SCHEME
+    /// with produced_by_version "0.0.0-kat"), never derived by hand. This
+    /// literal is the byte-pin: an ALL-reorder, an emission-order change,
+    /// a header drift, or a SealSpelling change rewrites v5 preimages
+    /// test-green unless this exists — the exact blindness the KAT
+    /// doctrine kills, closed on the new scheme's birthday. Re-pin ONLY
+    /// on a deliberate scheme change (which bumps SEAL_SCHEME and mints
+    /// a new KAT alongside).
+    #[test]
+    fn v5_known_answer_seal_is_byte_frozen() {
+        let s = seal_versioned_under_scheme(&baseline(), "0.0.0-kat", SEAL_SCHEME);
+        assert_eq!(
+            s,
+            "50470d7119da23afc4b794c71ef6f084294a9df1fee03b71078b91f45fcbba7ad\
+             ee40b3a4265ae661d5ab1c1af617d0e417d70db7e6f276297ca6891a73608c6"
+        );
+    }
+    // throwaway probe 2: full v5 preimage to /tmp for the native golden.
+    #[test]
+    fn probe_native_golden_v5_full() {
+        let mut f = baseline();
+        f.spf_disposition = crate::analysis::SpfDisposition::SoftFail;
+        f.mta_sts_disposition = crate::analysis::MtaStsDisposition::Enforced;
+        f.dkim_disposition = crate::analysis::DkimDisposition::NotFoundDefaults;
+        std::fs::write(
+            "/tmp/v5_native_preimage.txt",
+            canonical_input_under_scheme(&f, "0.1.0", SEAL_SCHEME),
+        )
+        .expect("write probe file");
     }
 }

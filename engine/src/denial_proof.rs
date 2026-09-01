@@ -148,6 +148,8 @@ pub fn control_key(c: ControlId) -> &'static str {
         ControlId::MtaSts => "mta_sts",
         ControlId::Caa => "caa",
         ControlId::Cds => "cds",
+        ControlId::TlsRpt => "tls_rpt",
+        ControlId::Csync => "csync",
     }
 }
 
@@ -163,6 +165,8 @@ pub fn control_from_key(s: &str) -> Option<ControlId> {
         "mta_sts" => ControlId::MtaSts,
         "caa" => ControlId::Caa,
         "cds" => ControlId::Cds,
+        "tls_rpt" => ControlId::TlsRpt,
+        "csync" => ControlId::Csync,
         _ => return None,
     })
 }
@@ -360,6 +364,8 @@ mod tests {
             (ControlId::MtaSts, "mta_sts"),
             (ControlId::Caa, "caa"),
             (ControlId::Cds, "cds"),
+            (ControlId::TlsRpt, "tls_rpt"),
+            (ControlId::Csync, "csync"),
         ];
         for (c, expect) in keys {
             assert_eq!(
@@ -368,5 +374,25 @@ mod tests {
                 "control_key must be a stable lowercase DB key, not the display name"
             );
         }
+    }
+
+    /// The ALL-driven round-trip guard (foundation-audit item 6, 2026-08-31):
+    /// `control_from_key` had 8 arms against `control_key`'s 10 — receipts
+    /// for the new controls were WRITE-ONLY (the store records them, then
+    /// hard-errors on read-back). This test iterates `ControlId::ALL`, so
+    /// the pair can never silently split again: adding a ControlId variant
+    /// forces this test to cover it or fail.
+    #[test]
+    fn control_key_roundtrip_covers_all_controls() {
+        for c in ControlId::ALL {
+            let k = control_key(c);
+            assert_eq!(
+                control_from_key(k),
+                Some(c),
+                "control_key/control_from_key split: {k} writes but cannot read back"
+            );
+        }
+        assert_eq!(control_from_key("garbage"), None);
+        assert_eq!(control_from_key(""), None);
     }
 }
