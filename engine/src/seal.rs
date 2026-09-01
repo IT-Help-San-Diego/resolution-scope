@@ -532,6 +532,21 @@ mod tests {
     }
 
     #[test]
+    fn seal_changes_when_csync_gate_fires() {
+        // RecordAbsent (a signed zone's standing state) and DnssecRequired
+        // (structurally inapplicable on an unsigned zone) mean different
+        // things and must not seal byte-identically — the same negative
+        // proof as tlsa_zone above (policy/RULING_csync_20260901.md).
+        let mut absent = baseline();
+        absent.csync_disposition = CsyncDisposition::RecordAbsent;
+        absent.csync = TriState::Absent;
+        let mut inapplicable = absent.clone();
+        inapplicable.csync_disposition = CsyncDisposition::DnssecRequired;
+        inapplicable.csync = TriState::NotApplicable;
+        assert_ne!(seal(&absent), seal(&inapplicable));
+    }
+
+    #[test]
     fn seal_survives_serde_roundtrip() {
         // "Structure-as-label": serialize the verdict to JSON, hand it to a
         // third party, deserialize, re-seal — the seal is identical, proving
