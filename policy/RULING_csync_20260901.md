@@ -1,6 +1,12 @@
-# RULING (DRAFT) — CSYNC absence weight (2026-09-01): ZERO BAND
+# RULING — CSYNC absence weight (2026-09-01): ZERO BAND
 
-**Status: DRAFT — awaiting Carey's signature. Three lanes concur.**
+**Status: RULED 2026-09-01, ratified by Carey's spoken GO in-session ("we have
+our answer now… data and testing shows us that we have a best practice answer
+and I don't need to make an epistemic decision… and if so then go"); epistemic
+basis: Carey's operational-security-truth doctrine, stated in-session
+2026-09-01 ("we tell the operational security truth… mine doesn't have a
+CSYNC key because I'm not doing rollover nor does my AWS support it, so the
+truth should be told if we're sure").** Three lanes concur.
 Science sound-off: CONCUR (`SCIENCE_csync_soundoff_20260901.md`, 01:13–01:17Z).
 SciSpace sound-off: CONCUR (`SCISPACE_csync_soundoff_20260901.md`).
 Science concurrence + self-correction
