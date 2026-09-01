@@ -240,13 +240,14 @@ sweeps are currently the only numbers on record.
 
 ## Signature
 
-Ruled: ____________ (Carey) — date: ____________
+Ruled: Carey, 2026-09-01 — by spoken GO in-session (quoted verbatim in
+the Status block above), ratifying the completed three-lane record.
 
-On signature: strike DRAFT from the title; record the ruling on the
-ledger; update the three open-ruling comment sites in `truth_chain.rs` to
-cite this document (the "pending Carey's ruling" block at line ~963, the
-`identity_weight` doc comment's "ruled zero-weight exception" at ~954, and
-the test comment "Carey's word is the only thing that can turn this into
-1" at ~1475 — line numbers per the 3d4f0de verification); open the
-`DnssecRequired` + test-hardening follow-up PR (merges after #36). No
-other code changes under this ruling.
+Execution record (the former on-signature checklist, discharged):
+DRAFT struck and the ratification basis recorded in the header
+(`7aad26e`); ruling recorded on the ledger (`449680c`, 02:08Z entry);
+the three open-ruling comment sites in `truth_chain.rs` updated to cite
+this document, landed on #36 at `c274e87` (test/fmt/clippy green); the
+`DnssecRequired` + test-hardening follow-up PR opened stacked on #36,
+merging after it — see the ledger for its number. No other code changes
+under this ruling.
