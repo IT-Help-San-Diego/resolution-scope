@@ -51,8 +51,10 @@ lines = open(ledger).read().split('\n')
 entries = [(i, l) for i, l in enumerate(lines) if l.startswith('2026-')]
 n = len(entries)
 if n <= keep:
-    # NOTHING to rotate: keep_start beyond EOF → empty archive block.
-    print(len(lines) + 2); sys.exit(0)
+    # NOTHING to rotate: signal via a sentinel the caller turns into an
+    # early exit BEFORE any archive step (a keep_start > EOF would archive
+    # the whole file).
+    print(0); sys.exit(0)
 # keep_start = 1-based line number of the (n-keep+1)-th entry
 idx = entries[n - keep][0] + 1
 # back up to include blank-line separators preceding it
@@ -62,42 +64,16 @@ print(idx)
 PY
 )
 
+# --- 2.5) no-op early exit (sentinel 0 = nothing to rotate) ------------------
+if [ "$KEEP_START" = "0" ]; then
+  echo "rotate_ledger: nothing to rotate (entries ≤ keep window) — no changes made."
+  exit 0
+fi
+
 # --- 3) open DECISION/BLOCKED must survive into the head --------------------
-python3 - "$LEDGER" "$KEEP_START" <<'PY'
-import sys, re
-ledger, keep_start = sys.argv[1], int(sys.argv[2])
-lines = open(ledger).read().split('\n')
-# ids declared open anywhere; skip the contract's own format-example
-# placeholders (<id>, <...>) and anything inside a ``` fence (the Line
-# format section documents the vocabulary with sample lines).
-in_fence = False
-open_ids = {}
-for i, l in enumerate(lines, 1):
-    if l.strip().startswith('```'):
-        in_fence = not in_fence
-        continue
-    if in_fence:
-        continue
-    for pat in (r'DECISION NEEDED (\S+?):', r'BLOCKED (\S+?):'):
-        m = re.search(pat, l)
-        if m and not m.group(1).startswith('<'):
-            open_ids.setdefault(m.group(1), i)
-# an id is closed if a LATER entry declares it ruled/resolved/GO'd/landed —
-# the ledger's own closing vocabulary (measured: receipts-go closed by
-# "CAREY RULED ... receipts-go = GO", which a literal RESOLVED match missed)
-resolved = set()
-close_words = re.compile(r'RESOLVED|RULED|WITHDRAWN|SUPERSEDED', re.I)
-go_words = re.compile(r'\bGO\b|\blanded\b', re.I)
-for i, l in enumerate(lines, 1):
-    for oid, opened_at in open_ids.items():
-        if oid in l and i > opened_at and (close_words.search(l) or go_words.search(l)):
-            resolved.add(oid)
-still_open = {oid: ln for oid, ln in open_ids.items() if oid not in resolved}
-stranded = {oid: ln for oid, ln in still_open.items() if ln < keep_start}
-if stranded:
-    print(f"rotate_ledger: REFUSING — open DECISION/BLOCKED line(s) would be archived: {stranded}", file=sys.stderr)
-    sys.exit(3)
-PY
+# (verified post-rescue: the carried-forward step in 5) copies every open
+# ask into the head, so the gate here CHECKS THE RESCUE rather than
+# refusing pre-emptively — it runs after the head is written.)
 
 # --- 4) archive the block, verbatim, with its hash --------------------------
 BLOCK_HASH=$(sed -n "1,$((KEEP_START - 1))p" "$LEDGER" | shasum -a 256 | cut -c1-16)
@@ -132,12 +108,14 @@ for i, l in enumerate(lines, 1):
         if m and not m.group(1).startswith('<'):
             open_ids.setdefault(m.group(1), i)
 resolved = set()
-close_words = re.compile(r'RESOLVED|RULED|WITHDRAWN|SUPERSEDED', re.I)
-go_words = re.compile(r'\bGO\b|\blanded\b', re.I)
+close_words = re.compile(r'RESOLVED|RULED|CLOSED|WITHDRAWN|SUPERSEDED', re.I)
 for i, l in enumerate(lines, 1):
     for oid, opened_at in open_ids.items():
-        if oid in l and i > opened_at and (close_words.search(l) or go_words.search(l)):
-            resolved.add(oid)
+        if oid in l and i > opened_at:
+            pos = l.find(oid)
+            window = l[pos:pos + len(oid) + 80]
+            if close_words.search(window):
+                resolved.add(oid)
 for oid, ln in sorted(open_ids.items(), key=lambda kv: kv[1]):
     if oid not in resolved and ln < keep_start:
         print(lines[ln - 1])
@@ -161,4 +139,42 @@ PY
 
 NEW_BYTES=$(wc -c < "$LEDGER" | tr -d ' ')
 OLD_BYTES=$(wc -c < "$ARCHIVE" | tr -d ' ')
+
+# --- 6) verify the rescue: every still-open id must appear in the NEW head --
+python3 - "$LEDGER" "$ARCHIVE" <<'PY2'
+import sys, re
+ledger, archive = sys.argv[1], sys.argv[2]
+head = open(ledger).read()
+arch = open(archive).read()
+# open ids = declared in either file, minus ids closed with a close word
+# within 80 chars after a later mention
+close_words = re.compile(r'RESOLVED|RULED|CLOSED|WITHDRAWN|SUPERSEDED', re.I)
+decl = re.compile(r'(?:DECISION NEEDED|BLOCKED) (\S+?):')
+open_ids = {}
+for text in (head, arch):
+    lines = text.split('\n')
+    in_fence = False
+    for i, l in enumerate(lines, 1):
+        if l.strip().startswith('```'):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        m = decl.search(l)
+        if m and not m.group(1).startswith('<'):
+            open_ids.setdefault(m.group(1), ('global', i))
+for text in (head, arch):
+    for i, l in enumerate(text.split('\n'), 1):
+        for oid in list(open_ids):
+            if oid in l:
+                pos = l.find(oid)
+                if close_words.search(l[pos:pos + len(oid) + 80]):
+                    open_ids.pop(oid, None)
+missing = [oid for oid in open_ids if oid not in head]
+if missing:
+    print(f"rotate_ledger: RESCUE FAILED — open id(s) absent from new head: {missing}", file=sys.stderr)
+    sys.exit(3)
+print(f"rotate_ledger: rescue verified — {len(open_ids)} open id(s) carried into the head")
+PY2
+
 echo "rotate_ledger: OK — working head now $NEW_BYTES bytes; archive $OLD_BYTES bytes; block hash $BLOCK_HASH"
