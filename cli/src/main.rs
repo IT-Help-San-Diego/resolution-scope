@@ -18,7 +18,6 @@
 //! "transient — re-run" rows.
 
 mod input;
-mod render;
 mod tui;
 
 use std::time::Instant;
@@ -31,6 +30,7 @@ use hickory_resolver::net::runtime::TokioRuntimeProvider;
 use hickory_resolver::TokioResolver;
 use resolution_scope_engine::analysis::analyse_domain_with_receipts;
 use resolution_scope_engine::truth_chain::Audience;
+use resolution_scope_render as render;
 
 /// The resolver vantage every verb measures from. Sealed into each verdict
 /// (`resolver_identity`), so it is a measurement condition, not a setting.

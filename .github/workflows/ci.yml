@@ -67,7 +67,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        crate: [engine, cli, store, types, pq-harness, signer]
+        crate: [engine, cli, render, store, types, pq-harness, signer]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5 tag @ 2026-08-29
         with:
@@ -153,7 +153,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        crate: [engine, cli, native, store, types, pq-harness, signer]
+        crate: [engine, cli, render, native, store, types, pq-harness, signer]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5 tag @ 2026-08-29
         with:

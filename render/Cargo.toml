@@ -1,0 +1,40 @@
+# =============================================================================
+# resolution-scope-render — the surface crate (report/summary/text/json/html)
+# =============================================================================
+#
+# Extracted from cli/src/render.rs (foundation: forward-landing first step —
+# the HTTP surface and the dnstool cutover both need the renderer linkable
+# without dragging the binary's main.rs along). The one-binary design is
+# unchanged: `render` remains reachable as a CLI subcommand; this crate is
+# the same code with a library boundary.
+#
+# Boundary rules inherited from the cli's file-header contract:
+#   - NO RFC text, NO verdict logic, NO consequence text, NO scoring (the
+#     citation-boundary gate scans this crate — engine stays the single
+#     producer of all of those).
+#   - Layout, styling, and vocabulary-selection only; every sentence the
+#     renderer prints comes from the engine or from this crate's own
+#     layout-layer constants (tier labels, seal-note wording — already
+#     engine-derived).
+# =============================================================================
+
+[package]
+name        = "resolution-scope-render"
+version     = "26.0.0-alpha.1"
+edition     = "2021"
+description = "Resolution Scope render — report/summary/text/json/html surfaces over the shared model"
+license     = "AGPL-3.0"
+repository  = "https://github.com/IT-Help-San-Diego/resolution-scope"
+
+[lib]
+name = "resolution_scope_render"
+path = "src/lib.rs"
+
+[dependencies]
+# The shared model + seal producers + the store's StoredScan (history rows).
+resolution-scope-engine = { path = "../engine" }
+resolution-scope-store  = { path = "../store" }
+
+# render_json builds serde_json::Value trees (same dependency shape the cli
+# had; no new transitive surface).
+serde_json = "1"

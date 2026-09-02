@@ -9,6 +9,7 @@ repository  = "https://github.com/IT-Help-San-Diego/resolution-scope"
 [dependencies]
 resolution-scope-engine = { path = "../engine" }
 resolution-scope-store = { path = "../store" }
+resolution-scope-render = { path = "../render" }
 
 tokio = { version = "1", features = ["full"] }
 clap = { version = "4", features = ["derive", "env"] }

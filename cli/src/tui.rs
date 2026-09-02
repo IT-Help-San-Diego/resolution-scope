@@ -39,10 +39,6 @@ use ratatui::{Frame, Terminal};
 use tokio::task::JoinHandle;
 
 use crate::input::canonical_domain;
-use crate::render::{
-    tier_subtitle, tiers, weighted_label, Observation, COVERAGE_NOTE, EXCLUDED_NOTE,
-    RISK_WEIGHTED_NOTE, SEAL_NOTE,
-};
 use resolution_scope_engine::analysis::analyse_domain_with_receipts;
 use resolution_scope_engine::denial_proof::RecordEntry;
 use resolution_scope_engine::seal::canonical_input;
@@ -51,6 +47,10 @@ use resolution_scope_engine::truth_chain::{
 };
 use resolution_scope_engine::ScoredAnalysis;
 use resolution_scope_engine::TriState;
+use resolution_scope_render::{
+    tier_subtitle, tiers, weighted_label, Observation, COVERAGE_NOTE, EXCLUDED_NOTE,
+    RISK_WEIGHTED_NOTE, SEAL_NOTE,
+};
 
 use hickory_resolver::TokioResolver;
 
