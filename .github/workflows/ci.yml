@@ -36,6 +36,23 @@ jobs:
       - name: RFC literals stay in the engine
         run: bash scripts/check-citation-boundary.sh
 
+  seal-scheme-consistency:
+    # Foundation queue #3: the v5 bump nearly shipped without a KAT (2e-F1);
+    # review caught it, this gate makes the catch mechanical. Every scheme
+    # the engine names must carry a byte-frozen known-answer literal, the
+    # current scheme MUST have its KAT minted at introduction, and retained
+    # schemes must stay dispatched (re-derivable). Watched failing before
+    # shipping: rename the v5 KAT -> exit 1, named reason.
+    name: Seal scheme consistency (KAT per scheme, builders dispatched)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5 tag @ 2026-08-29
+        with:
+          persist-credentials: false
+      - name: Every seal scheme is KAT'd, literal-pinned, and re-derivable
+        run: bash scripts/check-seal-scheme-consistency.sh
+
   # One matrix for every host crate — a new renderer is a ONE-TOKEN addition
   # here, not a copied job (the hand-maintained-mirror lesson: flipper shipped
   # with no CI job because the per-crate jobs were copies). native is separate
