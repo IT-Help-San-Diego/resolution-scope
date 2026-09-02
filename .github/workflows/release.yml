@@ -77,7 +77,14 @@ jobs:
           else
             cargo build --release --locked
           fi
-      - name: Smoke — the binary must say what it is
+      - name: Smoke — the binary must say EXACTLY what it is
+        # Hardened per the parity-floor finding (ledger 2026-09-02T07:55Z):
+        # the old assertion grepped for the literal "resolution-scope" and
+        # passed while the published alpha.2 binaries misreported
+        # 26.0.0-alpha.1 — a guard that could not fire for the defect it
+        # existed to prevent, on a provenance instrument. The version must
+        # now CONTAIN THE TAG: clap derives --version from CARGO_PKG_VERSION,
+        # so a manifest/tag mismatch fails the release build itself.
         run: |
           set -euo pipefail
           HOST=$(rustc -vV | grep 'host:' | awk '{print $2}')
@@ -89,8 +96,8 @@ jobs:
           OUT=$("$BIN" --version)
           echo "$OUT"
           case "$OUT" in
-            *resolution-scope*) ;;
-            *) echo "::error::--version output unrecognized"; exit 1 ;;
+            *resolution-scope*${GITHUB_REF_NAME}*) ;;
+            *) echo "::error::--version output '$OUT' does not name ${GITHUB_REF_NAME} — manifest/tag drift; refuse to ship"; exit 1 ;;
           esac
       - name: Package with sha256 receipt
         run: |

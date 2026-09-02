@@ -1,6 +1,6 @@
 [package]
 name        = "resolution-scope-cli"
-version     = "26.0.0-alpha.1"
+version     = "26.0.0-alpha.3"
 edition     = "2021"
 description = "Resolution Scope CLI — scan once, render in any surface (text/html/json) or run the interactive dashboard"
 license     = "AGPL-3.0"

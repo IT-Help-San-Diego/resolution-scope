@@ -2053,4 +2053,71 @@ mod tests {
         assert_eq!(SCORING_VERSION, 1);
         assert_eq!(SEAL_SCHEME, "resolution-scope-sha3-512-v5");
     }
+
+    // ── mutation-survivor pins (first truth_chain.rs mutation run,
+    // 2026-09-02: 5 missed — all TEXT PRODUCERS whose output only other
+    // crates' tests consumed). Engine-side pins so no cross-crate
+    // coverage hole can open again. The rfc_requirement pin is the
+    // important one: nothing anywhere asserted Layer-1 truth-chain text.
+    #[test]
+    fn controlid_names_are_pinned() {
+        // The display names are part of every surface's vocabulary; a
+        // silent rename breaks the shared language across CLI/TUI/HTML.
+        let names = [
+            (ControlId::Dnssec, "DNSSEC"),
+            (ControlId::Spf, "SPF"),
+            (ControlId::Dkim, "DKIM"),
+            (ControlId::Dmarc, "DMARC"),
+            (ControlId::Dane, "DANE"),
+            (ControlId::MtaSts, "MTA-STS"),
+            (ControlId::Caa, "CAA"),
+            (ControlId::Cds, "CDS/CDNSKEY"),
+            (ControlId::TlsRpt, "TLS-RPT"),
+            (ControlId::Csync, "CSYNC"),
+        ];
+        for (c, want) in names {
+            assert_eq!(c.name(), want, "ControlId display name drifted");
+        }
+    }
+
+    #[test]
+    fn severity_labels_are_pinned() {
+        // Label vocabulary feeds every renderer's tier machinery.
+        assert_eq!(Severity::Critical.label(), "CRITICAL");
+        assert_eq!(Severity::High.label(), "HIGH");
+        assert_eq!(Severity::Medium.label(), "MEDIUM");
+        assert_eq!(Severity::Low.label(), "LOW");
+        assert_eq!(Severity::Ok.label(), "OK");
+        assert_eq!(Severity::Unmeasured.label(), "UNMEASURED");
+        assert_eq!(Severity::NotApplicable.label(), "N/A");
+    }
+
+    #[test]
+    fn rfc_requirement_text_is_pinned_per_control() {
+        // THE Layer-1 surface: the truth-chain's requirement sentence per
+        // control. Mutation run proved NOTHING asserted this text — a
+        // rewritten requirement sentence would ship green. Pin the
+        // opening of each control's requirement (the RFC citation form
+        // and the optionality ruling), not the whole prose (copy edits
+        // stay possible without breaking the pin; content drift is not).
+        for c in ControlId::ALL {
+            let req = rfc_requirement(c);
+            let expect_prefix: &str = match c {
+                ControlId::Dnssec => "Optional (BCP: RFC 9364).",
+                ControlId::Spf => "Optional (RFC 7208).",
+                ControlId::Dkim => "Optional (RFC 6376).",
+                ControlId::Dmarc => "Optional (RFC 9989, which obsoletes RFC 7489).",
+                ControlId::Dane => "Optional (RFC 7672).",
+                ControlId::MtaSts => "Optional (RFC 8461).",
+                ControlId::Caa => "Optional (RFC 8659).",
+                ControlId::Cds => "Optional (RFC 7344, Proposed Standard — elevated from Informational by RFC 8078 §6.1;",
+                ControlId::TlsRpt => "Optional (RFC 8460).",
+                ControlId::Csync => "Optional (RFC 7477).",
+            };
+            assert!(
+                req.starts_with(expect_prefix),
+                "{c:?}: rfc_requirement drifted from pinned opening: {req:?}"
+            );
+        }
+    }
 }
