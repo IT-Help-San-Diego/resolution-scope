@@ -4,8 +4,8 @@
 > publishes, verified against the protocol and sealed so anyone can re-check it.
 > "Resolution" is literal: DNS resolution.
 
-Resolution Scope measures eight DNS controls (DNSSEC, SPF, DKIM, DMARC, DANE,
-MTA-STS, CAA, CDS/CDNSKEY) through one truth-chain: every verdict keeps the RFC
+Resolution Scope measures ten DNS controls (DNSSEC, SPF, DKIM, DMARC, DANE,
+MTA-STS, TLS-RPT, CAA, CDS/CDNSKEY, CSYNC) through one truth-chain: every verdict keeps the RFC
 requirement, the measured state, and the real-world consequence. Verdicts carry
 four states — present / absent / indeterminate / not-applicable — and unmeasured
 is reported as unmeasured, never guessed. Each report carries a SHA3-512 seal:
@@ -17,6 +17,9 @@ differential-tested against the production Go parent, scoring semantics
 machine-checked in Lean, and a roadmap onto the seL4 verified microkernel via
 LionsOS. The analyzer core is AGPL-3.0; the measurement is free and cannot be
 shelved; the queried domain's data is public DNS, never a person's.
+
+Downloadable binaries with sha256 receipts (macOS arm64/x86_64, Linux
+amd64/arm64): https://github.com/IT-Help-San-Diego/resolution-scope/releases/tag/v26.0.0-alpha.3
 
 ## Links
 

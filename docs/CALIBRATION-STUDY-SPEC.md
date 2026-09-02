@@ -38,7 +38,9 @@ un-validated file. That inversion is the finding, and it sets the next task.
 ## Three arms, in dependency order
 
 ### Arm 1 — N-version differential: Go analyzer vs Rust engine
-The project has **two independent implementations of the same eight controls** —
+The project has **two independent implementations of the controls** (ten as of the
+2026-09-02 v5 seal book: DNSSEC, SPF, DKIM, DMARC, DANE, MTA-STS, TLS-RPT, CAA,
+CDS/CDNSKEY, CSYNC; the Go parent implements the founding subset) —
 `dns-tool-intel`'s Go analyzer and `resolution-scope`'s Rust engine — written by
 different lanes at different times against the same RFCs. That is a genuine
 differential pair, available with no third-party API, no rate limit, and no

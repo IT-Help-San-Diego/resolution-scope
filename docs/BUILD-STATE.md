@@ -28,6 +28,11 @@ between a std+tokio crate and a no_std crate is a real hazard).
 All eight controls now score correctly against live protocol, and the full-arm
 differential (`scripts/full_arm_differential.py`) is at **39 parity / 1
 scope-diff / 0 real-diff** (from 32/8/0 at the start of the session). The one
+
+> **Ten-control update (2026-09-02):** TLS-RPT and CSYNC joined the measured set
+> at v26.0.0-alpha.2/3 — ten controls, seal scheme v5, all sealed together in
+> the first distributable release (see the release tag and
+> `policy/RULING_csync_20260901.md`).
 remaining scope-diff is a deliberate, correct distinction, not a port gap.
 
 - **DNSSEC** — preserves the full disposition (`DnssecDisposition`, 7 variants)

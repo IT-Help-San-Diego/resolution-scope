@@ -12,7 +12,7 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Resolution Scope">
 <meta property="og:title" content="Resolution Scope — a DNS resolution instrument">
-<meta property="og:description" content="Eight controls, one truth-chain, SHA3-512-sealed verdicts. What a domain actually publishes, verified against the protocol and sealed so anyone can re-check it.">
+<meta property="og:description" content="Ten controls, one truth-chain, SHA3-512-sealed verdicts. What a domain actually publishes, verified against the protocol and sealed so anyone can re-check it.">
 <meta property="og:url" content="https://resolutionscope.com/">
 <meta property="og:image" content="https://resolutionscope.com/assets/og-card.png">
 <meta property="og:image:width" content="1200">
@@ -30,7 +30,7 @@
   "applicationCategory": "SecurityApplication",
   "operatingSystem": "Linux, macOS",
   "url": "https://resolutionscope.com/",
-  "description": "A sovereign instrument for measuring DNS resolution: eight controls, one truth-chain, SHA3-512-sealed verdicts that anyone can re-derive.",
+  "description": "A sovereign instrument for measuring DNS resolution: ten controls, one truth-chain, SHA3-512-sealed verdicts that anyone can re-derive.",
   "license": "https://www.gnu.org/licenses/agpl-3.0.html",
   "publisher": {
     "@type": "Organization",
@@ -59,13 +59,13 @@
   <div class="wrap">
     <h2>A real measurement, not a brochure</h2>
     <p>This is the engine's verbatim output for the domain you are reading right now — captured
-    2026-08-29 (UTC), seal included. The instrument does not flatter its operator: the failures below
+    2026-09-02 (UTC), seal included — with the instrument’s first public release (v26.0.0-alpha.3), all ten controls sealed under scheme v5. The instrument does not flatter its operator: the failures below
     are real, and the domain publishes them anyway.</p>
     <div class="report-frame">
 <pre class="report">══ resolutionscope.com ══
-engine 26.0.0-alpha.1-1d1900e · resolver cloudflare · 2026-08-29 19:01:34 UTC (epoch 1788030094) · session a3f49f8280c18aed
-seal   <span class="seal">574dba06794d72e902dd6ec8ae813807c718722c1decefe35a75cfbb496ae4e5db4153d9998eb3176a4265c87146d14a9fd4c7fa4e430747d8dec613bf71efb1</span>
-scheme resolution-scope-sha3-512-v4
+engine 26.0.0-alpha.3 · resolver cloudflare · 2026-09-02 15:55:09 UTC (epoch 1788364509) · session f2b3fc09c38592a0
+seal   <span class="seal">64256c68c5dc9e302d60b1c4dd292c0747243cab48113c7a546b5c98e750b7f447cded09b7b0cd519b41b6c6302d966b323aa7b3d1fb51d771fae2e56bb91fbd</span>
+scheme resolution-scope-sha3-512-v5
 
 FINDINGS
   HIGH       MTA-STS      <span class="fail">ABSENT</span>  record absent — zone exists, no MTA-STS
@@ -73,56 +73,49 @@ FINDINGS
       → No transport policy: senders may fall back to plaintext delivery, so mail to this domain is exposed to STARTTLS stripping. Publish an MTA-STS policy (or deploy DANE).
 
 ADVISORY
-  LOW        CDS/CDNSKEY  <span class="na">ABSENT</span>  not published — zone exists, no CDS/CDNSKEY
+  LOW        CDS/CDNSKEY  <span class="fail">ABSENT</span>  not published — zone exists, no CDS/CDNSKEY
       rfc  Optional (RFC 7344, Proposed Standard — elevated from Informational by RFC 8078 §6.1; further updated by RFC 9615/9975). CDS/CDNSKEY at the apex signal automated DS maintenance to the parent zone; the parent MAY act on it but is not normatively required to (§6 SHOULD, not MUST).
       → DS updates at the parent are manual. If your keys change and the parent DS is not updated in step, the domain stops resolving (SERVFAIL) for every validating resolver until it is fixed. Publishing CDS/CDNSKEY lets a supporting parent maintain the DS automatically. This is an availability control: it protects you from your own key changes, not from an attacker. Remediation: publish CDS and CDNSKEY records matching your DS at your DNS operator; if your operator provides no way to create them, the remediation is procedural — write the registrar DS step into your key-change runbook.
+  LOW        TLS-RPT      <span class="fail">ABSENT</span>  record absent — zone exists, no TLS-RPT
+      rfc  Optional (RFC 8460). TXT at _smtp._tls.&lt;domain&gt;: v=TLSRPTv1 plus rua= — where senders deliver aggregate TLS-success/failure reports. Pairs with MTA-STS: the reporting channel that tells the operator their policy is (or is not) working.
+      → No reporting channel: MTA-STS/DANE failures happen invisibly — the operator learns nothing when senders cannot enforce TLS. Publish v=TLSRPTv1 with a rua.
 
 HOLDING
-  OK         DNSSEC       <span class="pass">PRESENT</span> signed + delegated — chain validates from the root
+  OK         DNSSEC       <span class="ok">PRESENT</span> signed + delegated — chain validates from the root
       rfc  Optional (BCP: RFC 9364). If deployed: DNSKEY at the apex, DS at the parent, and the chain must validate from the root.
       → DNSSEC is fully operational: responses for this zone are cryptographically verifiable end-to-end.
-  OK         SPF          <span class="pass">PRESENT</span> hardfail (-all) — strongest publisher assertion
+  OK         SPF          <span class="ok">PRESENT</span> hardfail (-all) — strongest publisher assertion
       rfc  Optional (RFC 7208). If present: exactly one TXT record starting `v=spf1`, terminating in `-all` (enforce) or `~all` (softfail).
       → SPF authorizes specific senders and asserts the rest are unauthorized — the strongest statement the record can make. RFC 9989 §7.1 names a trade: because SPF runs early in the SMTP transaction, -all can cause rejection before DMARC is consulted, so mail that would have passed via an aligned DKIM signature may be refused — and those rejections never reach the DATA phase, so they never appear in your aggregate reports.
-  OK         DMARC        <span class="pass">PRESENT</span> reject (p=reject) — enforced
+  OK         DMARC        <span class="ok">PRESENT</span> reject (p=reject) — enforced
       rfc  Optional (RFC 9989, which obsoletes RFC 7489). TXT at _dmarc.&lt;domain&gt; with p=none, p=quarantine, or p=reject; only quarantine and reject enforce.
       → DMARC tells receivers to refuse mail that fails SPF/DKIM alignment.
-  OK         CAA          <span class="pass">PRESENT</span> wildcard-fully-restricted — issuewild ";"
+  OK         CAA          <span class="ok">PRESENT</span> wildcard-fully-restricted — issuewild ";"
       rfc  Optional (RFC 8659). CAA records name the CAs allowed to issue certificates for the domain; CAs are required to honor them.
       → The domain affirmatively prohibits wildcard-certificate issuance (RFC 8659 §4.3): no CA may issue for *.example. This is stricter than a named-CA restriction.
+  OK         CSYNC        <span class="fail">ABSENT</span>  record absent — standing state outside a delegation change
+      rfc  Optional (RFC 7477). CSYNC RR at the apex signals the parent's agent to copy delegation records (NS/A/AAAA) from the child — automated child-to-parent sync for delegation changes. NOT for DS sync (that is CDS). Absence is the standing state outside a delegation change, not a deficiency.
+      → No CSYNC: delegation updates go through the registrar manually. Normal for most zones — absence is expected outside a delegation change (the CDS precedent).
 
 COULD NOT MEASURE
-  UNMEASURED DKIM         <span class="indet">INDET</span>   wildcard *._domainkey — the selector sweep proves nothing
+  UNMEASURED DKIM         INDET   wildcard *._domainkey — the selector sweep proves nothing
       rfc  Optional (RFC 6376). Public key published at &lt;selector&gt;._domainkey.&lt;domain&gt;; the selector is advertised only in outbound mail (DKIM-Signature `s=` tag), not in the zone.
       → A nonexistent selector name resolved, so this domain publishes a wildcard and the 81-selector sweep is not probative — every probe "resolves" against it. Provide your actual selector (the s= tag in any outbound DKIM-Signature header) to measure DKIM definitively.
 
 NOT APPLICABLE
-  N/A        DANE         <span class="na">N/A</span>     no mail declared (null MX, RFC 7505)
+  <span class="fail">N/A</span>        DANE         <span class="fail">N/A</span>     no mail declared (null MX, RFC 7505)
       rfc  Optional (RFC 7672). TLSA at _25._tcp.&lt;mx-host&gt; for each MX; requires a DNSSEC-signed zone (§1.3.2) to mean anything.
       → The domain explicitly declares it accepts no mail; there is no mail server to pin.
 
-Coverage Score : 4/6 (66%)  — deployed controls over measured controls
-Risk-Weighted  : 71%  (scoring v1)  — the same verdicts weighted by each control's identity — beside Coverage, never instead of it, never sealed
-? (indeterminate): 1 · N/A (not applicable): 1  — excluded from both scores
-
-<span class="rederive">── Re-derive the seal — scheme resolution-scope-sha3-512-v4 ──
-resolution-scope-sha3-512-v4
-resolutionscope.com
-26.0.0-alpha.1-1d1900e
-cloudflare
-dnssec=SignedAndDelegated=Present
-spf=HardFail=Present
-dkim=Wildcard=Indet
-dmarc=Reject=Present
-dane=NoMail=NotApplicable
-tlsa_zone=NoMxHost
-mta_sts=RecordAbsent=Absent
-caa=WildcardFullyRestricted=Present
-cds=NotPublished=Absent
-──────────────────────────────────────────────────────────</span>
-tamper-evidence only: hash these exact bytes under the named scheme (every line, the last included, ends in a newline) and you re-derive the seal — it proves the verdict you hold is the one that was sealed, nothing more</pre>
+Coverage Score : 4/8 (50%)  — deployed controls over measured controls
+Risk-Weighted  : 66%  (scoring v1)  — the same verdicts weighted by each control's identity — beside Coverage, never instead of it, never sealed
+? (indeterminate): 1 · <span class="fail">N/A</span> (not applicable): 1  — excluded from both scores</pre>
     </div>
-    <p class="specimen-note">This domain declares no mail (null MX, RFC 7505) — so DANE is honestly
+    <p class="specimen-note">Captured with the v26.0.0-alpha.3 release binary — the ten-control book,
+    seal scheme v5: TLS-RPT and CSYNC joined the measured set, and the two new rows below are
+    live proof (this domain lacks TLS-RPT — a real finding, published anyway; CSYNC absent is
+    the standing state, honestly reported as such per the 2026-09-01 ruling).
+    This domain declares no mail (null MX, RFC 7505) — so DANE is honestly
     not-applicable rather than silently passed, and DKIM is honestly indeterminate: a wildcard
     <code>*._domainkey</code> record with a null key means no selector can be enumerated, so the
     instrument reports "could not measure" instead of guessing a key verdict. Unmeasured is reported
@@ -137,7 +130,7 @@ tamper-evidence only: hash these exact bytes under the named scheme (every line,
 
 <section id="controls">
   <div class="wrap">
-    <h2>Eight controls, three layers each</h2>
+    <h2>Ten controls, three layers each</h2>
     <p>A scanner that collapses a control to one boolean — "SPF: PASS" — throws away what the standard
     demands and what breaks without it. Every verdict here keeps all three layers: the RFC requirement,
     the measured state, and the real-world consequence.</p>
@@ -235,7 +228,7 @@ tamper-evidence only: hash these exact bytes under the named scheme (every line,
     <p>DNS Tool proved the measurements and the honesty rules in production. Resolution Scope rebuilds
     them on a substrate where the honesty is enforced by construction, not by policy:</p>
     <ul class="substrate">
-      <li><span class="layer">engine</span><span class="state">Rust, eight control arms, differential-tested against the production Go parent<span class="status">live</span></span></li>
+      <li><span class="layer">engine</span><span class="state">Rust, ten control arms, differential-tested against the production Go parent<span class="status">live</span></span></li>
       <li><span class="layer">truth-chain</span><span class="state">one disposition→presentation contract for every renderer — terminal, web, report<span class="status">live</span></span></li>
       <li><span class="layer">store</span><span class="state">sealed measurement history — sealed on write, verifiable on read across scheme versions<span class="status">live</span></span></li>
       <li><span class="layer">proofs</span><span class="state">scoring semantics machine-checked in Lean<span class="status">live</span></span></li>
@@ -258,6 +251,11 @@ tamper-evidence only: hash these exact bytes under the named scheme (every line,
     verified substrate, under the instrument's own name.</p>
     <p class="doctrine">The measurement is free and cannot be shelved; the queried domain's data is
     public DNS, never a person's.</p>
+    <p><strong>Download it.</strong> The first distributable release is live:
+    <a href="https://github.com/IT-Help-San-Diego/resolution-scope/releases/tag/v26.0.0-alpha.3">v26.0.0-alpha.3</a>
+    — four targets (macOS Apple-silicon and Intel, Linux amd64 and arm64), each binary beside its
+    sha256 receipt, built by the repo's own release workflow with the version the binary prints
+    pinned to the tag it ships under. Clone-and-build still works; download-and-run now exists.</p>
     <p>The analyzer core is <a href="https://www.gnu.org/licenses/agpl-3.0.html">AGPL-3.0</a>: anyone may
     download, run, study, and modify it — and operating a hosted derivative requires publishing its
     changes. Ecosystem-facing components land under Apache-2.0 so the projects they join can absorb
