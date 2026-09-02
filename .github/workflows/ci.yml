@@ -67,7 +67,16 @@ jobs:
           workspaces: ${{ matrix.crate }}
       - run: cargo fmt --check
         working-directory: ${{ matrix.crate }}
-      - run: cargo test
+      # --locked on a build leg: lockfile drift is structurally invisible
+      # without it (plain cargo test resolves a fresh lock in memory and
+      # passes green), and the ONLY --locked consumer was release.yml —
+      # which runs solely on v* tags. That gap let the sha3 0.10.9→0.12.0
+      # manifest bumps ship with stale cli/store lockfiles that CI blessed
+      # and the tag build then refused (exit 101, all four legs, ledger
+      # 2026-09-02T06:20Z). Drift must fail on the PR that introduces it.
+      - run: cargo build --locked --quiet
+        working-directory: ${{ matrix.crate }}
+      - run: cargo test --locked
         working-directory: ${{ matrix.crate }}
       # The strict form is the real gate: plain `cargo clippy` passed while
       # --all-targets was red (items_after_test_module, caught 2026-08-19).
