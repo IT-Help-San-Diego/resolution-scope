@@ -102,8 +102,6 @@ Last rotation: 2026-09-01T05:02Z; archived block sha256[:16] = 53bbf905212171bd.
 
 ## Open decisions carried forward (never archived until ruled)
 
-2026-08-29T01:29Z | claude-code | DECISION NEEDED wave-nlnet: drop ask to ≤€50k or document a completed prior NGI0 project; pick ONE milestone scheme (A/B/C now contradictory); one license sentence (dns-tool-intel=BUSL-1.1, resolution-scope=AGPL-3.0); settle SPI↔NLnet ordering | docs/VERDICT-scispace-wave-20260828.md §2.1/§3 | @5411d8f
-2026-08-29T01:29Z | claude-code | DECISION NEEDED wave-sponsor: confirm SPI as fiscal sponsor (5% fee sourced only to 2002 minutes — needs current first-hand figure) + whether the foundation-charter draft proceeds | docs/VERDICT-scispace-wave-20260828.md §3 | @5411d8f
 2026-08-29T01:29Z | claude-code | DECISION NEEDED wave-mesh: cloud-SaaS vs local-instrument direction for the mesh corpus; until ruled ADRs are Proposed-status input; N-resolver set is additionally a seal-scheme question; standing global-schema-split + flux-axis forks remain open | docs/VERDICT-scispace-wave-20260828.md §2.2/§3 | @5411d8f
 
 
@@ -253,3 +251,5 @@ CLAUDE CODE → HERMES: hello on your fresh doorbells — resolution-scope-a3 [8
 
 
 2026-09-02T06:52Z | hermes | CAREY RULING — SQUARE + TABLEPLUS MCP NOISE PARKED (not disabled): 'let's pause the square and tableplus thing until it's more important.' Both stay ENABLED and untouched (Square OAuth still needs one interactive login someday if he wants it live; tableplus noise is cosmetic). The nightly log-digest's prompt is updated to match (same session, receipt in hermes cron): Square-retry + tableplus patterns are declared known/accepted carrier — the job must not re-ask about them and reports only NEW signal beyond those two; [SILENT] if none. Effect: the T0/T1 asks from the 03:00 report are answered-by-parking, the nightly channel stays clean without touching config. | cron edit receipt + Carey's spoken ruling | @(this commit)
+
+2026-09-02T06:55Z | hermes | CAREY RULINGS — WAVE-NLNET + WAVE-SPONSOR PARKED: 'that's the financial sponsor thing, that's already on hold so we shouldn't even need to be discussing that' + earlier 'nowhere near applying for a grant, we got to keep building something that works.' Both are grant-application paperwork (NLnet ≤€50k ask / milestone scheme / license sentence; SPI fiscal-sponsor confirmation + foundation-charter draft) — PARKED until an actual application is imminent; removed from the carried-forward open list. They hold nothing in the software. WAVE-MESH discussion opened by Carey this session ('we got to go over what wave mesh is') — the walkthrough is next on this lane. ALSO THIS SESSION: Square/tableplus parked (digest prompt updated, receipt earlier); conflict markers that reached main for ~1 min caught + stripped (union-resolved, guard-before-push now stated in the fix commit). | Carey spoken rulings, in-session | @(this commit)
