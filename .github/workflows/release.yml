@@ -39,7 +39,14 @@ jobs:
         include:
           - runner: macos-14
             target: aarch64-apple-darwin
-          - runner: macos-13
+          # macos-13 (Intel) was RETIRED by GitHub 2026-09 — a job targeting a
+          # removed runner label queues forever instead of failing, which sat
+          # the v26.0.0-alpha.2 release in a 25h silent queue (ledger
+          # 2026-09-02T05:55Z). Fix: build the Intel target on the arm64
+          # runner — macOS arm64 runs x86_64 binaries natively via Rosetta 2,
+          # so the smoke test stays honest (it EXECUTES the cross-built
+          # binary, not just packages it).
+          - runner: macos-14
             target: x86_64-apple-darwin
           - runner: ubuntu-latest
             target: x86_64-unknown-linux-gnu
@@ -52,13 +59,34 @@ jobs:
           # build.rs stamps git-describe; a shallow clone would stamp a
           # bare hash instead of the tag (the SciSpace-flagged edge).
           fetch-depth: 0
+      - name: Install cross-compile target when runner ≠ target
+        run: rustup target add --toolchain stable ${{ matrix.target }}
       - name: Build release binary (locked)
         working-directory: cli
-        run: cargo build --release --locked
+        # Cross-compile when the matrix target differs from the runner's host
+        # triple: cargo needs --target to select the cross toolchain, and the
+        # binary then lands under target/<triple>/release/ instead of
+        # target/release/. Same-runner builds stay native (no flag, no path
+        # shift) — the two macOS targets both run on macos-14 arm64, where
+        # Rosetta 2 executes the x86_64 binary for the smoke test.
+        run: |
+          set -euo pipefail
+          HOST=$(rustc -vV | grep 'host:' | awk '{print $2}')
+          if [ "$HOST" != "${{ matrix.target }}" ]; then
+            cargo build --release --locked --target ${{ matrix.target }}
+          else
+            cargo build --release --locked
+          fi
       - name: Smoke — the binary must say what it is
         run: |
           set -euo pipefail
-          OUT=$(cli/target/release/resolution-scope --version)
+          HOST=$(rustc -vV | grep 'host:' | awk '{print $2}')
+          if [ "$HOST" != "${{ matrix.target }}" ]; then
+            BIN="cli/target/${{ matrix.target }}/release/resolution-scope"
+          else
+            BIN="cli/target/release/resolution-scope"
+          fi
+          OUT=$("$BIN" --version)
           echo "$OUT"
           case "$OUT" in
             *resolution-scope*) ;;
@@ -67,8 +95,14 @@ jobs:
       - name: Package with sha256 receipt
         run: |
           set -euo pipefail
+          HOST=$(rustc -vV | grep 'host:' | awk '{print $2}')
+          if [ "$HOST" != "${{ matrix.target }}" ]; then
+            BIN="cli/target/${{ matrix.target }}/release/resolution-scope"
+          else
+            BIN="cli/target/release/resolution-scope"
+          fi
           NAME="resolution-scope-${GITHUB_REF_NAME}-${{ matrix.target }}"
-          cp cli/target/release/resolution-scope "$NAME"
+          cp "$BIN" "$NAME"
           if command -v sha256sum >/dev/null; then
             sha256sum "$NAME" > "$NAME.sha256"
           else
