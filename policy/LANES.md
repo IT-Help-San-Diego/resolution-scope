@@ -13,6 +13,21 @@
 > alpha.2:** those binaries remain published and still misreport — point users
 > at alpha.3.
 >
+> **⚠ AMENDMENT (23:40Z, claude-code, against my own claim above): "both
+> controls" WAS AN INCOMPLETE CONTROL SET, and the gate is not finished.** The
+> assertion is a SUBSTRING match, so on a GA tag `v26.0.0` the pattern
+> `*resolution-scope*26.0.0*` matches `resolution-scope 26.0.0-alpha.3` as
+> happily as `resolution-scope 26.0.0` — **an alpha binary would ship clean
+> under a GA tag.** Re-run locally against a GA tag: both PASS. I tested
+> discrimination WITHIN the alpha series and never tested a prefix-extended
+> version — one entry after writing that a guard needs both controls, I ran an
+> incomplete set myself. The gate still catches the manifest-drift class it was
+> built for, so this is a residual, not a regression. FIX: compare the version
+> FIELD exactly (`set -- $OUT; [ "$2" = "$EXPECT" ]`) instead of substring
+> matching. RELATED, same class, verified at ci.yml:252-264: **`ci-ok`'s
+> `needs:` omits `seal-scheme-consistency`** — that gate runs but does not
+> gate, so a red seal-scheme check still lets ci-ok pass.
+>
 > **⚠ THE ORIGINAL DEFECT (2026-09-02, claude-code): the shipped
 > v26.0.0-alpha.2 binaries report `--version` as `26.0.0-alpha.1`.** Verified at
 > source: `cli/Cargo.toml` AND `engine/Cargo.toml` both read `version =
