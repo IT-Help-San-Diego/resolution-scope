@@ -865,6 +865,10 @@ pub struct Vantage {
     resolver: ScopeResolver,
     ledger: EgressLedger,
     fetch_overrides: Vec<(String, SocketAddr)>,
+    /// TEST SEAM (`with_policy_port`): the port the MTA-STS policy URL
+    /// names. `None` in every production construction — the URL then
+    /// carries no port and reqwest connects to 443.
+    policy_port: Option<u16>,
 }
 
 impl Deref for Vantage {
@@ -920,6 +924,7 @@ impl Vantage {
             resolver,
             ledger,
             fetch_overrides: Vec::new(),
+            policy_port: None,
         })
     }
 
@@ -946,6 +951,32 @@ impl Vantage {
     pub fn with_fetch_override(mut self, host: &str, addr: SocketAddr) -> Self {
         self.fetch_overrides.push((host.to_ascii_lowercase(), addr));
         self
+    }
+
+    /// TEST SEAM, never a production path: the port the MTA-STS policy URL
+    /// names. reqwest's `.resolve()` override ignores the port it is given
+    /// and the vantage's DNS hook answers with port 0 (E6), so the ONLY way a
+    /// connect can be steered off 443 is through the URL — and an
+    /// unprivileged process cannot bind 127.0.0.1:443 on macOS or the CI
+    /// runner. With this seam a loopback listener on an ephemeral port
+    /// observes the ACCEPT that proves the connect went to the address the
+    /// vantage resolved (egress_ledger.rs E7). The production URL never
+    /// carries a port (`policy_url_carries_a_port_only_through_the_seam`).
+    #[doc(hidden)]
+    pub fn with_policy_port(mut self, port: u16) -> Self {
+        self.policy_port = Some(port);
+        self
+    }
+
+    /// The MTA-STS policy URL for `domain`:
+    /// `https://mta-sts.<domain>/.well-known/mta-sts.txt`. The ONLY producer
+    /// of that string; a `:<port>` appears only under the `with_policy_port`
+    /// test seam.
+    pub fn policy_url(&self, domain: &str) -> String {
+        match self.policy_port {
+            Some(p) => format!("https://mta-sts.{domain}:{p}/.well-known/mta-sts.txt"),
+            None => format!("https://mta-sts.{domain}/.well-known/mta-sts.txt"),
+        }
     }
 
     /// The HTTPS client for the MTA-STS policy fetch: names resolved THROUGH
@@ -1377,6 +1408,33 @@ mod tests {
                 assert_ne!(other.identity(), omitted.identity());
             }
         }
+    }
+
+    /// The MTA-STS policy-port seam, both controls. NEGATIVE (the
+    /// production path): a vantage built by `build` names no port in the
+    /// policy URL — the string is byte-identical to the one analysis.rs
+    /// fetched before the seam existed. POSITIVE: `with_policy_port` puts
+    /// `:<port>` after the host and nowhere else. Mutant: `policy_url`
+    /// ignores `policy_port` → the positive fails; `build` sets a port →
+    /// the negative fails.
+    #[test]
+    fn policy_url_carries_a_port_only_through_the_seam() {
+        let v = Vantage::build(ResolverChoice::default()).unwrap();
+        assert_eq!(
+            v.policy_url("example.test"),
+            "https://mta-sts.example.test/.well-known/mta-sts.txt"
+        );
+        let v = Vantage::build_unvalidating_for_tests(ResolverChoice::default()).unwrap();
+        assert_eq!(
+            v.policy_url("example.test"),
+            "https://mta-sts.example.test/.well-known/mta-sts.txt",
+            "the unvalidating seam does not touch the URL"
+        );
+        let v = v.with_policy_port(45_678);
+        assert_eq!(
+            v.policy_url("example.test"),
+            "https://mta-sts.example.test:45678/.well-known/mta-sts.txt"
+        );
     }
 
     /// T7 — `system` seals the word, never an address, without consulting the OS.

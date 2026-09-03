@@ -22,9 +22,12 @@
 //!                                           asks the vantage's stub for the
 //!                                           policy host; a second stub sees
 //!                                           nothing; the connect goes to the
-//!                                           loopback address the stub answered
-//!                                           — E5's override answers BEFORE the
-//!                                           hook, so E5 cannot pin this
+//!                                           loopback address the stub answered,
+//!                                           observed as an ACCEPT at an
+//!                                           ephemeral port named through the
+//!                                           `with_policy_port` seam — E5's
+//!                                           override answers BEFORE the hook,
+//!                                           so E5 cannot pin this
 //!   E8  fetch_failures_are_classified_by_layer
 //!                                           an alert after the ClientHello →
 //!                                           TlsError and the name WAS in the
@@ -285,13 +288,15 @@ async fn resolve_hook_returns_port_zero() {
 ///
 /// Positive control: the stub answers `mta-sts.example.test` A with
 /// 127.0.0.1 — an address libc would never return for that name — and the
-/// client's connect goes there. macOS lets an unprivileged process bind
-/// 127.0.0.1:443, so where that bind succeeds the connect is observed as an
-/// ACCEPT on the loopback listener (the strong form); where it does not
-/// (Linux CI, or 443 in use) the connect is observed as a socket-stage
-/// `ConnectError` to a resolved address (never `Unresolved`), which the two
-/// mutants cannot produce either. Both forms are printed so the run says
-/// which it took.
+/// client's connect goes there. The connect is observed as an ACCEPT on a
+/// loopback listener at an ephemeral port, named in the URL through the
+/// `with_policy_port` test seam: reqwest's `.resolve()` override ignores
+/// ports and the DNS hook answers port 0 (E6), so the URL is the only way
+/// to steer the connect off 443 — which an unprivileged process cannot
+/// bind on macOS or the CI runner. Before this seam the accept assertion
+/// sat behind that bind and never executed (a dead guard); now it runs on
+/// every host. The listener counts the accept and closes, so the failure
+/// is at the TLS stage (the ClientHello left), never at DNS or connect.
 #[tokio::test]
 async fn policy_host_is_resolved_through_the_vantage_client() {
     let mut canned = HashMap::new();
@@ -305,34 +310,37 @@ async fn policy_host_is_resolved_through_the_vantage_client() {
     );
     let home = Stub::start_with(canned).await;
     let other = Stub::start().await;
-    let v = Vantage::build_unvalidating_for_tests(home.choice_plain().parse().unwrap()).unwrap();
 
-    // The strong form's listener, when 127.0.0.1:443 is bindable here.
+    // The listener the connect must reach: 127.0.0.1 (the stub's answer)
+    // at an ephemeral port (the seam's).
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let policy_port = listener.local_addr().unwrap().port();
     let accepted = Arc::new(AtomicUsize::new(0));
-    let strong = match tokio::net::TcpListener::bind("127.0.0.1:443").await {
-        Ok(l) => {
-            let a = accepted.clone();
-            tokio::spawn(async move {
-                while let Ok((s, _)) = l.accept().await {
-                    a.fetch_add(1, Ordering::SeqCst);
-                    drop(s);
-                }
-            });
-            true
-        }
-        Err(e) => {
-            eprintln!("E7: 127.0.0.1:443 not bindable here ({e}); taking the connect-error form");
-            false
-        }
-    };
+    {
+        let a = accepted.clone();
+        tokio::spawn(async move {
+            while let Ok((s, _)) = listener.accept().await {
+                a.fetch_add(1, Ordering::SeqCst);
+                drop(s);
+            }
+        });
+    }
 
+    let v = Vantage::build_unvalidating_for_tests(home.choice_plain().parse().unwrap())
+        .unwrap()
+        .with_policy_port(policy_port);
+    let url = v.policy_url("example.test");
+    assert_eq!(
+        url,
+        format!("https://mta-sts.example.test:{policy_port}/.well-known/mta-sts.txt")
+    );
     let err = v
         .http_client()
         .unwrap()
-        .get("https://mta-sts.example.test/.well-known/mta-sts.txt")
+        .get(&url)
         .send()
         .await
-        .expect_err("nothing serves a policy on loopback 443");
+        .expect_err("the listener closes after the accept; nothing serves a policy");
 
     // Who was asked: the vantage's stub, and only it.
     assert!(
@@ -352,29 +360,19 @@ async fn policy_host_is_resolved_through_the_vantage_client() {
             .any(|q| q == "mta-sts.example.test."),
         "the lookup went through the ledger like every other"
     );
-    // Where the connect went: the address the stub answered.
+    // Where the connect went: the address the stub answered, at the port
+    // the URL named — the accept is the socket-layer fact.
     let outcome = FetchOutcome::classify(&err);
-    if strong {
-        assert_eq!(
-            accepted.load(Ordering::SeqCst),
-            1,
-            "the connect reached 127.0.0.1:443 — the address the vantage's stub answered: {outcome:?}"
-        );
-        assert!(
-            matches!(outcome, FetchOutcome::TlsError(_)),
-            "accepted then closed: the TLS stage, not resolution or connect: {outcome:?}"
-        );
-        eprintln!("E7: strong form — accept observed on 127.0.0.1:443");
-    } else {
-        match &outcome {
-            FetchOutcome::ConnectError(chain) => assert!(
-                chain.contains("tcp connect error"),
-                "the failure is at the socket, to a resolved address: {chain}"
-            ),
-            other => panic!("resolved through the vantage, so the failure is past DNS: {other:?}"),
-        }
-        eprintln!("E7: connect-error form — {outcome:?}");
-    }
+    assert_eq!(
+        accepted.load(Ordering::SeqCst),
+        1,
+        "the connect reached 127.0.0.1:{policy_port} — the address the vantage's stub answered: {outcome:?}"
+    );
+    assert!(
+        matches!(outcome, FetchOutcome::TlsError(_)),
+        "accepted then closed: the TLS stage, not resolution or connect: {outcome:?}"
+    );
+    eprintln!("E7: accept observed on 127.0.0.1:{policy_port} — {outcome:?}");
 }
 
 /// E8 — fetch failures are classified from the error's SOURCE CHAIN by the

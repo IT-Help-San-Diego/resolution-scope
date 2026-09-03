@@ -1457,7 +1457,9 @@ async fn score_mta_sts(
     // state of the advertised policy — TransientError is no longer honest from
     // here on (a hint without a servable policy is the T1-1 measured absence,
     // which is what PolicyInvalid's chain() encodes).
-    let policy_url = format!("https://mta-sts.{}/.well-known/mta-sts.txt", domain);
+    // The URL comes from the vantage (`Vantage::policy_url`): no port in
+    // production; `:<port>` only under the E7 test seam.
+    let policy_url = v.policy_url(domain);
     // The HTTP I/O lives inline here (it is async glue, not a decision); the
     // status→ok/err decision is the pure `mta_sts_policy_from_response` below,
     // so the `!status.is_success()` gate and the body passthrough are unit-pinned
