@@ -255,6 +255,7 @@ jobs:
     needs:
       [
         citation-boundary,
+        seal-scheme-consistency,
         crates,
         native-lib,
         licenses,

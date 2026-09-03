@@ -96,14 +96,17 @@ jobs:
           OUT=$("$BIN" --version)
           echo "$OUT"
           # GITHUB_REF_NAME carries the leading 'v' (v26.0.0-alpha.3); the
-          # crate version clap prints does not (26.0.0-alpha.3). Compare
-          # against the v-stripped form (CC catch, 2026-09-02T15:35Z: the
-          # un-stripped pattern is unsatisfiable — no binary can ever pass).
+          # crate version clap prints does not (26.0.0-alpha.3). Compare the
+          # version FIELD EXACTLY (CC amendment 23:40Z: a substring match
+          # lets an alpha binary ship clean under a GA tag —
+          # `*resolution-scope*26.0.0*` matches `26.0.0-alpha.3` — so the
+          # field must be equal, not contained).
           EXPECT="${GITHUB_REF_NAME#v}"
-          case "$OUT" in
-            *resolution-scope*$EXPECT*) ;;
-            *) echo "::error::--version output '$OUT' does not name $EXPECT (tag ${GITHUB_REF_NAME}) — manifest/tag drift; refuse to ship"; exit 1 ;;
-          esac
+          set -- $OUT
+          if [ "$2" != "$EXPECT" ]; then
+            echo "::error::--version field is '$2', expected exactly '$EXPECT' (tag ${GITHUB_REF_NAME}) — manifest/tag drift; refuse to ship"
+            exit 1
+          fi
       - name: Package with sha256 receipt
         run: |
           set -euo pipefail
