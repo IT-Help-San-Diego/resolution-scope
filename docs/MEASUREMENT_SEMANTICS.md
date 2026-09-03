@@ -14,8 +14,10 @@ path that now fails where it used to succeed, a control that now resolves a
 name through a different resolver. Bug fixes that make the instrument agree
 with the standard belong here too: the verdict moved, and a reader comparing
 two sealed reports across the release needs to know the instrument moved,
-not the domain. Entries are dated by the release that ships them and name
-the file and line that changed the meaning.
+not the domain. Entries are dated by the release that ships them — the
+first tagged version carrying the change, with the PR as the citation;
+until that tag exists the field reads "unreleased" — and name the file
+and line that changed the meaning. README.md ("Run it") points here.
 
 What does NOT belong here: copy changes, new fields printed beside the
 seal, performance, anything the verdict does not depend on.
@@ -24,7 +26,7 @@ Format, one entry per change:
 
 ```
 ## <control> — <one-line what changed>
-Release:  <version or branch/PR>          Since: <date>
+Release:  <first tagged version, or "unreleased — first tag after <date>" (PR #n)>   Since: <date>
 Where:    <file:line of the producing code>
 Before:   <what the disposition meant>
 After:    <what it means now>
@@ -36,7 +38,7 @@ Why:      <the standard or measurement reason>
 
 ## MTA-STS — a 3xx from the policy host is never followed
 
-Release:  cc/resolver-choice (PR #40)          Since: 2026-09-03
+Release:  unreleased — first tag after 2026-09-03 (PR #40)   Since: 2026-09-03
 Where:    engine/src/resolver.rs `Vantage::http_client`
           (`.redirect(reqwest::redirect::Policy::none())`);
           engine/src/analysis.rs `mta_sts_fetch_outcome`
@@ -65,7 +67,7 @@ Controls: engine/tests/egress_ledger.rs E5 (the fetch attempt is a
 
 ## MTA-STS — the policy host is resolved through the validating vantage
 
-Release:  cc/resolver-choice (PR #40)          Since: 2026-09-03
+Release:  unreleased — first tag after 2026-09-03 (PR #40)   Since: 2026-09-03
 Where:    engine/src/resolver.rs `Vantage::http_client`
           (`.dns_resolver(Arc::new(VantageResolve { .. }))`) over the
           vantage's hickory resolver with `validate = true`
@@ -109,7 +111,7 @@ Controls: engine/tests/egress_ledger.rs E7 (the client itself asks the
 
 ## MTA-STS — the policy fetch ignores the environment's proxy
 
-Release:  cc/resolver-choice (PR #40)          Since: 2026-09-03
+Release:  unreleased — first tag after 2026-09-03 (PR #40)   Since: 2026-09-03
 Where:    engine/src/resolver.rs:991 `Vantage::http_client` (`.no_proxy()`)
 Before:   reqwest's default client honoured `HTTPS_PROXY` / `https_proxy`
           / `ALL_PROXY` from the environment (this build's reqwest has

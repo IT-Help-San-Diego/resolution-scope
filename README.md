@@ -27,6 +27,13 @@ Every report carries the verdict's seal and the exact bytes that re-derive it;
 `--format text` prints the engine's own minimal render (the compartment's proof
 surface), `--format json` the verdict object plus seal and scores.
 
+A seal proves the verdict you hold is the one that was sealed; it does not
+say whether a later release would give the same domain the same verdict for
+a reason that has nothing to do with the domain. Releases that move what a
+disposition *means* are logged in
+[`docs/MEASUREMENT_SEMANTICS.md`](docs/MEASUREMENT_SEMANTICS.md) — read it
+before comparing two sealed reports across a release.
+
 ## Why this instrument stays on the sidewalk
 
 Everything Resolution Scope measures is passive, public observation: DNS
