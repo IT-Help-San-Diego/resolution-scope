@@ -43,9 +43,14 @@ fn encryption_sentence(c: &ResolverChoice) -> &'static str {
     }
 }
 
+/// Where the system choice's addresses were read from — named so the user
+/// can read the same source. On macOS hickory-resolver 0.26.1 reads
+/// `State:/Network/Global/DNS` from the System Configuration store: the
+/// GLOBAL resolver only, the first block of `scutil --dns`; a VPN's scoped
+/// or per-domain resolvers are not read and never asked.
 fn system_conf_source() -> &'static str {
     if cfg!(target_vendor = "apple") {
-        "scutil --dns"
+        "the global resolver only — the first block of scutil --dns; a VPN's scoped or per-domain resolvers are not read and never asked"
     } else if cfg!(unix) {
         "/etc/resolv.conf"
     } else {
@@ -904,7 +909,26 @@ mod tests {
             "{text}"
         );
         assert!(text.contains("dnssec-failed.org → Bogus (pass: validation is local only; this resolver does not validate)"), "{text}");
-    }
+        // The source clause is honest about WHAT was read: hickory-resolver
+        // 0.26.1 (system_conf/apple.rs) reads State:/Network/Global/DNS —
+        // the global resolver only — so a VPN's scoped resolvers are named
+        // as unread. NEGATIVE: the old clause "read from scutil --dns;"
+        // (which lists scoped resolvers too) never appears. POSITIVE: the
+        // macOS line names the global resolver and the VPN consequence.
+        assert!(!text.contains("read from scutil --dns;"), "{text}");
+        if cfg!(target_vendor = "apple") {
+            assert!(
+                text.contains("(configured, read from the global resolver only — the first block of scutil --dns; a VPN's scoped or per-domain resolvers are not read and never asked; printed here, never sealed"),
+                "{text}"
+            );
+        } else if cfg!(unix) {
+            assert!(
+                text.contains(
+                    "(configured, read from /etc/resolv.conf; printed here, never sealed"
+                ),
+                "{text}"
+            );
+        }
     }
 
     #[test]
