@@ -36,6 +36,23 @@ jobs:
       - name: RFC literals stay in the engine
         run: bash scripts/check-citation-boundary.sh
 
+  corpus-identity-absence:
+    # P1's binding: the CorpusEntry type is the identity-free guarantee;
+    # the Lean Tier-4 theorem specifies it; THIS checker binds them —
+    # neither the compiler nor Lean can see each other. Fails on any
+    # field added beyond the ruled set, any identity-bearing type, any
+    # forbidden vocabulary word in code. Watched failing before shipping
+    # (add contributor_asn → exit 1; add probe_ip: IpAddr → exit 1).
+    name: Corpus identity absence (the privacy type stays privacy-shaped)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5 tag @ 2026-08-29
+        with:
+          persist-credentials: false
+      - name: The public corpus structurally cannot carry identity
+        run: bash scripts/check-corpus-identity-absence.sh
+
   seal-scheme-consistency:
     # Foundation queue #3: the v5 bump nearly shipped without a KAT (2e-F1);
     # review caught it, this gate makes the catch mechanical. Every scheme
@@ -255,6 +272,7 @@ jobs:
     needs:
       [
         citation-boundary,
+        corpus-identity-absence,
         seal-scheme-consistency,
         crates,
         native-lib,
