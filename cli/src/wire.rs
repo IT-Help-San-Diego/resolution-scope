@@ -436,8 +436,9 @@ pub fn render(s: &EgressSnapshot, c: &ResolverChoice, f: &WireFacts<'_>) -> Stri
         };
         let _ = writeln!(
             out,
-            "        HTTPS  {} → {destination} · {resolved} · TCP 443 · {outcome}",
-            fe.host
+            "        HTTPS  {} → {destination} · {resolved} · {} · {outcome}",
+            fe.host,
+            connection_claim(&fe.outcome)
         );
     } else {
         let _ = writeln!(
@@ -459,6 +460,25 @@ pub fn render(s: &EgressSnapshot, c: &ResolverChoice, f: &WireFacts<'_>) -> Stri
         tcpdump_filter(c)
     );
     out
+}
+
+/// The transport/port token of the HTTPS line, printed ONLY when a
+/// connection was attempted. `Unresolved` never reached the socket (the
+/// name did not resolve, so no SYN left for :443) and `NotAttempted` never
+/// started; both say "no connection attempted" rather than name a port no
+/// packet went to. `Timeout` wraps the whole request and the stage reached
+/// was not recorded, so the line does not claim a connect either way.
+/// `ConnectError` and every later stage attempted the connect: "TCP 443".
+fn connection_claim(outcome: &FetchOutcome) -> &'static str {
+    match outcome {
+        FetchOutcome::Unresolved(_) | FetchOutcome::NotAttempted => "no connection attempted",
+        FetchOutcome::Timeout => "connection attempt not recorded",
+        FetchOutcome::Status(..)
+        | FetchOutcome::Redirect(..)
+        | FetchOutcome::ConnectError(_)
+        | FetchOutcome::TlsError(_)
+        | FetchOutcome::RequestFailed(_) => "TCP 443",
+    }
 }
 
 /// The host:port of a store DSN, never its credentials.
@@ -664,7 +684,12 @@ mod tests {
         );
         assert!(text.contains("· TCP 443 · the TCP connection completed and the TLS handshake failed (client error (Connect) -> invalid peer certificate: UnknownIssuer) — the ClientHello that opens it carries the name mta-sts.example.com in the clear (SNI)\n"), "{text}");
 
-        // Unresolved: no address, no packet.
+        // Unresolved: no address, no packet — and so no port claimed. The
+        // NEGATIVE control for `connection_claim`: the name never resolved,
+        // no SYN left for :443, and the line must not print "TCP 443"
+        // (mutant: `connection_claim` returns "TCP 443" for every arm →
+        // the `!contains` fails). The POSITIVE is the ConnectError line
+        // above, where the SYNs did leave and "· TCP 443 ·" is printed.
         with_fetch.fetches[0].addrs.clear();
         with_fetch.fetches[0].outcome = FetchOutcome::Unresolved(
             "client error (Connect) -> dns error -> no record found for Query { name: Name(\"mta-sts.example.com.\"), query_type: A, query_class: IN }".into(),
@@ -674,9 +699,30 @@ mod tests {
             &choice("cloudflare"),
             &facts("example.com", false, true),
         );
-        assert!(text.contains("        HTTPS  mta-sts.example.com → peer not recorded (no response; reqwest's socket is outside the ledger) · resolved via cloudflare: no address · TCP 443 · no HTTPS packet left: mta-sts.example.com could not be resolved through cloudflare (client error (Connect) -> dns error -> "), "{text}");
+        assert!(text.contains("        HTTPS  mta-sts.example.com → peer not recorded (no response; reqwest's socket is outside the ledger) · resolved via cloudflare: no address · no connection attempted · no HTTPS packet left: mta-sts.example.com could not be resolved through cloudflare (client error (Connect) -> dns error -> "), "{text}");
+        let https_line = text.lines().find(|l| l.contains("HTTPS  mta-sts")).unwrap();
+        assert!(
+            !https_line.contains("443"),
+            "a port no packet went to, printed on the Unresolved line: {https_line}"
+        );
 
-        // The timeout wraps the whole request: no stage claim, no SNI claim.
+        // NotAttempted: the entry recorded before the fetch began and never
+        // updated — nothing was connected, so nothing is claimed.
+        with_fetch.fetches[0].outcome = FetchOutcome::NotAttempted;
+        let text = render(
+            &with_fetch,
+            &choice("cloudflare"),
+            &facts("example.com", false, true),
+        );
+        assert!(
+            text.contains(
+                "· resolved via cloudflare: no address · no connection attempted · not attempted\n"
+            ),
+            "{text}"
+        );
+
+        // The timeout wraps the whole request: no stage claim, no SNI
+        // claim, no connect claim — the stage reached was not recorded.
         with_fetch.fetches[0].outcome = FetchOutcome::Timeout;
         let text = render(
             &with_fetch,
@@ -685,11 +731,30 @@ mod tests {
         );
         assert!(
             text.contains(
-                "· TCP 443 · timed out after 10 s — the stage reached was not recorded\n"
+                "· connection attempt not recorded · timed out after 10 s — the stage reached was not recorded\n"
             ),
             "{text}"
         );
         assert!(!text.contains("SNI)\n"), "{text}");
+        assert!(!text.contains("TCP 443"), "{text}");
+
+        // Every arm of `connection_claim`, pinned: the port is printed for
+        // ConnectError and every later stage, and for nothing earlier.
+        for (outcome, claim) in [
+            (
+                FetchOutcome::Unresolved("x".into()),
+                "no connection attempted",
+            ),
+            (FetchOutcome::NotAttempted, "no connection attempted"),
+            (FetchOutcome::Timeout, "connection attempt not recorded"),
+            (FetchOutcome::ConnectError("x".into()), "TCP 443"),
+            (FetchOutcome::TlsError("x".into()), "TCP 443"),
+            (FetchOutcome::RequestFailed("x".into()), "TCP 443"),
+            (FetchOutcome::Redirect(301, "x".into()), "TCP 443"),
+            (FetchOutcome::Status(200, 1), "TCP 443"),
+        ] {
+            assert_eq!(connection_claim(&outcome), claim, "{outcome:?}");
+        }
 
         // The store line only when configured, host only, never credentials.
         let f = WireFacts {
