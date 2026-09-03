@@ -259,7 +259,7 @@ jobs:
             | sh -s -- -y --default-toolchain "$TOOLCHAIN" --no-modify-path
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
       - name: Verify the scoring doctrine
-        run: lean engine/lean/Scoring.lean
+        run: lean -DwarningAsError=true engine/lean/Scoring.lean
 
   # Fan-in: the ONE stable context branch protection can require. Matrix legs
   # have dynamic names that break required-check lists silently on rename;
