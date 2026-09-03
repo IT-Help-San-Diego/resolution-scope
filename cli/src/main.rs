@@ -34,7 +34,7 @@ use resolution_scope_engine::truth_chain::Audience;
 use resolution_scope_render as render;
 
 /// The `--resolver` help. The first paragraph is the `-h` short help; the
-/// rest is `--help`. One line serves the office lady and the DNS engineer
+/// rest is `--help`. One line serves the office person and the DNS engineer
 /// without condescending to either; every claim is checkable with tcpdump.
 const RESOLVER_HELP: &str = "\
 Which resolver answers, and how the questions travel. Sealed as the vantage.

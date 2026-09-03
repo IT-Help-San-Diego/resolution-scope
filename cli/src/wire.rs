@@ -383,7 +383,7 @@ pub fn render(s: &EgressSnapshot, c: &ResolverChoice, f: &WireFacts<'_>) -> Stri
         };
         let outcome = match &fe.outcome {
             FetchOutcome::Status(code, bytes) if (200..300).contains(code) => format!(
-                "{code}, {bytes} bytes, policy read — the name {} is visible in that TLS handshake (SNI); redirects are never followed (RFC 8461 §3.3)",
+                "{code}, {bytes} bytes, policy read — the name {} is visible in that TLS handshake (SNI); redirects are never followed",
                 fe.host
             ),
             FetchOutcome::Status(code, bytes) => format!(
@@ -391,7 +391,7 @@ pub fn render(s: &EgressSnapshot, c: &ResolverChoice, f: &WireFacts<'_>) -> Stri
                 fe.host
             ),
             FetchOutcome::Redirect(code, location) => format!(
-                "{code} to {location} — not followed (RFC 8461 §3.3): the policy is not servable from the domain"
+                "{code} to {location} — not followed: the policy is not servable from the domain"
             ),
             FetchOutcome::ConnectError(e) => {
                 format!("{e} — the connection attempt is what left; nothing further was sent")
@@ -578,7 +578,7 @@ mod tests {
             &choice("cloudflare"),
             &facts("example.com", false, true),
         );
-        assert!(text.contains("        HTTPS  mta-sts.example.com → 203.0.113.7 (address via cloudflare) · TCP 443 · 200, 143 bytes, policy read — the name mta-sts.example.com is visible in that TLS handshake (SNI); redirects are never followed (RFC 8461 §3.3)\n"), "{text}");
+        assert!(text.contains("        HTTPS  mta-sts.example.com → 203.0.113.7 (address via cloudflare) · TCP 443 · 200, 143 bytes, policy read — the name mta-sts.example.com is visible in that TLS handshake (SNI); redirects are never followed\n"), "{text}");
 
         // A redirect is recorded, never followed.
         with_fetch.fetches[0].outcome =
@@ -588,7 +588,7 @@ mod tests {
             &choice("cloudflare"),
             &facts("example.com", false, true),
         );
-        assert!(text.contains("· TCP 443 · 301 to https://policy.example.net/x — not followed (RFC 8461 §3.3): the policy is not servable from the domain\n"), "{text}");
+        assert!(text.contains("· TCP 443 · 301 to https://policy.example.net/x — not followed: the policy is not servable from the domain\n"), "{text}");
 
         // A refused connection.
         with_fetch.fetches[0].outcome = FetchOutcome::ConnectError("connection refused".into());
