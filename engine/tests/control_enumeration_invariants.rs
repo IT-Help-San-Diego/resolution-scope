@@ -44,6 +44,10 @@ fn all_indeterminate() -> ScoredAnalysis {
         domain: "example.com".to_string(),
         session_id: 0xdead_beef,
         timestamp_local: 1_700_000_000,
+        // "default" here is fixture data, not a vantage: production never
+        // emits it after cc/resolver-choice (Science,
+        // two-gaps-closed-and-the-vantage-collision.md §4 — analysis.rs:41
+        // sealed "default" for the vantage cli sealed as "cloudflare").
         resolver_identity: "default".to_string(),
         dnssec_chain: TriState::Indet,
         dnssec_disposition: resolution_scope_engine::analysis::DnssecDisposition::NoZone,

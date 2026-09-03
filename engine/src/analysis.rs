@@ -3,9 +3,10 @@
 // Each public function in this module runs OUTSIDE the seL4 compartment.
 // Results are packed into ScoredAnalysis and sent over the IPC endpoint.
 
+use crate::egress::{FetchEntry, FetchOutcome, ScopeResolver};
+use crate::resolver::Vantage;
 use anyhow::Result;
 use hickory_resolver::net::NetError;
-use hickory_resolver::TokioResolver;
 use tracing::{debug, warn};
 
 use crate::denial_proof::{
@@ -35,43 +36,43 @@ pub use resolution_scope_types::{
 // =============================================================================
 
 /// Analyse a domain with the default probe set (no caller-supplied DKIM
-/// selectors, default resolver identity). Thin wrapper over
-/// [`analyse_domain_with_selectors`].
-pub async fn analyse_domain(resolver: &TokioResolver, domain: &str) -> Result<ScoredAnalysis> {
-    analyse_domain_with_selectors(resolver, domain, &[], "default").await
+/// selectors). Thin wrapper over [`analyse_domain_with_selectors`].
+///
+/// The sealed `resolver_identity` comes from the vantage's choice and from
+/// nowhere else: no entry point takes a label (Science,
+/// two-gaps-closed-and-the-vantage-collision.md — this function once sealed
+/// the literal "default" for the vantage the CLI sealed as "cloudflare").
+pub async fn analyse_domain(v: &Vantage, domain: &str) -> Result<ScoredAnalysis> {
+    analyse_domain_with_selectors(v, domain, &[]).await
 }
 
 /// Analyse a domain, probing the caller-supplied DKIM selectors in addition
 /// to (and ahead of) the 81 defaults. A user who knows their selector gets a
 /// definitive `Verified` / `KeyMismatch` instead of the sweep's
 /// "absence NOT proven".
-///
-/// `resolver_identity` names the vantage the measurement was taken from
-/// (e.g. "cloudflare") — it is sealed, so two scans from different resolvers
-/// never seal identically, even when their verdicts coincide.
 pub async fn analyse_domain_with_selectors(
-    resolver: &TokioResolver,
+    v: &Vantage,
     domain: &str,
     dkim_selectors: &[String],
-    resolver_identity: &str,
 ) -> Result<ScoredAnalysis> {
-    Ok(
-        analyse_domain_with_receipts(resolver, domain, dkim_selectors, resolver_identity)
-            .await?
-            .0,
-    )
+    Ok(analyse_domain_with_receipts(v, domain, dkim_selectors)
+        .await?
+        .0)
 }
 
 /// Analyse a domain AND return the per-control lookup receipts captured at
 /// each control's primary lookup site (Layer-4 capture, SPEC §5 step 1).
 /// Receipts are beside-the-seal provenance (R-B): the ScoredAnalysis and its
 /// seal are byte-identical whether or not the caller keeps the receipts.
+///
+/// `resolver_identity` is `v.identity()` — a pure function of the resolver
+/// choice (destination + transport), never of the code path.
 pub async fn analyse_domain_with_receipts(
-    resolver: &TokioResolver,
+    v: &Vantage,
     domain: &str,
     dkim_selectors: &[String],
-    resolver_identity: &str,
 ) -> Result<(ScoredAnalysis, Vec<LookupReceipt>, Vec<RecordEntry>)> {
+    let resolver: &ScopeResolver = v;
     debug!(domain, "starting analysis");
 
     let session_id: u64 = rand_session_id();
@@ -117,7 +118,7 @@ pub async fn analyse_domain_with_receipts(
     let (dane_disposition, tlsa_zone) =
         score_dane(resolver, domain, &mut r_dane, &mut records).await;
     let dane = dane_disposition.chain();
-    let mta_sts_disposition = score_mta_sts(resolver, domain, &mut r_mta_sts, &mut records).await;
+    let mta_sts_disposition = score_mta_sts(v, domain, &mut r_mta_sts, &mut records).await;
     let mta_sts = mta_sts_disposition.chain();
     let caa_disposition = score_caa(resolver, domain, &mut r_caa, &mut records).await;
     let caa = caa_disposition.chain();
@@ -144,7 +145,7 @@ pub async fn analyse_domain_with_receipts(
         domain: domain.to_string(),
         session_id,
         timestamp_local,
-        resolver_identity: resolver_identity.to_string(),
+        resolver_identity: v.identity(),
         dnssec_chain,
         dnssec_disposition,
         spf,
@@ -341,7 +342,7 @@ fn receipt_from_answers(control: ControlId, answers: usize, elapsed_ms: u64) -> 
 /// receipt slot from the outcome, hand the result back untouched. The
 /// disposition path is byte-identical with or without the capture.
 async fn observed_lookup(
-    resolver: &TokioResolver,
+    resolver: &ScopeResolver,
     control: ControlId,
     name: &str,
     rt: hickory_proto::rr::RecordType,
@@ -359,7 +360,7 @@ async fn observed_lookup(
 
 /// TXT-flavoured twin of [`observed_lookup`].
 async fn observed_txt_lookup(
-    resolver: &TokioResolver,
+    resolver: &ScopeResolver,
     control: ControlId,
     name: &str,
     out: &mut Option<LookupReceipt>,
@@ -375,7 +376,7 @@ async fn observed_txt_lookup(
 }
 
 async fn score_dnssec(
-    resolver: &TokioResolver,
+    resolver: &ScopeResolver,
     domain: &str,
     receipt: &mut Option<LookupReceipt>,
     records: &mut Vec<RecordEntry>,
@@ -575,7 +576,7 @@ fn ds_records_none_evaluatable(records: &[hickory_proto::rr::Record]) -> Option<
 }
 
 async fn score_spf(
-    resolver: &TokioResolver,
+    resolver: &ScopeResolver,
     domain: &str,
     receipt: &mut Option<LookupReceipt>,
     records: &mut Vec<RecordEntry>,
@@ -629,7 +630,7 @@ fn spf_disposition_from_records(spf_records: &[String]) -> SpfDisposition {
 }
 
 async fn score_dmarc(
-    resolver: &TokioResolver,
+    resolver: &ScopeResolver,
     domain: &str,
     receipt: &mut Option<LookupReceipt>,
     records: &mut Vec<RecordEntry>,
@@ -930,7 +931,7 @@ fn dkim_disposition_from_probes(probes: &[DkimSelectorProbe]) -> DkimDisposition
 /// selector). This replaces the NotProbed stub: the engine can now honestly
 /// report Verified / Revoked / KeyMismatch / NotFoundDefaults / Wildcard.
 async fn score_dkim(
-    resolver: &TokioResolver,
+    resolver: &ScopeResolver,
     domain: &str,
     extra_selectors: &[String],
     receipt: &mut Option<LookupReceipt>,
@@ -1235,7 +1236,7 @@ fn apex_from_soa_result(
 /// section; if it is a leaf the SOA arrives in the authority section
 /// (`NoRecordsFound` with `soa` populated). `None` when the lookup errored
 /// (couldn't measure the zone, not \"no zone\").
-async fn zone_apex_of(resolver: &TokioResolver, name: &str) -> Option<String> {
+async fn zone_apex_of(resolver: &ScopeResolver, name: &str) -> Option<String> {
     use hickory_proto::rr::RecordType;
     match resolver.lookup(name, RecordType::SOA).await {
         Ok(resp) => apex_from_soa_result(Some(resp.answers()), None),
@@ -1257,7 +1258,7 @@ fn dane_host_zone_requires_dnssec(d: DnssecDisposition) -> bool {
 }
 
 async fn score_dane(
-    resolver: &TokioResolver,
+    resolver: &ScopeResolver,
     domain: &str,
     receipt: &mut Option<LookupReceipt>,
     records: &mut Vec<RecordEntry>,
@@ -1394,11 +1395,12 @@ async fn score_dane(
 }
 
 async fn score_mta_sts(
-    resolver: &TokioResolver,
+    v: &Vantage,
     domain: &str,
     receipt: &mut Option<LookupReceipt>,
     records: &mut Vec<RecordEntry>,
 ) -> MtaStsDisposition {
+    let resolver: &ScopeResolver = v;
     // MTA-STS (RFC 8461) is a two-step protocol:
     //   1. Discovery: _mta-sts.<domain> TXT ("v=STSv1; id=...") signals that a
     //      policy MAY be published.
@@ -1462,12 +1464,66 @@ async fn score_mta_sts(
     // rather than hidden behind a live request. A Result-returning fetch helper
     // was the one place whose FnValue mutants (return fabricated Ok(empty) bytes)
     // survived mutation testing.
+    //
+    // The client comes from the vantage (`Vantage::http_client`): the policy
+    // host is resolved THROUGH THE CHOSEN RESOLVER (never libc getaddrinfo —
+    // a cleartext leak to the system stub under every choice), 3xx is never
+    // followed (RFC 8461 §3.3: "HTTP 3xx redirects MUST NOT be followed"),
+    // environment proxies are ignored. The attempt and its outcome go to the
+    // egress ledger BEFORE the verdict is decided, so the surface's HTTPS line
+    // rests on a socket-layer fact, never on the disposition.
+    let policy_host = format!("mta-sts.{}", domain);
+    let via = v.identity();
+    let ledger = v.ledger().clone();
+    let record_outcome = |addrs: Vec<std::net::IpAddr>, outcome: FetchOutcome| {
+        ledger.record_fetch(FetchEntry {
+            url: policy_url.clone(),
+            host: policy_host.clone(),
+            addrs,
+            via: via.clone(),
+            outcome,
+        });
+    };
+    record_outcome(Vec::new(), FetchOutcome::NotAttempted);
     let policy_result: anyhow::Result<String> = async {
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(10))
-            .build()?;
-        let resp = client.get(&policy_url).send().await?;
-        mta_sts_policy_from_response(resp.status(), resp.text().await?)
+        let addrs: Vec<std::net::IpAddr> = match v.lookup_ip(policy_host.as_str()).await {
+            Ok(ips) => ips.iter().collect(),
+            Err(_) => Vec::new(), // the client's own resolution reports the error below
+        };
+        let client = v.http_client()?;
+        let resp = match client.get(&policy_url).send().await {
+            Ok(r) => r,
+            Err(e) => {
+                let text = e.to_string();
+                let outcome = if e.is_timeout() {
+                    FetchOutcome::Timeout
+                } else if text.contains("certificate")
+                    || text.contains("tls")
+                    || text.contains("TLS")
+                {
+                    FetchOutcome::TlsError(text)
+                } else {
+                    FetchOutcome::ConnectError(text)
+                };
+                record_outcome(addrs, outcome);
+                return Err(e.into());
+            }
+        };
+        let status = resp.status();
+        if status.is_redirection() {
+            let location = resp
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .and_then(|h| h.to_str().ok())
+                .unwrap_or("")
+                .to_string();
+            record_outcome(addrs, FetchOutcome::Redirect(status.as_u16(), location));
+            // Through the non-2xx gate below: PolicyInvalid, never followed.
+            return mta_sts_policy_from_response(status, String::new());
+        }
+        let body = resp.text().await?;
+        record_outcome(addrs, FetchOutcome::Status(status.as_u16(), body.len()));
+        mta_sts_policy_from_response(status, body)
     }
     .await;
     match policy_result {
@@ -1580,7 +1636,7 @@ fn mta_sts_policy_state(policy: &str) -> MtaStsPolicyState {
 //     URI (commas, !, ; must be percent-encoded inside the URI — bare ones
 //     break the field parser).
 async fn score_tls_rpt(
-    resolver: &TokioResolver,
+    resolver: &ScopeResolver,
     domain: &str,
     receipt: &mut Option<LookupReceipt>,
 ) -> TlsRptDisposition {
@@ -1683,7 +1739,7 @@ fn csync_absent_is_inapplicable(apex: DnssecDisposition) -> bool {
 }
 
 async fn score_csync(
-    resolver: &TokioResolver,
+    resolver: &ScopeResolver,
     domain: &str,
     apex_dnssec: DnssecDisposition,
     receipt: &mut Option<LookupReceipt>,
@@ -1794,7 +1850,7 @@ fn cds_deletion_requested(records: &[hickory_proto::rr::Record]) -> bool {
 }
 
 async fn score_caa(
-    resolver: &TokioResolver,
+    resolver: &ScopeResolver,
     domain: &str,
     receipt: &mut Option<LookupReceipt>,
     records: &mut Vec<RecordEntry>,
@@ -1838,7 +1894,7 @@ async fn score_caa(
 }
 
 async fn score_cds_cdnskey(
-    resolver: &TokioResolver,
+    resolver: &ScopeResolver,
     domain: &str,
     receipt: &mut Option<LookupReceipt>,
     records: &mut Vec<RecordEntry>,
@@ -2040,49 +2096,42 @@ fn caa_err_to_disposition(e: &NetError, domain: &str) -> CaaDisposition {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hickory_resolver::{
-        config::{ResolverConfig, ResolverOpts},
-        TokioResolver,
-    };
+    use crate::resolver::{ResolverChoice, Vantage};
+    use hickory_resolver::config::ResolverOpts;
 
     // -------------------------------------------------------------------------
-    // Helper — build a DNSSEC-validating resolver pointing at Cloudflare DoT
+    // Helper — the default vantage: Cloudflare over plain 53 (UDP, TCP on
+    // truncation), DNSSEC validated locally. (An older comment here said
+    // "Cloudflare DoT" — it never was; ledger f7ad6d0 measured plain 53.)
     // -------------------------------------------------------------------------
 
-    /// The options `make_test_resolver` builds with — factored out so the
-    /// validate-flag gate below asserts on the REAL constructor input, not a
-    /// local re-derivation. (The previous test built its own opts, set the
-    /// flag, and asserted its own assignment — a check that could not fail;
-    /// deleting `validate = true` from the helper left it green. Audit
-    /// 2026-08-29, same defect shape as the NXNAME-inversion precedent.)
+    /// The options every vantage builds with — the REAL constructor input
+    /// (`ResolverChoice::options`), so the validate-flag gate below asserts on
+    /// the producer, not on a local re-derivation. (The previous test built
+    /// its own opts, set the flag, and asserted its own assignment — a check
+    /// that could not fail; deleting `validate = true` from the helper left
+    /// it green. Audit 2026-08-29, same defect shape as the NXNAME-inversion
+    /// precedent.)
     fn test_resolver_opts() -> ResolverOpts {
-        let mut opts = ResolverOpts::default();
-        opts.validate = true; // DNSSEC chain validation on
-        opts
+        ResolverChoice::default().options()
     }
 
-    fn make_test_resolver() -> TokioResolver {
-        // Use Cloudflare DoT for deterministic responses in CI.
-        // In sandboxed / offline environments, these tests must be run with
-        // `--ignored` suppressed or a local resolver mock substituted.
-        TokioResolver::builder_with_config(
-            ResolverConfig::udp_and_tcp(&hickory_resolver::config::CLOUDFLARE),
-            hickory_resolver::net::runtime::TokioRuntimeProvider::default(),
-        )
-        .with_options(test_resolver_opts())
-        .build()
-        .expect("test resolver construction")
+    fn make_test_vantage() -> Vantage {
+        // The default choice: Cloudflare over plain 53. In sandboxed /
+        // offline environments the live tests must be run with `--ignored`
+        // suppressed or a loopback stub substituted (tests/support).
+        Vantage::build(ResolverChoice::default()).expect("test vantage construction")
     }
 
     // -------------------------------------------------------------------------
     // Unit: resolver_options_validate_is_set
-    // Verifies that the opts make_test_resolver() is BUILT WITH carry
-    // validate=true. This is the Section A.3 gate: if validate is false the
-    // golden fixtures would pass vacuously even without DNSSEC signatures.
+    // Verifies that the opts every vantage is BUILT WITH carry validate=true.
+    // This is the Section A.3 gate: if validate is false the golden fixtures
+    // would pass vacuously even without DNSSEC signatures.
     // -------------------------------------------------------------------------
     #[test]
     fn resolver_options_validate_is_set() {
-        // Default opts have validate=false; our helper must flip it.
+        // Default opts have validate=false; the producer must flip it.
         let default_opts = ResolverOpts::default();
         assert!(
             !default_opts.validate,
@@ -2090,7 +2139,7 @@ mod tests {
         );
         assert!(
             test_resolver_opts().validate,
-            "make_test_resolver's opts must carry validate=true — if this \
+            "ResolverChoice::options() must carry validate=true — if this \
              fails, every DNSSEC golden fixture passes vacuously (A.3)"
         );
     }
@@ -2135,8 +2184,8 @@ mod tests {
             #[tokio::test]
             #[ignore = "requires network + DNSSEC-validating resolver"]
             async fn $name() {
-                let resolver = make_test_resolver();
-                let result = analyse_domain(&resolver, $domain)
+                let vantage = make_test_vantage();
+                let result = analyse_domain(&vantage, $domain)
                     .await
                     .expect("analyse_domain should not error");
 
@@ -2539,7 +2588,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires network"]
     async fn t1_1_mta_sts_absent_for_unsigned_domain() {
-        let resolver = make_test_resolver();
+        let resolver = make_test_vantage();
         let result = analyse_domain(&resolver, "example.com")
             .await
             .expect("analyse_domain should not error");
@@ -2568,7 +2617,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires network + DNSSEC-validating resolver"]
     async fn island_of_security_vs_broken_chain() {
-        let resolver = make_test_resolver();
+        let resolver = make_test_vantage();
 
         // Negative control: google.com has zero DNSKEY → Unsigned.
         // The answers.is_empty() gate at line 248 is what prevents every

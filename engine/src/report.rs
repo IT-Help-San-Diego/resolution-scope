@@ -24,6 +24,13 @@ pub fn render_text(a: &ScoredAnalysis) -> String {
     // Session (a NON-input) turned "anyone can re-check" into an assertion.
     out.push_str(&format!("Engine    : {}\n", engine_version()));
     out.push_str(&format!("Resolver  : {}\n", a.resolver_identity));
+    // The vantage gloss: a pure function of the SEALED string (vocabulary,
+    // not wire), so it stays true for a seal re-read in ten years. A legacy
+    // opaque label ("default", "test") is named as such.
+    out.push_str(&format!(
+        "Vantage   : {}\n",
+        crate::resolver::ResolverChoice::gloss_of_identity(&a.resolver_identity)
+    ));
     // timestamp_local is a Unix epoch (UTC) — label the zone, or a reader who
     // converts it gets a date that disagrees with any Pacific-time prose.
     out.push_str(&format!(
@@ -112,6 +119,10 @@ mod tests {
             domain: "example.com".to_string(),
             session_id: 0xdead_beef,
             timestamp_local: 1_700_000_000,
+            // "default" here is fixture data, not a vantage: production never
+            // emits it after cc/resolver-choice (Science,
+            // two-gaps-closed-and-the-vantage-collision.md §4 — analysis.rs:41
+            // sealed "default" for the vantage cli sealed as "cloudflare").
             resolver_identity: "default".to_string(),
             dnssec_chain: TriState::Indet,
             dnssec_disposition: crate::analysis::DnssecDisposition::NoZone,
@@ -165,6 +176,25 @@ mod tests {
             text.contains(&canonical_input(&a, &engine_version())),
             "the report must print the seal's exact preimage so a reader can re-derive it"
         );
+    }
+
+    /// R1 — the vantage gloss renders beneath `Resolver`, from the sealed
+    /// string alone: a current identity expands to its wire description, a
+    /// legacy label to the legacy sentence. `Resolver  : default` stays.
+    #[test]
+    fn report_prints_the_vantage_gloss_beneath_resolver() {
+        let a = minimal();
+        let text = render_text(&a);
+        assert!(text.contains("Resolver  : default\nVantage   : unstructured label \"default\" — sealed before cc/resolver-choice"), "{text}");
+        let mut c = minimal();
+        c.resolver_identity = "cloudflare".to_string();
+        let text = render_text(&c);
+        assert!(text.contains("Resolver  : cloudflare\nVantage   : Cloudflare (1.1.1.1) over plain DNS, port 53 — DNSSEC validated by the instrument against the root keys, not by the resolver's word\n"), "{text}");
+        let mut q = minimal();
+        q.resolver_identity = "quad9/tls".to_string();
+        assert!(render_text(&q).contains(
+            "Vantage   : Quad9 (9.9.9.9) over DNS-over-TLS, port 853, certificate dns.quad9.net —"
+        ));
     }
 
     #[test]

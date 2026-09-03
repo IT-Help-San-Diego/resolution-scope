@@ -29,8 +29,8 @@
 use std::collections::BTreeSet;
 use std::net::IpAddr;
 
+use crate::egress::ScopeResolver;
 use hickory_proto::rr::{RData, RecordType};
-use hickory_resolver::TokioResolver;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
@@ -213,7 +213,7 @@ fn observation_from_parts(
 /// ASN via Team Cymru, classify, and partition into the measurement basis.
 /// The network resolution is thin; the testable logic lives in
 /// `ip_from_rdata` + `observation_from_parts`.
-pub async fn observe_flux(resolver: &TokioResolver, domain: &str) -> FluxObservation {
+pub async fn observe_flux(resolver: &ScopeResolver, domain: &str) -> FluxObservation {
     // Resolve A + AAAA → (address, ttl) pairs.
     let mut addresses: Vec<(IpAddr, u32)> = Vec::new();
     for rtype in [RecordType::A, RecordType::AAAA] {
@@ -766,15 +766,8 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires network"]
     async fn live_cloudflare_dns_reads_proxied() {
-        use hickory_resolver::config::{ResolverConfig, ResolverOpts};
-        use hickory_resolver::net::runtime::TokioRuntimeProvider;
-        let resolver = TokioResolver::builder_with_config(
-            ResolverConfig::udp_and_tcp(&hickory_resolver::config::CLOUDFLARE),
-            TokioRuntimeProvider::default(),
-        )
-        .with_options(ResolverOpts::default())
-        .build()
-        .unwrap();
+        use crate::resolver::{ResolverChoice, Vantage};
+        let resolver = Vantage::build(ResolverChoice::default()).unwrap();
         // cloudflare.com's own site sits on AS13335 — the canonical
         // ProxiedEdge observation.
         let o = observe_flux(&resolver, "cloudflare.com").await;
