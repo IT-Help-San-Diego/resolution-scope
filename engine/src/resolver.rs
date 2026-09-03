@@ -236,10 +236,49 @@ pub enum Target {
 }
 
 /// The resolver choice: where the questions go, and how they travel.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+///
+/// Equality and hashing follow the CANONICAL form — the one `identity()`
+/// writes — never the fields as constructed: the fields are `pub`, so
+/// `Target::Address { port: Some(853), .. }` under `Transport::Tls` can be
+/// built by hand, and it is the same choice as `port: None` (same
+/// identity, same config, same sealed bytes). A structural derive called
+/// them different; `canonical()` is what `PartialEq`/`Hash` compare.
+#[derive(Debug, Clone)]
 pub struct ResolverChoice {
     pub target: Target,
     pub transport: Transport,
+}
+
+impl ResolverChoice {
+    /// The choice with its address normalised the way `identity()` writes
+    /// it: a port equal to the transport default becomes `None`, and a
+    /// server name is kept only under an encrypted transport (no parse
+    /// produces one elsewhere; `server_name()` is the single rule).
+    fn canonical(&self) -> (Target, Transport) {
+        let target = match &self.target {
+            Target::Address { ip, .. } => Target::Address {
+                ip: *ip,
+                port: self.written_port(),
+                server_name: self.server_name(),
+            },
+            other => other.clone(),
+        };
+        (target, self.transport)
+    }
+}
+
+impl PartialEq for ResolverChoice {
+    fn eq(&self, other: &Self) -> bool {
+        self.canonical() == other.canonical()
+    }
+}
+
+impl Eq for ResolverChoice {}
+
+impl std::hash::Hash for ResolverChoice {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.canonical().hash(state);
+    }
 }
 
 impl Default for ResolverChoice {
@@ -1434,6 +1473,87 @@ mod tests {
         assert_eq!(
             v.policy_url("example.test"),
             "https://mta-sts.example.test:45678/.well-known/mta-sts.txt"
+        );
+    }
+
+    /// T10 — equality and hashing follow the canonical form, as identity
+    /// does. POSITIVE: for every transport and both address families, the
+    /// choice built with `port: Some(default)` equals the one built with
+    /// `port: None` (their identities are equal), hashes equal, and a
+    /// `HashSet` holds one of them. NEGATIVE: a choice with a different
+    /// port, or the same address under a different transport, is not
+    /// equal and the set holds both. Mutant: derive structural
+    /// `PartialEq`/`Hash` again → the positive fails
+    /// (`Some(853) != None`); `canonical()` drops the port → the negative
+    /// fails.
+    #[test]
+    fn equality_and_hash_follow_identity_not_construction() {
+        use std::collections::HashSet;
+        use std::hash::{Hash, Hasher};
+        fn h(c: &ResolverChoice) -> u64 {
+            let mut s = std::collections::hash_map::DefaultHasher::new();
+            c.hash(&mut s);
+            s.finish()
+        }
+        for t in Transport::ALL {
+            let name = t.is_encrypted().then(|| "dns.quad9.net".to_string());
+            for ip in ["9.9.9.9", "2620:fe::fe"] {
+                let ip: IpAddr = ip.parse().unwrap();
+                let at = |port: Option<u16>, transport: Transport| ResolverChoice {
+                    target: Target::Address {
+                        ip,
+                        port,
+                        server_name: name.clone(),
+                    },
+                    transport,
+                };
+                let omitted = at(None, t);
+                let explicit_default = at(Some(t.default_port()), t);
+                assert_eq!(omitted.identity(), explicit_default.identity());
+                assert_eq!(
+                    omitted, explicit_default,
+                    "{t:?} {ip}: one choice, two constructions"
+                );
+                assert_eq!(h(&omitted), h(&explicit_default), "{t:?} {ip}: one hash");
+                let set: HashSet<ResolverChoice> = [omitted.clone(), explicit_default.clone()]
+                    .into_iter()
+                    .collect();
+                assert_eq!(set.len(), 1, "{t:?} {ip}: the set holds one choice");
+                // The parsed form is the same choice too.
+                assert_eq!(
+                    omitted,
+                    omitted.identity().parse::<ResolverChoice>().unwrap()
+                );
+
+                // Negative: a different port is a different choice ...
+                let other_port = at(Some(t.default_port() + 1), t);
+                assert_ne!(other_port.identity(), omitted.identity());
+                assert_ne!(other_port, omitted, "{t:?} {ip}");
+                let set: HashSet<ResolverChoice> =
+                    [omitted.clone(), other_port.clone()].into_iter().collect();
+                assert_eq!(set.len(), 2, "{t:?} {ip}: two choices, two entries");
+                // ... and so is the same address under another transport.
+                let other_transport = Transport::ALL
+                    .into_iter()
+                    .find(|o| *o != t && o.is_encrypted() == t.is_encrypted())
+                    .unwrap();
+                let moved = at(None, other_transport);
+                assert_ne!(moved.identity(), omitted.identity());
+                assert_ne!(moved, omitted, "{t:?} vs {other_transport:?} {ip}");
+            }
+        }
+        // The presets and `system` compare by what they are.
+        assert_eq!(
+            ResolverChoice::default(),
+            "cloudflare".parse::<ResolverChoice>().unwrap()
+        );
+        assert_ne!(
+            ResolverChoice::default(),
+            "quad9".parse::<ResolverChoice>().unwrap()
+        );
+        assert_ne!(
+            ResolverChoice::default(),
+            "tls://cloudflare".parse::<ResolverChoice>().unwrap()
         );
     }
 
