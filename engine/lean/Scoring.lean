@@ -119,3 +119,76 @@ theorem present_le_findings (xs : List TriState) : countPresent xs ≤ countFind
   | nil => simp [countPresent, countFindings]
   | cons s rest ih =>
       cases s <;> simp [countPresent, countFindings, countsInDenominator] <;> omega
+
+/-! ## Axiom audit — the sorry-refusal gate. `lean` exits 0 on
+`sorry`, so a proof-hole was invisible to CI. Every theorem's axiom
+set is now PINNED EXACTLY: the build fails on any change — a `sorryAx`
+appears (proof hole), a foreign axiom appears (smuggled assumption),
+or even a foundation axiom appears/disappears (proof drift). propext
+and Quot.sound are Lean's standard logical foundations (allowed,
+named per-theorem as measured 2026-09-03); sorryAx is not. Mechanism
+verified live: exit 1 on mismatch, exit 0 on exact pin. -/
+/-- info: 'indet_is_not_absent' does not depend on any axioms -/
+#guard_msgs in
+#print axioms indet_is_not_absent
+
+/-- info: 'not_applicable_is_not_absent' does not depend on any axioms -/
+#guard_msgs in
+#print axioms not_applicable_is_not_absent
+
+/-- info: 'indet_is_not_present' does not depend on any axioms -/
+#guard_msgs in
+#print axioms indet_is_not_present
+
+/-- info: 'not_applicable_is_not_present' does not depend on any axioms -/
+#guard_msgs in
+#print axioms not_applicable_is_not_present
+
+/-- info: 'indet_is_not_not_applicable' does not depend on any axioms -/
+#guard_msgs in
+#print axioms indet_is_not_not_applicable
+
+/-- info: 'absent_is_not_present' does not depend on any axioms -/
+#guard_msgs in
+#print axioms absent_is_not_present
+
+/-- info: 'indet_never_counts' does not depend on any axioms -/
+#guard_msgs in
+#print axioms indet_never_counts
+
+/-- info: 'not_applicable_never_counts' does not depend on any axioms -/
+#guard_msgs in
+#print axioms not_applicable_never_counts
+
+/-- info: 'present_counts' does not depend on any axioms -/
+#guard_msgs in
+#print axioms present_counts
+
+/-- info: 'absent_counts' does not depend on any axioms -/
+#guard_msgs in
+#print axioms absent_counts
+
+/-- info: 'counts_is_exclusive' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms counts_is_exclusive
+
+/-- info: 'indet_drop_preserves_present' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms indet_drop_preserves_present
+
+/-- info: 'indet_drop_preserves_findings' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms indet_drop_preserves_findings
+
+/-- info: 'not_applicable_drop_preserves_present' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms not_applicable_drop_preserves_present
+
+/-- info: 'not_applicable_drop_preserves_findings' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms not_applicable_drop_preserves_findings
+
+/-- info: 'present_le_findings' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms present_le_findings
+
