@@ -621,11 +621,18 @@ impl ResolverChoice {
         if let Some(suffix) = self.transport.suffix() {
             s.push('/');
             s.push_str(suffix);
-            if let Target::Address {
-                server_name: Some(n),
-                ..
-            } = &self.target
-            {
+            // A certificate name is part of the identity only where the
+            // transport verifies one — the same rule as `server_name()`, so
+            // the sealed string and equality (the canonical form) never
+            // disagree on a hand-built value.
+            let name = match &self.target {
+                Target::Address {
+                    server_name: Some(n),
+                    ..
+                } if self.transport.is_encrypted() => Some(n.as_str()),
+                _ => None,
+            };
+            if let Some(n) = name {
                 s.push('/');
                 s.push_str(n);
             }
@@ -1555,6 +1562,50 @@ mod tests {
             ResolverChoice::default(),
             "tls://cloudflare".parse::<ResolverChoice>().unwrap()
         );
+    }
+
+    /// T11 — the sealed string and equality agree on a certificate name
+    /// under EVERY transport: a name is part of the choice only where the
+    /// transport verifies one. Built through the pub fields (the parser
+    /// refuses a name under plain/tcp), so this is the corner a derive-free
+    /// Eq must cover. Negative control: without the encryption gate in
+    /// `identity()`, plain/tcp write the name while `canonical()` drops it —
+    /// two different identity strings compare equal, and this fails.
+    #[test]
+    fn identity_and_equality_agree_on_a_name_under_every_transport() {
+        let ip: std::net::IpAddr = "9.9.9.9".parse().unwrap();
+        for t in Transport::ALL {
+            let with = ResolverChoice {
+                target: Target::Address {
+                    ip,
+                    port: None,
+                    server_name: Some("dns.quad9.net".into()),
+                },
+                transport: t,
+            };
+            let without = ResolverChoice {
+                target: Target::Address {
+                    ip,
+                    port: None,
+                    server_name: None,
+                },
+                transport: t,
+            };
+            let same_identity = with.identity() == without.identity();
+            let same_choice = with == without;
+            assert_eq!(
+                same_identity,
+                same_choice,
+                "{t:?}: identity() and Eq disagree on a certificate name — {} vs {}",
+                with.identity(),
+                without.identity()
+            );
+            assert_eq!(
+                same_choice,
+                !t.is_encrypted(),
+                "{t:?}: a name is part of the choice only under an encrypted transport"
+            );
+        }
     }
 
     /// T7 — `system` seals the word, never an address, without consulting the OS.

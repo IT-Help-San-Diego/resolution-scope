@@ -90,7 +90,7 @@ Moves:    Domains whose `mta-sts.<domain>` zone (or a CNAME target's zone)
           PolicyInvalid. Domains with a healthy or unsigned chain move too
           whenever the vantage's answer for `mta-sts.<domain>` differs from
           the system stub's, because the address set handed to the client
-          is now the vantage's (engine/src/resolver.rs:1019
+          is now the vantage's (engine/src/resolver.rs, `impl reqwest::dns::Resolve for VantageResolve`:
           `resolver.lookup_ip`) and nothing else: a hosts-file entry, an
           internal or split-horizon zone the system stub serves and the
           public vantage does not, a search-domain completion, or a name
@@ -112,7 +112,7 @@ Controls: engine/tests/egress_ledger.rs E7 (the client itself asks the
 ## MTA-STS — the policy fetch ignores the environment's proxy
 
 Release:  unreleased — first tag after 2026-09-03 (PR #40)   Since: 2026-09-03
-Where:    engine/src/resolver.rs:991 `Vantage::http_client` (`.no_proxy()`)
+Where:    engine/src/resolver.rs `Vantage::http_client` (`.no_proxy()`)
 Before:   reqwest's default client honoured `HTTPS_PROXY` / `https_proxy`
           / `ALL_PROXY` from the environment (this build's reqwest has
           `default-features = false`, engine/Cargo.toml:70, so no OS proxy
