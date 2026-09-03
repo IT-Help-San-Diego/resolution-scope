@@ -87,6 +87,35 @@ impl ResolverAlias {
     }
 }
 
+/// The transport a measurement rode on — a vantage axis in its own right
+/// (M3, the protocol-transparency differential: the corpus exists to hold
+/// how intelligence/receipts/metadata DIFFER by transport from the same
+/// vantage, same domain, same moment). Closed vocabulary; carries no
+/// identity. Cloudflare-over-DoT and cloudflare-over-plain-53 are
+/// DIFFERENT corpus rows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Transport {
+    Udp53,
+    Tcp53,
+    Dot,
+    Doh,
+    Doq,
+    Doh3,
+}
+
+impl Transport {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Transport::Udp53 => "udp53",
+            Transport::Tcp53 => "tcp53",
+            Transport::Dot => "dot",
+            Transport::Doh => "doh",
+            Transport::Doq => "doq",
+            Transport::Doh3 => "doh3",
+        }
+    }
+}
+
 /// The source-3 constant token (D2): every user-contributed measurement
 /// pools under this. No per-contributor identifiers exist in this module.
 pub const UC_ANON: &str = "uc-anon";
@@ -169,6 +198,8 @@ pub struct CorpusEntry {
     pub vantage_epoch: VantageEpoch,
     /// The resolver's ALIAS, never its address.
     pub resolver: ResolverAlias,
+    /// The transport this measurement rode (M3 vantage axis).
+    pub transport: Transport,
     /// Day granularity only.
     pub day: CorpusDay,
     /// The corroboratable content: all ten controls' dispositions.
@@ -196,6 +227,7 @@ mod tests {
             vantage_class: VantageClass::Instrument,
             vantage_epoch: VantageEpoch(1),
             resolver: ResolverAlias::Unknown,
+            transport: Transport::Udp53,
             day: CorpusDay {
                 year: 2026,
                 month: 9,
@@ -250,25 +282,56 @@ mod tests {
         assert_ne!(a.corroboration_key(), b.corroboration_key());
     }
 
-    /// The resolver alias is the ONLY resolver identity: no address type
-    /// appears in the public surface. (Enforced by the type — this test
-    /// pins that ResolverAlias has exactly the named variants and the
-    /// catch-all; a RawIp variant would change this match.)
+    /// The resolver alias is the ONLY resolver identity — and this guard
+    /// CAN FIRE: the match is EXHAUSTIVE with unit-only arms and no
+    /// wildcard, so adding a data-carrying variant (e.g. RawIp(Ipv4Addr))
+    /// FAILS TO COMPILE this arm — precisely the alarm (CC's finding A,
+    /// fixed the ControlId way: the variant list is the match, not an array).
     #[test]
     fn resolver_alias_is_a_closed_alias_vocabulary() {
-        let all = [
+        for a in [
             ResolverAlias::Cloudflare,
             ResolverAlias::Google,
             ResolverAlias::Quad9,
             ResolverAlias::OpenDNS,
             ResolverAlias::Dns4Eu,
             ResolverAlias::Unknown,
-        ];
-        for a in all {
-            assert!(
-                !a.as_str().contains('.'),
-                "aliases are names, not addresses"
-            );
+        ] {
+            let s = match a {
+                ResolverAlias::Cloudflare => "cloudflare",
+                ResolverAlias::Google => "google",
+                ResolverAlias::Quad9 => "quad9",
+                ResolverAlias::OpenDNS => "opendns",
+                ResolverAlias::Dns4Eu => "dns4eu",
+                ResolverAlias::Unknown => "unknown",
+                // no wildcard: a new variant lands HERE and must be named,
+                // which is the moment the privacy review happens
+            };
+            assert!(!s.contains('.'), "aliases are names, not addresses");
+        }
+    }
+
+    /// The transport axis (CC's finding B): closed vocabulary, the M3
+    /// differential's storage. Same exhaustive-match guard shape.
+    #[test]
+    fn transport_is_a_closed_vocabulary() {
+        for t in [
+            Transport::Udp53,
+            Transport::Tcp53,
+            Transport::Dot,
+            Transport::Doh,
+            Transport::Doq,
+            Transport::Doh3,
+        ] {
+            let s = match t {
+                Transport::Udp53 => "udp53",
+                Transport::Tcp53 => "tcp53",
+                Transport::Dot => "dot",
+                Transport::Doh => "doh",
+                Transport::Doq => "doq",
+                Transport::Doh3 => "doh3",
+            };
+            assert!(!s.is_empty());
         }
     }
 

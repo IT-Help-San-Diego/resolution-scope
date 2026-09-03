@@ -50,7 +50,7 @@ else:
     # THE RULED SET — from the 2026-09-03 nine-decision ruling:
     required = {
         "domain", "vantage_class", "vantage_epoch", "resolver",
-        "day", "dispositions", "wire",
+        "transport", "day", "dispositions", "wire",
     }
     missing = required - field_names
     if missing:
@@ -82,6 +82,7 @@ for word in ("contributor_ip", "raw_ip", "ip_address", "asn", "country",
 if 'pub const UC_ANON: &str = "uc-anon"' not in src:
     problems.append("UC_ANON constant missing or altered (D2: pooling token)")
 for alias in ("Cloudflare", "Google", "Quad9", "OpenDNS", "Dns4Eu", "Unknown"):
+    # (unchanged)
     if f"ResolverAlias::{alias}" not in src:
         problems.append(f"ResolverAlias::{alias} missing from the closed vocabulary")
 
