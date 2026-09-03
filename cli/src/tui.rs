@@ -690,15 +690,7 @@ fn render_seal(
         };
         rows.push(("  fetch     ", fetch));
         if let Some(ab) = aborted {
-            rows.push((
-                "  aborted   ",
-                format!(
-                    "the measurement of {} was aborted mid-flight; the {} datagram{} it had sent were drained before this domain's count began",
-                    ab.domain,
-                    ab.datagrams,
-                    if ab.datagrams == 1 { "" } else { "s" }
-                ),
-            ));
+            rows.push(("  aborted   ", ab.row()));
         }
     }
     rows.push((
@@ -809,7 +801,12 @@ enum InputMode {
 
 /// What a measurement task returns: the verdict, its records, this domain's
 /// socket snapshot, and the straggler count (see `ScanState::Measuring`).
-type ScanPayload = Result<(ScoredAnalysis, Vec<RecordEntry>, EgressSnapshot, usize)>;
+type ScanPayload = Result<(
+    ScoredAnalysis,
+    Vec<RecordEntry>,
+    EgressSnapshot,
+    EgressSnapshot,
+)>;
 
 /// The measurement state for the current domain. `Measuring` is a REAL
 /// state: the engine call is in flight on the runtime and the elapsed time
@@ -825,9 +822,10 @@ enum ScanState {
         domain: String,
         started: Instant,
         /// The task's payload: the verdict, its records, this domain's
-        /// socket snapshot, and the straggler count — datagrams a previously
-        /// aborted task recorded between the abort and this task's start
-        /// (drained, attributed to the aborted domain, never counted here).
+        /// socket snapshot, and the straggler snapshot — the egress a
+        /// previously aborted task recorded between the abort and this
+        /// task's start (drained, attributed to the aborted domain, never
+        /// counted here).
         handle: JoinHandle<ScanPayload>,
         /// The measurement this one aborted, if any, and what it had sent.
         aborted: Option<AbortedScan>,
@@ -839,7 +837,7 @@ enum ScanState {
         took: Duration,
         at: Instant,
         /// Travels with the result it applies to: this domain's wire count
-        /// began after draining the aborted domain's datagrams.
+        /// began after draining the aborted domain's egress.
         aborted: Option<AbortedScan>,
     },
     Failed {
@@ -862,13 +860,61 @@ struct DoneScan {
 }
 
 /// A measurement aborted mid-flight by a domain switch, and the socket
-/// egress it had recorded in the shared ledger before the drain. Shown on
-/// the Seal tab of the measurement that started in its place, so that
-/// domain's wire count is readable as its own.
+/// egress it had recorded in the shared ledger before the drain — every
+/// layer the ledger counts, so a DoT/DoH/DoQ abort is attributed by its TCP
+/// connections or QUIC sockets, never printed as "0 datagrams" (the
+/// 2026-09-03 second-round finding). Shown on the Seal tab of the
+/// measurement that started in its place, so that domain's wire count is
+/// readable as its own.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct AbortedScan {
     domain: String,
+    /// UDP datagrams the kernel accepted (`EgressSnapshot::datagrams_sent`).
     datagrams: usize,
+    /// TCP connections completed (`EgressSnapshot::tcp_connects`) — plain
+    /// `/tcp`, DoT and DoH all count here.
+    tcp_connects: usize,
+    /// UDP sockets handed to quinn (`EgressSnapshot::quic_sockets`) — DoQ
+    /// and DoH3; sockets opened, never connections (the ledger does not
+    /// see quinn's handshake).
+    quic_sockets: usize,
+}
+
+impl AbortedScan {
+    /// The counts of a drained snapshot, attributed to `domain`.
+    fn drained(domain: String, w: &EgressSnapshot) -> Self {
+        let mut ab = Self {
+            domain,
+            datagrams: 0,
+            tcp_connects: 0,
+            quic_sockets: 0,
+        };
+        ab.absorb(w);
+        ab
+    }
+
+    /// Add a later drain (the stragglers recorded between the abort and
+    /// the next task's start) to this attribution.
+    fn absorb(&mut self, w: &EgressSnapshot) {
+        self.datagrams += w.datagrams_sent;
+        self.tcp_connects += w.tcp_connects;
+        self.quic_sockets += w.quic_sockets;
+    }
+
+    /// The Seal-tab row: every layer the ledger counted at the socket,
+    /// each with its own digit — a zero is printed, never implied.
+    fn row(&self) -> String {
+        fn n(count: usize, one: &str, many: &str) -> String {
+            format!("{count} {}", if count == 1 { one } else { many })
+        }
+        format!(
+            "the measurement of {} was aborted mid-flight; what it had sent was drained before this domain's count began: {} \u{00b7} {} \u{00b7} {} (counted at the socket)",
+            self.domain,
+            n(self.datagrams, "datagram", "datagrams"),
+            n(self.tcp_connects, "TCP connection", "TCP connections"),
+            n(self.quic_sockets, "QUIC socket opened", "QUIC sockets opened"),
+        )
+    }
 }
 
 struct App {
@@ -963,11 +1009,12 @@ impl App {
     /// switch to a cached result; `r` calls this.
     fn start_scan(&mut self) {
         // The egress ledger is shared by every scan on this vantage. An
-        // aborted scan's datagrams (and the cleartext names in them) are
-        // drained HERE, before the next task starts, or they are printed
-        // under the next domain's name — its wire block, footer token and
-        // Seal tab all read the same snapshot. `r` is absorbed while
-        // measuring, but Tab / Shift-Tab / add-domain are not.
+        // aborted scan's egress — datagrams (and the cleartext names in
+        // them), TCP connections, QUIC sockets — is drained HERE, before
+        // the next task starts, or it is printed under the next domain's
+        // name — its wire block, footer token and Seal tab all read the
+        // same snapshot. `r` is absorbed while measuring, but Tab /
+        // Shift-Tab / add-domain are not.
         let mut aborted = None;
         let mut previous = None;
         if let ScanState::Measuring { handle, domain, .. } =
@@ -975,10 +1022,7 @@ impl App {
         {
             handle.abort();
             let dropped = self.vantage.ledger().drain();
-            aborted = Some(AbortedScan {
-                domain,
-                datagrams: dropped.datagrams_sent,
-            });
+            aborted = Some(AbortedScan::drained(domain, &dropped));
             previous = Some(handle);
         }
         let domain = self.current_domain_name().to_string();
@@ -988,13 +1032,14 @@ impl App {
         let handle = tokio::spawn(async move {
             // Abort is asynchronous: the aborted future is dropped at its next
             // poll, and a poll already running on another worker can record
-            // one more datagram. Wait for that drop, then drain again so this
-            // domain's count starts at zero; the stragglers are reported
-            // under the aborted domain, never counted here.
+            // one more datagram or connection. Wait for that drop, then
+            // drain again so this domain's count starts at zero; the
+            // stragglers are reported under the aborted domain, never
+            // counted here.
             if let Some(h) = previous {
                 let _ = h.await;
             }
-            let stragglers = vantage.ledger().drain().datagrams_sent;
+            let stragglers = vantage.ledger().drain();
             let r = analyse_domain_with_receipts(&vantage, &d, &selectors).await;
             // Drained after the scan completes: the ledger held only this
             // scan's egress since the drain above.
@@ -1056,7 +1101,7 @@ impl App {
                 Ok(Ok((result, records, wire, stragglers))) => {
                     let at = Instant::now();
                     if let Some(ab) = aborted.as_mut() {
-                        ab.datagrams += stragglers;
+                        ab.absorb(&stragglers);
                     }
                     // Cache the DONE payload (not the whole ScanState —
                     // Measuring holds a non-Clone JoinHandle). A later Tab
@@ -2552,10 +2597,16 @@ mod tests {
             .collect();
         assert!(
             text.contains(&format!(
-                "the measurement of a-aborted.test was aborted mid-flight; the {} datagram",
+                "the measurement of a-aborted.test was aborted mid-flight; what it had sent was drained before this domain's count began: {} datagram",
                 aborted.datagrams
             )),
             "{text}"
+        );
+        assert!(
+            text.contains(
+                "0 TCP connections \u{00b7} 0 QUIC sockets opened (counted at the socket)"
+            ),
+            "a plain-53 abort attributes its zero TCP and QUIC counts explicitly: {text}"
         );
         let mut names_after_abort = wire_b.cleartext_qnames.clone();
         names_after_abort.sort();
@@ -2593,6 +2644,153 @@ mod tests {
             names_after_abort, names_alone,
             "B asks the same names after an abort as alone"
         );
+    }
+
+    /// A loopback TCP sink for an encrypted-transport vantage: accepts
+    /// every connection, counts it, and holds it open without a byte back,
+    /// so a DoT handshake never completes and an abort lands mid-flight.
+    /// Nothing leaves the machine.
+    async fn holding_tcp_sink() -> (std::net::SocketAddr, Arc<std::sync::atomic::AtomicUsize>) {
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = l.local_addr().unwrap();
+        let accepted = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let a = accepted.clone();
+        tokio::spawn(async move {
+            let mut held = Vec::new();
+            while let Ok((s, _)) = l.accept().await {
+                a.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                held.push(s);
+            }
+        });
+        (addr, accepted)
+    }
+
+    /// Both controls for the aborted row's per-layer attribution.
+    ///
+    /// NEGATIVE (the defect): a DoT measurement aborted by Tab sent no
+    /// datagram — its egress is TCP connections — and the old row printed
+    /// "0 datagrams" for it, attributing nothing. The attribution must
+    /// carry the TCP count the ledger recorded at `connect_tcp`, equal to
+    /// the loopback listener's own accept count (what tcpdump/lsof would
+    /// show), and the Seal row must print it. Mutant: `AbortedScan::absorb`
+    /// or `drained` drops `tcp_connects` → the count reads 0 and this fails.
+    ///
+    /// POSITIVE: the plain-53 abort in
+    /// `a_scan_aborted_by_tab_never_lands_in_the_next_domains_wire_block`
+    /// prints its datagrams with "0 TCP connections · 0 QUIC sockets
+    /// opened" — each layer with its own digit, zero included.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_dot_scan_aborted_by_tab_is_attributed_by_its_tcp_connections() {
+        let (addr, accepted) = holding_tcp_sink().await;
+        let vantage = Arc::new(
+            Vantage::build_unvalidating_for_tests(
+                format!("tls://127.0.0.1#{}/stub.test", addr.port())
+                    .parse()
+                    .unwrap(),
+            )
+            .unwrap(),
+        );
+        let mut a = App::new(
+            vantage.clone(),
+            test_receipt("stub"),
+            vec!["a-aborted.test".into(), "b-next.test".into()],
+            vec![],
+            Audience::BlueTeam,
+        );
+        a.start_scan();
+        // Wait until the listener has accepted A's connection: the socket
+        // layer says a TCP connect completed.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while accepted.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+            assert!(Instant::now() < deadline, "the sink never accepted A");
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        // And the ledger recorded it at connect_tcp, before the switch.
+        let before = vantage.ledger().peek();
+        assert!(before.tcp_connects >= 1, "{before:?}");
+        assert_eq!(before.datagrams_sent, 0, "a DoT vantage sends no datagram");
+        assert_eq!(
+            handle_input(&mut a, KeyCode::Tab, KeyModifiers::NONE),
+            Action::SwitchDomain
+        );
+        a.show_current_or_scan();
+        let ab = match std::mem::replace(&mut a.scan, ScanState::Idle) {
+            ScanState::Measuring {
+                domain,
+                handle,
+                aborted,
+                ..
+            } => {
+                assert_eq!(domain, "b-next.test");
+                // B would hang on the same sink; it has told us what it
+                // attributed, so stop it here.
+                handle.abort();
+                aborted.expect("the abort was recorded")
+            }
+            _ => panic!("B is measuring"),
+        };
+        assert_eq!(ab.domain, "a-aborted.test");
+        assert_eq!(ab.datagrams, 0, "no datagram to attribute: {ab:?}");
+        assert_eq!(ab.quic_sockets, 0, "no QUIC socket to attribute: {ab:?}");
+        assert!(
+            ab.tcp_connects >= 1,
+            "A's TCP connection was drained and attributed, not lost: {ab:?}"
+        );
+        assert!(
+            ab.tcp_connects <= accepted.load(std::sync::atomic::Ordering::SeqCst),
+            "the ledger never counts a connect the listener did not accept: {ab:?}, accepted {}",
+            accepted.load(std::sync::atomic::Ordering::SeqCst)
+        );
+        let row = ab.row();
+        assert!(
+            row.contains(&format!(
+                "0 datagrams \u{00b7} {} TCP connection{} \u{00b7} 0 QUIC sockets opened (counted at the socket)",
+                ab.tcp_connects,
+                if ab.tcp_connects == 1 { "" } else { "s" }
+            )),
+            "{row}"
+        );
+        assert!(
+            row.starts_with("the measurement of a-aborted.test was aborted mid-flight"),
+            "{row}"
+        );
+    }
+
+    /// The row prints every layer with its own digit. Pure; both
+    /// directions of each count.
+    #[test]
+    fn aborted_row_names_every_drained_layer() {
+        let ab = AbortedScan {
+            domain: "x.test".into(),
+            datagrams: 1,
+            tcp_connects: 2,
+            quic_sockets: 1,
+        };
+        assert_eq!(
+            ab.row(),
+            "the measurement of x.test was aborted mid-flight; what it had sent was drained before this domain's count began: 1 datagram \u{00b7} 2 TCP connections \u{00b7} 1 QUIC socket opened (counted at the socket)"
+        );
+        // A QUIC abort: sockets opened, never "connections", never a datagram digit borrowed.
+        let ab = AbortedScan {
+            domain: "q.test".into(),
+            datagrams: 0,
+            tcp_connects: 0,
+            quic_sockets: 3,
+        };
+        assert!(ab
+            .row()
+            .ends_with("0 datagrams \u{00b7} 0 TCP connections \u{00b7} 3 QUIC sockets opened (counted at the socket)"));
+        // absorb adds per layer, never across layers.
+        let mut ab = AbortedScan::drained("d.test".into(), &EgressSnapshot::default());
+        assert_eq!((ab.datagrams, ab.tcp_connects, ab.quic_sockets), (0, 0, 0));
+        let w = EgressSnapshot {
+            datagrams_sent: 4,
+            tcp_connects: 2,
+            quic_sockets: 1,
+            ..EgressSnapshot::default()
+        };
+        ab.absorb(&w);
+        assert_eq!((ab.datagrams, ab.tcp_connects, ab.quic_sockets), (4, 2, 1));
     }
 
     #[tokio::test]
