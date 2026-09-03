@@ -660,22 +660,27 @@ fn render_seal(
         rows.push(("  wire      ", wire_token(w, true)));
         let fetch = match w.fetches.first() {
             Some(f) => {
-                let addr = f
-                    .addrs
-                    .first()
-                    .map(|a| a.to_string())
-                    .unwrap_or_else(|| "unresolved".into());
+                // Behind the arrow: the socket peer of the response, or the
+                // honest absence of one. The resolved set is a lookup
+                // result and is never promoted to a destination here.
+                let dest = match &f.peer {
+                    Some(peer) => peer.to_string(),
+                    None => "peer not recorded".to_string(),
+                };
                 let outcome = match &f.outcome {
                     FetchOutcome::Status(c, _) => c.to_string(),
                     FetchOutcome::Redirect(c, _) => format!("{c} not followed"),
-                    FetchOutcome::ConnectError(_) => "connect failed".into(),
-                    FetchOutcome::TlsError(_) => "TLS failed".into(),
+                    FetchOutcome::Unresolved(_) => "unresolved, no packet left".into(),
+                    FetchOutcome::ConnectError(_) => "TCP connect failed, no SNI sent".into(),
+                    FetchOutcome::TlsError(_) => "TLS handshake failed, SNI sent".into(),
+                    FetchOutcome::RequestFailed(_) => "request failed after TLS".into(),
                     FetchOutcome::Timeout => "timed out".into(),
                     FetchOutcome::NotAttempted => "not attempted".into(),
                 };
                 format!(
-                    "{} \u{2192} {addr} \u{00b7} TCP 443 \u{00b7} {outcome}",
-                    f.host
+                    "{} \u{2192} {dest} \u{00b7} {} resolved \u{00b7} {outcome}",
+                    f.host,
+                    f.addrs.len()
                 )
             }
             None => "none \u{2014} no _mta-sts record".to_string(),

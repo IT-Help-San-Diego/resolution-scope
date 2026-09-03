@@ -376,10 +376,21 @@ pub fn render(s: &EgressSnapshot, c: &ResolverChoice, f: &WireFacts<'_>) -> Stri
             f.domain
         );
     } else if let Some(fe) = s.fetches.first() {
-        let addrs = if fe.addrs.is_empty() {
-            "(address unresolved)".to_string()
+        // Behind the arrow sits ONLY the socket peer (hyper-util's
+        // getpeername on the socket the response came over). The resolved
+        // set is a lookup result: hyper-util connects to one address (the
+        // next only on error), so the set is listed as "resolved", never as
+        // where the bytes went. No response → no peer, and the line says so
+        // rather than promoting the lookup to a measurement.
+        let destination = match &fe.peer {
+            Some(peer) => format!("{peer} (socket peer)"),
+            None => "peer not recorded (no response; reqwest's socket is outside the ledger)"
+                .to_string(),
+        };
+        let resolved = if fe.addrs.is_empty() {
+            format!("resolved via {}: no address", fe.via)
         } else {
-            addrs_list(&fe.addrs)
+            format!("resolved via {}: {}", fe.via, addrs_list(&fe.addrs))
         };
         let outcome = match &fe.outcome {
             FetchOutcome::Status(code, bytes) if (200..300).contains(code) => format!(
@@ -393,19 +404,31 @@ pub fn render(s: &EgressSnapshot, c: &ResolverChoice, f: &WireFacts<'_>) -> Stri
             FetchOutcome::Redirect(code, location) => format!(
                 "{code} to {location} — not followed: the policy is not servable from the domain"
             ),
-            FetchOutcome::ConnectError(e) => {
-                format!("{e} — the connection attempt is what left; nothing further was sent")
+            FetchOutcome::Unresolved(e) => format!(
+                "no HTTPS packet left: {} could not be resolved through {} ({e})",
+                fe.host, fe.via
+            ),
+            FetchOutcome::ConnectError(e) => format!(
+                "TCP connect on port 443 failed ({e}) — the SYNs are what left; no TLS handshake began, so the name {} was not sent",
+                fe.host
+            ),
+            FetchOutcome::TlsError(e) => format!(
+                "the TCP connection completed and the TLS handshake failed ({e}) — the ClientHello that opens it carries the name {} in the clear (SNI)",
+                fe.host
+            ),
+            FetchOutcome::RequestFailed(e) => format!(
+                "the TLS session was established (the name {} was visible, SNI) and the request failed afterwards ({e})",
+                fe.host
+            ),
+            FetchOutcome::Timeout => {
+                "timed out after 10 s — the stage reached was not recorded".to_string()
             }
-            FetchOutcome::TlsError(e) => {
-                format!("{e} — the name {} was visible in that attempt (SNI)", fe.host)
-            }
-            FetchOutcome::Timeout => "timed out after 10 s".to_string(),
             FetchOutcome::NotAttempted => "not attempted".to_string(),
         };
         let _ = writeln!(
             out,
-            "        HTTPS  {} → {addrs} (address via {}) · TCP 443 · {outcome}",
-            fe.host, fe.via
+            "        HTTPS  {} → {destination} · {resolved} · TCP 443 · {outcome}",
+            fe.host
         );
     } else {
         let _ = writeln!(
@@ -564,12 +587,18 @@ mod tests {
              \x20       check it yourself: sudo tcpdump -ni any 'udp port 53 or tcp port 53 or tcp port 443' · lsof -nP -i -a -p <pid>\n"
         );
 
-        // A fetch that read a policy.
+        // A fetch that read a policy: two addresses resolved, ONE peer
+        // measured (the socket the response came over). The peer sits
+        // behind the arrow; the resolved set is labelled a lookup result.
         let mut with_fetch = snap.clone();
         with_fetch.fetches.push(FetchEntry {
             url: "https://mta-sts.example.com/.well-known/mta-sts.txt".into(),
             host: "mta-sts.example.com".into(),
-            addrs: vec!["203.0.113.7".parse().unwrap()],
+            addrs: vec![
+                "203.0.113.7".parse().unwrap(),
+                "2001:db8::7".parse().unwrap(),
+            ],
+            peer: Some("[2001:db8::7]:443".parse().unwrap()),
             via: "cloudflare".into(),
             outcome: FetchOutcome::Status(200, 143),
         });
@@ -578,7 +607,16 @@ mod tests {
             &choice("cloudflare"),
             &facts("example.com", false, true),
         );
-        assert!(text.contains("        HTTPS  mta-sts.example.com → 203.0.113.7 (address via cloudflare) · TCP 443 · 200, 143 bytes, policy read — the name mta-sts.example.com is visible in that TLS handshake (SNI); redirects are never followed\n"), "{text}");
+        assert!(text.contains("        HTTPS  mta-sts.example.com → [2001:db8::7]:443 (socket peer) · resolved via cloudflare: 203.0.113.7, 2001:db8::7 · TCP 443 · 200, 143 bytes, policy read — the name mta-sts.example.com is visible in that TLS handshake (SNI); redirects are never followed\n"), "{text}");
+        // Negative control on the arrow: the unconnected address is never
+        // printed behind it (mutant: put `addrs` behind the arrow → fails).
+        let https_line = text.lines().find(|l| l.contains("HTTPS  mta-sts")).unwrap();
+        let behind_arrow = https_line.split('→').nth(1).unwrap();
+        let behind_arrow = behind_arrow.split('·').next().unwrap();
+        assert!(
+            !behind_arrow.contains("203.0.113.7"),
+            "a lookup result behind the measured-destination arrow: {https_line}"
+        );
 
         // A redirect is recorded, never followed.
         with_fetch.fetches[0].outcome =
@@ -590,14 +628,59 @@ mod tests {
         );
         assert!(text.contains("· TCP 443 · 301 to https://policy.example.net/x — not followed: the policy is not servable from the domain\n"), "{text}");
 
-        // A refused connection.
-        with_fetch.fetches[0].outcome = FetchOutcome::ConnectError("connection refused".into());
+        // A refused connection: no response, so no peer — said so, never
+        // filled in from the lookup. The chain text is what reqwest 0.12.28
+        // / hyper-util 0.1.20 yield for a closed loopback port (E8).
+        with_fetch.fetches[0].peer = None;
+        with_fetch.fetches[0].outcome = FetchOutcome::ConnectError(
+            "client error (Connect) -> tcp connect error -> Connection refused (os error 61)"
+                .into(),
+        );
         let text = render(
             &with_fetch,
             &choice("cloudflare"),
             &facts("example.com", false, true),
         );
-        assert!(text.contains("· TCP 443 · connection refused — the connection attempt is what left; nothing further was sent\n"), "{text}");
+        assert!(text.contains("        HTTPS  mta-sts.example.com → peer not recorded (no response; reqwest's socket is outside the ledger) · resolved via cloudflare: 203.0.113.7, 2001:db8::7 · TCP 443 · TCP connect on port 443 failed (client error (Connect) -> tcp connect error -> Connection refused (os error 61)) — the SYNs are what left; no TLS handshake began, so the name mta-sts.example.com was not sent\n"), "{text}");
+
+        // A TLS failure: the handshake began, so the name left in the
+        // ClientHello — the opposite SNI claim from the connect failure.
+        with_fetch.fetches[0].outcome = FetchOutcome::TlsError(
+            "client error (Connect) -> invalid peer certificate: UnknownIssuer".into(),
+        );
+        let text = render(
+            &with_fetch,
+            &choice("cloudflare"),
+            &facts("example.com", false, true),
+        );
+        assert!(text.contains("· TCP 443 · the TCP connection completed and the TLS handshake failed (client error (Connect) -> invalid peer certificate: UnknownIssuer) — the ClientHello that opens it carries the name mta-sts.example.com in the clear (SNI)\n"), "{text}");
+
+        // Unresolved: no address, no packet.
+        with_fetch.fetches[0].addrs.clear();
+        with_fetch.fetches[0].outcome = FetchOutcome::Unresolved(
+            "client error (Connect) -> dns error -> no record found for Query { name: Name(\"mta-sts.example.com.\"), query_type: A, query_class: IN }".into(),
+        );
+        let text = render(
+            &with_fetch,
+            &choice("cloudflare"),
+            &facts("example.com", false, true),
+        );
+        assert!(text.contains("        HTTPS  mta-sts.example.com → peer not recorded (no response; reqwest's socket is outside the ledger) · resolved via cloudflare: no address · TCP 443 · no HTTPS packet left: mta-sts.example.com could not be resolved through cloudflare (client error (Connect) -> dns error -> "), "{text}");
+
+        // The timeout wraps the whole request: no stage claim, no SNI claim.
+        with_fetch.fetches[0].outcome = FetchOutcome::Timeout;
+        let text = render(
+            &with_fetch,
+            &choice("cloudflare"),
+            &facts("example.com", false, true),
+        );
+        assert!(
+            text.contains(
+                "· TCP 443 · timed out after 10 s — the stage reached was not recorded\n"
+            ),
+            "{text}"
+        );
+        assert!(!text.contains("SNI)\n"), "{text}");
 
         // The store line only when configured, host only, never credentials.
         let f = WireFacts {
