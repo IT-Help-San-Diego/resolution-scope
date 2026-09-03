@@ -83,15 +83,61 @@ After:    The name is resolved by the same validating resolver every other
           appears in the wire block as a cleartext name.
 Moves:    Domains whose `mta-sts.<domain>` zone (or a CNAME target's zone)
           is DNSSEC-bogus at measurement time: Enforced or NotEnforced →
-          PolicyInvalid. Domains with a healthy or unsigned chain: no change.
+          PolicyInvalid. Domains with a healthy or unsigned chain move too
+          whenever the vantage's answer for `mta-sts.<domain>` differs from
+          the system stub's, because the address set handed to the client
+          is now the vantage's (engine/src/resolver.rs:1019
+          `resolver.lookup_ip`) and nothing else: a hosts-file entry, an
+          internal or split-horizon zone the system stub serves and the
+          public vantage does not, a search-domain completion, or a name
+          the stub resolves and the vantage answers NXDOMAIN/SERVFAIL for
+          → `FetchOutcome::Unresolved`, PolicyInvalid (and the reverse:
+          a name the stub could not resolve and the vantage can → the
+          policy is now read). Only a domain whose `mta-sts.` name
+          resolves to the same reachable addresses at both is unchanged.
 Why:      Measure, do not derive — a policy read through an unvalidated
           lookup is a policy whose provenance the instrument did not check,
           and the instrument validates every other name it asks for. A
           validating sender would fail the same lookup.
 Controls: engine/tests/egress_ledger.rs E7 (the client itself asks the
-          vantage's stub, a second stub sees nothing; both `.dns_resolver`
-          mutants fail it), E8 (`Unresolved` classified from the "dns error"
-          stage of the source chain).
+          vantage's stub, a second stub sees nothing, and the connect is
+          observed as an accept at the address the stub answered; both
+          `.dns_resolver` mutants fail it), E8 (`Unresolved` classified
+          from the "dns error" stage of the source chain).
+
+## MTA-STS — the policy fetch ignores the environment's proxy
+
+Release:  cc/resolver-choice (PR #40)          Since: 2026-09-03
+Where:    engine/src/resolver.rs:991 `Vantage::http_client` (`.no_proxy()`)
+Before:   reqwest's default client honoured `HTTPS_PROXY` / `https_proxy`
+          / `ALL_PROXY` from the environment (this build's reqwest has
+          `default-features = false`, engine/Cargo.toml:70, so no OS proxy
+          settings were ever read). On a machine whose only path to port
+          443 ran through such a proxy,
+          the policy was fetched through it: **Enforced** / **NotEnforced**
+          as the body said — and the bytes left this machine toward the
+          proxy, not toward `mta-sts.<domain>`, while the report named the
+          policy host.
+After:    The client connects directly to an address the vantage resolved,
+          whatever the environment says. On that same machine the connect
+          fails or times out (`FetchOutcome::ConnectError` /
+          `Timeout`) and the disposition is **PolicyInvalid** (hint
+          present, policy not reachable). Where a proxy also inspected or
+          rewrote the response, the policy is now read from the origin.
+Moves:    Domains measured from a host with no direct egress to 443
+          (proxy-only networks): Enforced or NotEnforced → PolicyInvalid.
+          Elsewhere: no change, unless the proxy answered differently from
+          the origin.
+Why:      Measure, do not derive — the wire block prints the destination
+          reached (`FetchEntry.peer`, getpeername on the response socket)
+          and the HTTPS line names port 443 at `mta-sts.<domain>`; a proxy
+          hop would make both lines describe a socket that was never
+          opened. The instrument's claim is the direct path or nothing.
+Controls: engine/tests/egress_ledger.rs E5 (the accept at the policy host
+          is the socket-layer fact), E7 (the connect reaches the address
+          the vantage answered, not an intermediary). No test sets a proxy
+          variable: the seam is reqwest's builder, and E7 is the observed
+          direct connect.
 
 ---
 
