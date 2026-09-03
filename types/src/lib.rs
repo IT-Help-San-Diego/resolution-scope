@@ -25,10 +25,15 @@
 
 extern crate alloc;
 
+mod corpus;
 mod dispositions;
 mod seal_spelling;
 mod tristate;
 
+pub use corpus::{
+    CorpusDay, CorpusEntry, DenialGrade, DispositionTuple, RcodeGrade, ResolverAlias, VantageClass,
+    VantageEpoch, WireGrades, UC_ANON,
+};
 pub use dispositions::{
     CaaDisposition, CdsDisposition, CsyncDisposition, DaneDisposition, DkimDisposition,
     DmarcDisposition, DnssecDisposition, MtaStsDisposition, ScoredAnalysis, SpfDisposition,
