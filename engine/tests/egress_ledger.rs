@@ -21,7 +21,10 @@
 //!                                           the client itself (no override)
 //!                                           asks the vantage's stub for the
 //!                                           policy host; a second stub sees
-//!                                           nothing; the connect goes to the
+//!                                           nothing (and, routed through it in
+//!                                           the negative, sees the question
+//!                                           and resolves nothing); the
+//!                                           connect goes to the
 //!                                           loopback address the stub answered,
 //!                                           observed as an ACCEPT at an
 //!                                           ephemeral port named through the
@@ -373,6 +376,52 @@ async fn policy_host_is_resolved_through_the_vantage_client() {
         "accepted then closed: the TLS stage, not resolution or connect: {outcome:?}"
     );
     eprintln!("E7: accept observed on 127.0.0.1:{policy_port} — {outcome:?}");
+
+    // NEGATIVE control — and what makes "the control stub saw nothing"
+    // above a live assertion rather than one nothing could ever reach: the
+    // same policy host routed through a vantage pointed at `other`, which
+    // has no A record for it. `other` is asked (so the stub records the
+    // questions it IS pointed at — the zero above is a measured zero), the
+    // name does not resolve, no connect reaches the listener, and `home`
+    // is not consulted. Mutant: the hook ignores `self.resolver` and asks
+    // a fixed resolver → this vantage's question lands at `home` (or
+    // nowhere), `other.saw` is false, and the accept count moves or the
+    // outcome is not `Unresolved`.
+    let home_seen_before = home.seen_count();
+    let wrong = Vantage::build_unvalidating_for_tests(other.choice_plain().parse().unwrap())
+        .unwrap()
+        .with_policy_port(policy_port);
+    let err = wrong
+        .http_client()
+        .unwrap()
+        .get(wrong.policy_url("example.test"))
+        .send()
+        .await
+        .expect_err("the wrong vantage has no address for the policy host");
+    assert!(
+        other.saw("mta-sts.example.test", RecordType::A),
+        "the vantage pointed at the control stub asks it: {:?}",
+        other.seen.lock().unwrap()
+    );
+    assert_eq!(
+        home.seen_count(),
+        home_seen_before,
+        "the wrong vantage never consulted the home stub"
+    );
+    let outcome = FetchOutcome::classify(&err);
+    assert!(
+        matches!(outcome, FetchOutcome::Unresolved(_)),
+        "no A record at the control stub: the failure is at DNS, before any socket: {outcome:?}"
+    );
+    assert_eq!(
+        accepted.load(Ordering::SeqCst),
+        1,
+        "no connect reached the listener from the wrong vantage"
+    );
+    eprintln!(
+        "E7: negative — the control stub saw {} question(s), outcome {outcome:?}",
+        other.seen_count()
+    );
 }
 
 /// E8 — fetch failures are classified from the error's SOURCE CHAIN by the
