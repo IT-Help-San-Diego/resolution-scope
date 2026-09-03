@@ -250,7 +250,10 @@ fn cleartext_names(names: &[String], domain: &str) -> String {
         .map(|n| if n.is_empty() { ".".to_string() } else { n })
         .collect();
     if dk > 0 {
-        rest.push(format!("{dk} <selector>._domainkey.{domain} names"));
+        rest.push(format!(
+            "{dk} <selector>._domainkey.{domain} name{}",
+            if dk == 1 { "" } else { "s" }
+        ));
     }
     rest.join(", ")
 }
