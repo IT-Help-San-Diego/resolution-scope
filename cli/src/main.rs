@@ -19,30 +19,74 @@
 
 mod input;
 mod tui;
+mod wire;
 
+use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use std::str::FromStr;
 
-use hickory_resolver::config::{ResolverConfig, ResolverOpts};
-use hickory_resolver::net::runtime::TokioRuntimeProvider;
-use hickory_resolver::TokioResolver;
 use resolution_scope_engine::analysis::analyse_domain_with_receipts;
+use resolution_scope_engine::resolver::{ResolverChoice, Vantage};
 use resolution_scope_engine::truth_chain::Audience;
 use resolution_scope_render as render;
 
-/// The resolver vantage every verb measures from. Sealed into each verdict
-/// (`resolver_identity`), so it is a measurement condition, not a setting.
-const RESOLVER_IDENTITY: &str = "cloudflare";
+/// The `--resolver` help. The first paragraph is the `-h` short help; the
+/// rest is `--help`. One line serves the office lady and the DNS engineer
+/// without condescending to either; every claim is checkable with tcpdump.
+const RESOLVER_HELP: &str = "\
+Which resolver answers, and how the questions travel. Sealed as the vantage.
+
+The same domain measured through two resolvers is two measurements; they never
+seal alike. Whatever a report prints after \"resolver\" is a valid value here —
+pass it back to repeat the measurement. Whatever you choose, DNSSEC is
+validated on this machine against the root keys; the resolver's word is never
+taken for it. Before the first scan two control lookups prove the vantage can
+validate at all (the root DNSKEY must come back Secure, dnssec-failed.org must
+be refused). If they fail, nothing is sealed. There is no way to skip that
+check: skipping would be a silent downgrade.
+
+  cloudflare (default) | quad9 | google | dns4eu | opendns
+      a public resolver by name — Cloudflare (1.1.1.1), Quad9 (9.9.9.9),
+      Google (8.8.8.8), DNS4EU (86.54.11.100, unfiltered), OpenDNS (208.67.222.222)
+  system
+      the resolver this machine already uses (macOS: scutil --dns; Linux:
+      /etc/resolv.conf). Sealed as the word \"system\": its address changes with
+      every network, the instrument may use any of the addresses listed, and
+      the addresses actually sent to are printed beside the seal, never in it.
+  9.9.9.9 | 9.9.9.9#5353 | [2620:fe::fe]
+      a resolver by address. A private address (192.168.x.x, 10.x, 127.x) is
+      sealed as typed and printed on any report you share — you are warned.
+
+Put a transport in front to encrypt the questions in transit:
+  tls://quad9                   DNS over TLS   — TCP 853, certificate checked
+  https://quad9                 DNS over HTTPS — TCP 443, certificate checked
+  quic://quad9                  DNS over QUIC  — UDP 853 (when measured 2026-09-03 only Quad9 answered)
+  h3://cloudflare               DNS over HTTP/3 — UDP 443 (when measured 2026-09-03 Cloudflare and Google answered)
+  tcp://quad9                   plain DNS, TCP 53 only
+  tls://9.9.9.9/dns.quad9.net   an address plus the name on its certificate
+
+No transport = plain DNS on port 53: every name you scan is readable on the
+wire between this machine and the resolver. \"system\" is always plain. An
+encrypted transport hides the names from the path, not from the resolver — it
+always sees them — and the MTA-STS check still names your domain once, in the
+TLS handshake to mta-sts.<domain> (SNI). Quad9 (9.9.9.9) blocks domains on its
+threat list: a blocked domain reads here as absent (vendor-documented, not
+measured by this instrument). Google forwards part of your address (ECS) to
+the domain's nameservers; Cloudflare and Quad9 do not; OpenDNS says it does
+(vendor documentation, read 2026-09-03). Not offered by this build's library
+(hickory 0.26.1): ODoH, DNSCrypt, post-quantum key exchange.";
 
 const ABOUT: &str = "Resolution Scope — a sovereign instrument for measuring DNS resolution: \
 what a domain actually publishes, verified against the protocol and sealed so anyone can re-check it.";
 
 const LONG_ABOUT: &str = "\
 Resolution Scope measures ten controls on a domain — DNSSEC, SPF, DKIM, DMARC, \
-DANE, MTA-STS, TLS-RPT, CAA, CDS/CDNSKEY, CSYNC — through one validating \
-resolver, and renders the same truth-chain (RFC requirement → measured state → \
+DANE, MTA-STS, TLS-RPT, CAA, CDS/CDNSKEY, CSYNC — through one resolver you \
+choose (Cloudflare by default), with DNSSEC validated by the instrument itself, \
+and renders the same truth-chain (RFC requirement → measured state → \
 consequence) on every surface.
 
 Every verdict carries a SEAL: a SHA3-512 digest over the exact verdict bytes, printed \
@@ -60,6 +104,7 @@ Examples:
   resolution-scope example.com --red          red-team framing + scotopic palette
   resolution-scope example.com --format json  machine output | jq .seal
   resolution-scope example.com --format html -o r.html
+  resolution-scope example.com --resolver tls://quad9   the same measurement, encrypted in transit
   resolution-scope tui example.com           interactive dashboard
   resolution-scope tui example.com --red     dashboard in red-team mode
   resolution-scope history example.com --store-url postgres://…";
@@ -106,6 +151,9 @@ struct ScanArgs {
     #[arg(long = "dkim", value_name = "SELECTOR")]
     dkim_selector: Vec<String>,
 
+    #[arg(long, env = "RS_RESOLVER", value_name = "RESOLVER", default_value = "cloudflare", value_parser = ResolverChoice::from_str, help = RESOLVER_HELP.lines().next().unwrap(), long_help = RESOLVER_HELP)]
+    resolver: ResolverChoice,
+
     /// Write the report here instead of stdout (html defaults to report.html).
     #[arg(short, long, value_name = "PATH")]
     out: Option<String>,
@@ -143,6 +191,9 @@ struct TuiArgs {
     /// DKIM selector(s) to probe ahead of the 81 defaults (repeatable).
     #[arg(long = "dkim", value_name = "SELECTOR")]
     dkim_selector: Vec<String>,
+
+    #[arg(long, env = "RS_RESOLVER", value_name = "RESOLVER", default_value = "cloudflare", value_parser = ResolverChoice::from_str, help = RESOLVER_HELP.lines().next().unwrap(), long_help = RESOLVER_HELP)]
+    resolver: ResolverChoice,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -178,16 +229,30 @@ enum Format {
     Text,
 }
 
-fn build_resolver() -> Result<TokioResolver> {
-    // Same resolver for every verb: validating, DNSSEC-capable.
-    let mut opts = ResolverOpts::default();
-    opts.validate = true;
-    Ok(TokioResolver::builder_with_config(
-        ResolverConfig::udp_and_tcp(&hickory_resolver::config::CLOUDFLARE),
-        TokioRuntimeProvider::default(),
-    )
-    .with_options(opts)
-    .build()?)
+/// Build the vantage for a choice and run the preflight: the private-address
+/// warning, then both controls. A refusal prints the fix and exits 3 —
+/// nothing sealed, nothing stored. Same for every scanning verb.
+async fn vantage_for(
+    choice: ResolverChoice,
+) -> Result<(
+    Arc<Vantage>,
+    resolution_scope_engine::preflight::VantageReceipt,
+)> {
+    if let Some(w) = choice.private_address_warning() {
+        eprintln!("{w}");
+    }
+    let vantage =
+        Vantage::build(choice.clone()).map_err(|e| anyhow::anyhow!("vantage refused: {e}"))?;
+    match vantage.preflight().await {
+        Ok(receipt) => {
+            eprint!("{}", wire::vantage_line(&receipt, &choice));
+            Ok((Arc::new(vantage), receipt))
+        }
+        Err(refusal) => {
+            eprint!("{}", wire::refusal(&refusal, &choice));
+            std::process::exit(3); // exit 3 = vantage refused (2 = corpus-excluded, 1 = scan error)
+        }
+    }
 }
 
 /// The verb names. A DOMAIN equal to one of these is a mis-ordered
@@ -229,15 +294,8 @@ async fn main() -> Result<()> {
             } else {
                 Audience::BlueTeam
             };
-            let resolver = build_resolver()?;
-            tui::run(
-                resolver,
-                RESOLVER_IDENTITY,
-                domains,
-                args.dkim_selector,
-                audience,
-            )
-            .await
+            let (vantage, receipt) = vantage_for(args.resolver).await?;
+            tui::run(vantage, receipt, domains, args.dkim_selector, audience).await
         }
         Some(Command::History(args)) => {
             let url = args
@@ -281,7 +339,9 @@ async fn scan(args: ScanArgs) -> Result<()> {
     } else {
         Audience::BlueTeam
     };
-    let resolver = build_resolver()?;
+    let (vantage, _receipt) = vantage_for(args.resolver.clone()).await?;
+    let choice = vantage.choice().clone();
+    let store_dsn = resolve_store_dsn(args.store_url.as_deref(), args.discard);
 
     let mut analyses = Vec::with_capacity(domains.len());
     // Layer-4 receipts, one Vec per domain, index-paired with `analyses`.
@@ -310,13 +370,16 @@ async fn scan(args: ScanArgs) -> Result<()> {
         // it is doing and reports the measured elapsed time — never a fake
         // percentage.
         eprintln!(
-            "measuring {domain} — {} controls via {RESOLVER_IDENTITY} (validating) …",
-            resolution_scope_engine::truth_chain::ControlId::ALL.len()
+            "{}",
+            wire::progress_line(
+                domain,
+                &choice,
+                resolution_scope_engine::truth_chain::ControlId::ALL.len()
+            )
         );
         let started = Instant::now();
         let (a, receipts, records) =
-            analyse_domain_with_receipts(&resolver, domain, &args.dkim_selector, RESOLVER_IDENTITY)
-                .await?;
+            analyse_domain_with_receipts(&vantage, domain, &args.dkim_selector).await?;
         eprintln!(
             "measured {domain} in {:.1}s — seal {}… ({} receipts, {} records)",
             started.elapsed().as_secs_f64(),
@@ -324,6 +387,17 @@ async fn scan(args: ScanArgs) -> Result<()> {
             receipts.len(),
             records.len()
         );
+        // The wire block: what left this machine for THIS domain, counted at
+        // the socket. Drained per domain so every block is exact.
+        let snapshot = vantage.ledger().drain();
+        let facts = wire::WireFacts {
+            domain,
+            mta_sts_hint_absent: a.mta_sts_disposition
+                == resolution_scope_engine::MtaStsDisposition::RecordAbsent,
+            answered: receipts.iter().any(|r| r.answer_count > 0),
+            store_url: store_dsn.as_deref(),
+        };
+        eprint!("{}", wire::render(&snapshot, &choice, &facts));
         analyses.push(a);
         all_receipts.push(receipts);
         all_records.push(records);
@@ -354,7 +428,7 @@ async fn scan(args: ScanArgs) -> Result<()> {
     //   --store-url / RS_STORE_URL → that DSN
     //   default → postgres://localhost:<RS_DB_PORT>/resolution_scope
     //   unreachable → refuse-and-instruct, never silently drop the data.
-    match resolve_store_dsn(args.store_url.as_deref(), args.discard) {
+    match store_dsn {
         None => eprintln!(
             "discarded {} verdict(s) — --discard (null scan)",
             analyses.len()
@@ -447,6 +521,14 @@ mod tests {
     use super::*;
     use clap::CommandFactory;
 
+    /// `Cli` carries no Debug (clap's Parser does not need it); take the error.
+    fn refused(args: &[&str]) -> String {
+        match Cli::try_parse_from(args) {
+            Ok(_) => panic!("{args:?} should be refused"),
+            Err(e) => e.to_string(),
+        }
+    }
+
     /// clap's own consistency check: conflicting or mis-declared arguments
     /// panic here instead of at the first user's keyboard.
     #[test]
@@ -508,6 +590,82 @@ mod tests {
         assert!(err
             .to_string()
             .contains("`resolution-scope TUI example.com`"));
+    }
+
+    /// K1 — `--resolver` parses on both scanning verbs and not on `history`.
+    #[test]
+    fn resolver_flag_parses_on_scan_and_tui() {
+        let scan = Cli::try_parse_from(["resolution-scope", "x.com", "--resolver", "tls://quad9"])
+            .unwrap();
+        assert_eq!(scan.scan.resolver.identity(), "quad9/tls");
+        let tui = Cli::try_parse_from(["resolution-scope", "tui", "x.com", "--resolver", "quad9"])
+            .unwrap();
+        match tui.command {
+            Some(Command::Tui(t)) => assert_eq!(t.resolver.identity(), "quad9"),
+            _ => panic!("tui verb"),
+        }
+        assert!(Cli::try_parse_from([
+            "resolution-scope",
+            "history",
+            "x.com",
+            "--resolver",
+            "quad9"
+        ])
+        .is_err());
+    }
+
+    /// K2 — the default is Cloudflare over plain 53, identity "cloudflare".
+    #[test]
+    fn resolver_flag_default_is_cloudflare_plain() {
+        let cli = Cli::try_parse_from(["resolution-scope", "x.com"]).unwrap();
+        assert_eq!(cli.scan.resolver, ResolverChoice::default());
+        assert_eq!(cli.scan.resolver.identity(), "cloudflare");
+    }
+
+    /// K3 — refusals happen at parse time, before any network, with the fix
+    /// named (like `-f yaml`).
+    #[test]
+    fn resolver_flag_refuses_hostnames_and_reserved_words_with_the_fix_named() {
+        let err = refused(&[
+            "resolution-scope",
+            "x.com",
+            "--resolver",
+            "tls://dns.quad9.net",
+        ]);
+        assert!(err.contains("tls://9.9.9.9/dns.quad9.net"), "{err}");
+        let err = refused(&["resolution-scope", "x.com", "--resolver", "default"]);
+        assert!(err.contains("spelled `cloudflare`"), "{err}");
+        let err = refused(&["resolution-scope", "x.com", "--resolver", "tls://system"]);
+        assert!(err.contains("tls://quad9"), "{err}");
+    }
+
+    /// K4 — `RS_RESOLVER` is honoured (the `RS_STORE_URL` pattern) on both
+    /// scanning verbs, and an explicit flag wins over it. The environment is
+    /// not mutated (tests run in parallel); clap's declaration is asserted,
+    /// and the precedence is exercised by parsing with the flag present.
+    #[test]
+    fn resolver_flag_reads_rs_resolver_env() {
+        let cmd = Cli::command();
+        let arg = cmd
+            .get_arguments()
+            .find(|a| a.get_id() == "resolver")
+            .expect("--resolver on the scan verb");
+        assert_eq!(arg.get_env().and_then(|e| e.to_str()), Some("RS_RESOLVER"));
+        let tui = cmd.find_subcommand("tui").unwrap();
+        let arg = tui
+            .get_arguments()
+            .find(|a| a.get_id() == "resolver")
+            .expect("--resolver on the tui verb");
+        assert_eq!(arg.get_env().and_then(|e| e.to_str()), Some("RS_RESOLVER"));
+        assert!(cmd
+            .find_subcommand("history")
+            .unwrap()
+            .get_arguments()
+            .all(|a| a.get_id() != "resolver"));
+        // The flag wins over any environment.
+        let cli =
+            Cli::try_parse_from(["resolution-scope", "x.com", "--resolver", "quad9"]).unwrap();
+        assert_eq!(cli.scan.resolver.identity(), "quad9");
     }
 
     #[test]

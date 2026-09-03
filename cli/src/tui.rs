@@ -41,6 +41,9 @@ use tokio::task::JoinHandle;
 use crate::input::canonical_domain;
 use resolution_scope_engine::analysis::analyse_domain_with_receipts;
 use resolution_scope_engine::denial_proof::RecordEntry;
+use resolution_scope_engine::egress::{EgressSnapshot, FetchOutcome};
+use resolution_scope_engine::preflight::VantageReceipt;
+use resolution_scope_engine::resolver::{Transport, Vantage};
 use resolution_scope_engine::seal::canonical_input;
 use resolution_scope_engine::truth_chain::{
     by_severity, truth_chain, Audience, ControlId, ControlReport, Severity, Tally,
@@ -52,7 +55,7 @@ use resolution_scope_render::{
     RISK_WEIGHTED_NOTE, SEAL_NOTE,
 };
 
-use hickory_resolver::TokioResolver;
+use std::sync::Arc;
 
 // ── palette ────────────────────────────────────────────────────────
 
@@ -552,7 +555,89 @@ fn render_controls(
 
 /// The seal tab: the measurement conditions the seal binds, the seal itself,
 /// the exact preimage, and the one honest claim about what it proves.
-fn render_seal(a: &ScoredAnalysis, pal: Palette, width: usize) -> Vec<Line<'static>> {
+/// The compact wire token: `udp 53 ×41 → 1.1.1.1 +1` (footer) or the Seal
+/// tab's fuller `UDP 53 → 1.1.1.1 ×22, 1.0.0.1 ×19 · 41 datagrams · 0 TCP`.
+/// Every number is from the socket-layer snapshot; a QUIC/H3 run prints
+/// connections and no datagram digit.
+fn wire_token(w: &EgressSnapshot, full: bool) -> String {
+    let (word, port, count) = match w.per_destination.first() {
+        Some((d, t)) => {
+            let n = t.datagrams.max(t.tcp_connects).max(t.quic_binds);
+            (t.protocol.to_string(), d.port(), n)
+        }
+        None => return "nothing left the socket".to_string(),
+    };
+    let l4 = match word.as_str() {
+        "udp" | "quic" | "h3" => "udp",
+        _ => "tcp",
+    };
+    let _ = count;
+    if full {
+        let dests: Vec<String> = w
+            .per_destination
+            .iter()
+            .map(|(d, t)| {
+                let n = t.datagrams.max(t.tcp_connects).max(t.quic_binds);
+                format!("{} \u{00d7}{n}", d.ip())
+            })
+            .collect();
+        let counts = if w.quic_connections > 0 {
+            format!(
+                "{} QUIC connections \u{00b7} datagrams not counted here",
+                w.quic_connections
+            )
+        } else if w.datagrams_sent > 0 {
+            format!(
+                "{} datagrams \u{00b7} {} TCP",
+                w.datagrams_sent, w.tcp_connects
+            )
+        } else {
+            format!("{} TCP connections \u{00b7} 0 datagrams", w.tcp_connects)
+        };
+        format!(
+            "{} {port} \u{2192} {} \u{00b7} {counts}",
+            l4.to_uppercase(),
+            dests.join(", ")
+        )
+    } else {
+        let total = if w.quic_connections > 0 {
+            w.quic_connections
+        } else if w.datagrams_sent > 0 {
+            w.datagrams_sent
+        } else {
+            w.tcp_connects
+        };
+        let first = w.per_destination[0].0.ip();
+        let more = w.per_destination.len().saturating_sub(1);
+        let tail = if more > 0 {
+            format!(" +{more}")
+        } else {
+            String::new()
+        };
+        format!("{l4} {port} \u{00d7}{total} \u{2192} {first}{tail}")
+    }
+}
+
+/// "quad9 over TLS, port 853" / "cloudflare over UDP, port 53" for the body.
+fn vantage_phrase(c: &resolution_scope_engine::resolver::ResolverChoice) -> String {
+    let how = match c.transport {
+        Transport::Plain => "UDP",
+        Transport::Tcp => "TCP",
+        Transport::Tls => "TLS",
+        Transport::Https => "HTTPS",
+        Transport::Quic => "QUIC",
+        Transport::H3 => "HTTP/3",
+    };
+    format!("{} over {how}, port {}", c.identity(), c.port())
+}
+
+fn render_seal(
+    a: &ScoredAnalysis,
+    wire: Option<&EgressSnapshot>,
+    receipt: &VantageReceipt,
+    pal: Palette,
+    width: usize,
+) -> Vec<Line<'static>> {
     let obs = Observation::of(a);
     let label = Style::default().fg(pal.accent);
     let value = Style::default().fg(pal.fg);
@@ -564,17 +649,55 @@ fn render_seal(a: &ScoredAnalysis, pal: Palette, width: usize) -> Vec<Line<'stat
         )),
         Line::from(""),
     ];
-    for (k, v) in [
+    let mut rows: Vec<(&str, String)> = vec![
         ("  domain    ", a.domain.clone()),
         ("  engine    ", obs.engine.clone()),
         ("  resolver  ", obs.resolver.clone()),
-        (
-            "  measured  ",
-            format!("{} (epoch {})", obs.when_utc, obs.epoch),
+    ];
+    // Beside the seal, never in it: what left the socket for this domain,
+    // the policy fetch, and the two controls the vantage passed.
+    if let Some(w) = wire {
+        rows.push(("  wire      ", wire_token(w, true)));
+        let fetch = match w.fetches.first() {
+            Some(f) => {
+                let addr = f
+                    .addrs
+                    .first()
+                    .map(|a| a.to_string())
+                    .unwrap_or_else(|| "unresolved".into());
+                let outcome = match &f.outcome {
+                    FetchOutcome::Status(c, _) => c.to_string(),
+                    FetchOutcome::Redirect(c, _) => format!("{c} not followed"),
+                    FetchOutcome::ConnectError(_) => "connect failed".into(),
+                    FetchOutcome::TlsError(_) => "TLS failed".into(),
+                    FetchOutcome::Timeout => "timed out".into(),
+                    FetchOutcome::NotAttempted => "not attempted".into(),
+                };
+                format!(
+                    "{} \u{2192} {addr} \u{00b7} TCP 443 \u{00b7} {outcome}",
+                    f.host
+                )
+            }
+            None => "none \u{2014} no _mta-sts record".to_string(),
+        };
+        rows.push(("  fetch     ", fetch));
+    }
+    rows.push((
+        "  controls  ",
+        format!(
+            "root DNSKEY \u{2192} {} \u{00b7} dnssec-failed.org \u{2192} {} \u{00b7} {}",
+            receipt.positive.1,
+            receipt.negative.1,
+            receipt.at_utc.get(11..).unwrap_or(&receipt.at_utc)
         ),
-        ("  session   ", obs.session_hex.clone()),
-        ("  scheme    ", obs.scheme.to_string()),
-    ] {
+    ));
+    rows.push((
+        "  measured  ",
+        format!("{} (epoch {})", obs.when_utc, obs.epoch),
+    ));
+    rows.push(("  session   ", obs.session_hex.clone()));
+    rows.push(("  scheme    ", obs.scheme.to_string()));
+    for (k, v) in rows {
         lines.push(Line::from(vec![
             Span::styled(k, label),
             Span::styled(v, value),
@@ -607,10 +730,13 @@ fn render_seal(a: &ScoredAnalysis, pal: Palette, width: usize) -> Vec<Line<'stat
 
 /// The lines for a tab, plus the line range the view must keep visible
 /// (the selected summary row and its expansion; empty on other tabs).
+#[allow(clippy::too_many_arguments)]
 fn section_for_tab(
     tab: usize,
     result: &ScoredAnalysis,
     records: &[RecordEntry],
+    wire: Option<&EgressSnapshot>,
+    receipt: &VantageReceipt,
     pal: Palette,
     audience: Audience,
     selected: usize,
@@ -619,7 +745,7 @@ fn section_for_tab(
     let model = truth_chain(result);
     match tab {
         TAB_SUMMARY => render_summary(&model, pal, audience, selected, width),
-        TAB_SEAL => (render_seal(result, pal, width), 0..0),
+        TAB_SEAL => (render_seal(result, wire, receipt, pal, width), 0..0),
         n => {
             let (title, controls) = controls_for_tab(n);
             (
@@ -663,16 +789,20 @@ enum InputMode {
 /// is measured, not animated. (Only the `Done` payload is cacheable — see
 /// `DoneScan`, what `App::results` stores; `Measuring` holds a non-`Clone`
 /// `JoinHandle` and can never be cached.)
+// `Done` carries the verdict, the records and the socket-layer snapshot; one
+// value per session, never in a collection — boxing it buys nothing.
+#[allow(clippy::large_enum_variant)]
 enum ScanState {
     Idle,
     Measuring {
         domain: String,
         started: Instant,
-        handle: JoinHandle<Result<(ScoredAnalysis, Vec<RecordEntry>)>>,
+        handle: JoinHandle<Result<(ScoredAnalysis, Vec<RecordEntry>, EgressSnapshot)>>,
     },
     Done {
         result: ScoredAnalysis,
         records: Vec<RecordEntry>,
+        wire: EgressSnapshot,
         took: Duration,
         at: Instant,
     },
@@ -689,6 +819,7 @@ enum ScanState {
 struct DoneScan {
     result: ScoredAnalysis,
     records: Vec<RecordEntry>,
+    wire: EgressSnapshot,
     took: Duration,
     at: Instant,
 }
@@ -696,8 +827,12 @@ struct DoneScan {
 struct App {
     audience: Audience,
     pal: Palette,
-    resolver: TokioResolver,
-    resolver_identity: &'static str,
+    /// The vantage: the resolver choice, the resolver built from it, and the
+    /// socket-layer ledger under it. Launch-time only — the choice is a
+    /// measurement condition like `--dkim`, not a setting.
+    vantage: Arc<Vantage>,
+    /// The passed preflight (both controls), printed beside the seal.
+    receipt: VantageReceipt,
     domains: Vec<String>,
     dkim_selector: Vec<String>,
     current_domain: usize,
@@ -731,8 +866,8 @@ enum Action {
 
 impl App {
     fn new(
-        resolver: TokioResolver,
-        resolver_identity: &'static str,
+        vantage: Arc<Vantage>,
+        receipt: VantageReceipt,
         domains: Vec<String>,
         dkim_selector: Vec<String>,
         audience: Audience,
@@ -740,8 +875,8 @@ impl App {
         Self {
             audience,
             pal: Palette::for_audience(audience),
-            resolver,
-            resolver_identity,
+            vantage,
+            receipt,
             domains,
             dkim_selector,
             current_domain: 0,
@@ -784,14 +919,15 @@ impl App {
             handle.abort();
         }
         let domain = self.current_domain_name().to_string();
-        let resolver = self.resolver.clone();
+        let vantage = self.vantage.clone();
         let selectors = self.dkim_selector.clone();
         let d = domain.clone();
-        let identity = self.resolver_identity;
         let handle = tokio::spawn(async move {
-            analyse_domain_with_receipts(&resolver, &d, &selectors, identity)
-                .await
-                .map(|(a, _receipts, records)| (a, records))
+            let r = analyse_domain_with_receipts(&vantage, &d, &selectors).await;
+            // Drained after the scan completes: one scan runs at a time
+            // (`r again = ignored`), so the snapshot is this domain's alone.
+            let wire = vantage.ledger().drain();
+            r.map(|(a, _receipts, records)| (a, records, wire))
         });
         self.scan = ScanState::Measuring {
             domain,
@@ -813,6 +949,7 @@ impl App {
             self.scan = ScanState::Done {
                 result: cached.result.clone(),
                 records: cached.records.clone(),
+                wire: cached.wire.clone(),
                 took: cached.took,
                 at: cached.at,
             };
@@ -841,7 +978,7 @@ impl App {
         {
             let took = started.elapsed();
             let completed = match handle.await {
-                Ok(Ok((result, records))) => {
+                Ok(Ok((result, records, wire))) => {
                     let at = Instant::now();
                     // Cache the DONE payload (not the whole ScanState —
                     // Measuring holds a non-Clone JoinHandle). A later Tab
@@ -851,6 +988,7 @@ impl App {
                         DoneScan {
                             result: result.clone(),
                             records: records.clone(),
+                            wire: wire.clone(),
                             took,
                             at,
                         },
@@ -858,6 +996,7 @@ impl App {
                     ScanState::Done {
                         result,
                         records,
+                        wire,
                         took,
                         at,
                     }
@@ -880,6 +1019,13 @@ impl App {
             ScanState::Done { result, .. } => Some(result),
             _ => None,
         }
+    }
+
+    /// The layer-4 word and port the vantage is configured for ("udp 53",
+    /// "tcp 853") — configured, so labelled `asking:` until the ledger speaks.
+    fn asking_token(&self) -> String {
+        let c = self.vantage.choice();
+        format!("{} {}", c.transport.l4().to_lowercase(), c.port())
     }
 
     /// The control the summary cursor points at, in severity order.
@@ -1018,9 +1164,10 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
         } => Line::from(vec![
             Span::styled(
                 format!(
-                    "measuring {domain} \u{2014} {} controls via {} (validating) \u{2026} ",
+                    "measuring {domain} \u{2014} {} controls \u{00b7} asking {} \u{00b7} {} \u{2026} ",
                     ControlId::ALL.len(),
-                    app.resolver_identity
+                    app.vantage.identity(),
+                    app.asking_token().to_uppercase()
                 ),
                 Style::default().fg(p.warn),
             ),
@@ -1151,12 +1298,17 @@ fn render_content(f: &mut Frame, area: Rect, app: &mut App) {
     }
     let lines: Vec<Line<'static>> = match &app.scan {
         ScanState::Done {
-            result, records, ..
+            result,
+            records,
+            wire,
+            ..
         } => {
             let (lines, keep) = section_for_tab(
                 app.selected_tab,
                 result,
                 records,
+                Some(wire),
+                &app.receipt,
                 p,
                 app.audience,
                 app.selected_control,
@@ -1185,9 +1337,9 @@ fn render_content(f: &mut Frame, area: Rect, app: &mut App) {
             v.extend(wrap_indent(
                 "  ",
                 &format!(
-                    "{:.1}s elapsed \u{2014} one validating resolver ({}); the engine reports all {} controls together when done",
+                    "{:.1}s elapsed \u{2014} one resolver ({}); DNSSEC validated here, controls passed; the engine reports all {} controls together when done",
                     started.elapsed().as_secs_f64(),
-                    app.resolver_identity,
+                    vantage_phrase(app.vantage.choice()),
                     ControlId::ALL.len()
                 ),
                 width,
@@ -1283,13 +1435,14 @@ fn render_footer(f: &mut Frame, area: Rect, app: &App) {
         return;
     }
     let status = match &app.scan {
-        ScanState::Done { took, at, .. } => format!(
-            "measured in {:.1}s, {}s ago  \u{2502}  domain {}/{}  \u{2502}  {}",
+        ScanState::Done { took, at, wire, .. } => format!(
+            "measured in {:.1}s, {}s ago  \u{2502}  domain {}/{}  \u{2502}  {}  \u{2502}  wire: {}",
             took.as_secs_f64(),
             at.elapsed().as_secs(),
             app.current_domain + 1,
             app.domains.len(),
-            section_label(app)
+            section_label(app),
+            wire_token(wire, false)
         ),
         ScanState::Measuring { started, .. } => format!(
             "measuring \u{2026} {:.1}s  \u{2502}  domain {}/{}  \u{2502}  r again = ignored",
@@ -1297,6 +1450,9 @@ fn render_footer(f: &mut Frame, area: Rect, app: &App) {
             app.current_domain + 1,
             app.domains.len()
         ),
+        ScanState::Failed { error, .. } if error.starts_with("vantage refused") => {
+            "measurement refused \u{2014} q: quit, then change --resolver".to_string()
+        }
         ScanState::Failed { .. } => "measurement failed \u{2014} r: retry".to_string(),
         ScanState::Idle => "no measurement yet \u{2014} r: measure".to_string(),
     };
@@ -1512,19 +1668,13 @@ impl Drop for TerminalSession {
 /// main.rs; this module owns the terminal session (raw mode, alternate
 /// screen, event loop) and the renderers above.
 pub async fn run(
-    resolver: TokioResolver,
-    resolver_identity: &'static str,
+    vantage: Arc<Vantage>,
+    receipt: VantageReceipt,
     domains: Vec<String>,
     dkim_selector: Vec<String>,
     audience: Audience,
 ) -> Result<()> {
-    let mut app = App::new(
-        resolver,
-        resolver_identity,
-        domains,
-        dkim_selector,
-        audience,
-    );
+    let mut app = App::new(vantage, receipt, domains, dkim_selector, audience);
     app.start_scan();
 
     // A panic on the UI thread must not strand the terminal. A panic inside
@@ -1587,23 +1737,33 @@ pub async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hickory_resolver::config::{ResolverConfig, ResolverOpts};
-    use hickory_resolver::net::runtime::TokioRuntimeProvider;
+    use resolution_scope_engine::preflight::{ControlOutcome, Mode};
+    use resolution_scope_engine::resolver::ResolverChoice;
 
-    fn test_resolver() -> TokioResolver {
-        TokioResolver::builder_with_config(
-            ResolverConfig::udp_and_tcp(&hickory_resolver::config::CLOUDFLARE),
-            TokioRuntimeProvider::default(),
+    /// An offline vantage: a closed loopback port. Construction never
+    /// connects, and no test here scans.
+    fn test_vantage() -> Arc<Vantage> {
+        Arc::new(
+            Vantage::build("127.0.0.1#1".parse().unwrap()).expect("vantage builds without network"),
         )
-        .with_options(ResolverOpts::default())
-        .build()
-        .expect("resolver builds without network")
+    }
+
+    fn test_receipt(identity: &str) -> VantageReceipt {
+        VantageReceipt {
+            identity: identity.to_string(),
+            mode: Mode::UpstreamAndLocal,
+            positive: (".", ControlOutcome::Secure),
+            negative: ("dnssec-failed.org", ControlOutcome::ServFail),
+            at_utc: "2026-09-03T05:13:35Z".into(),
+            warning: None,
+            egress: EgressSnapshot::default(),
+        }
     }
 
     fn app(domains: &[&str]) -> App {
         App::new(
-            test_resolver(),
-            "test",
+            test_vantage(),
+            test_receipt("127.0.0.1#1"),
             domains.iter().map(|s| s.to_string()).collect(),
             vec![],
             Audience::BlueTeam,
@@ -1762,7 +1922,17 @@ mod tests {
             },
         ];
         // Tab 3 is SPF · DKIM · DMARC — it carries two of the three records.
-        let (lines, _) = section_for_tab(3, &a, &records, Palette::BLUE, Audience::BlueTeam, 0, 80);
+        let (lines, _) = section_for_tab(
+            3,
+            &a,
+            &records,
+            None,
+            &test_receipt("test"),
+            Palette::BLUE,
+            Audience::BlueTeam,
+            0,
+            80,
+        );
         let text: String = lines
             .iter()
             .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
@@ -2147,16 +2317,21 @@ mod tests {
         use std::time::{Duration, Instant};
 
         let domain = "it-help.tech".to_string();
-        let (result, _receipts, records) =
-            analyse_domain_with_receipts(&test_resolver(), &domain, &[], "cloudflare")
-                .await
-                .expect("scan it-help.tech");
+        let vantage = Arc::new(Vantage::build(ResolverChoice::default()).unwrap());
+        let receipt = vantage
+            .preflight()
+            .await
+            .expect("preflight on the default vantage");
+        let (result, _receipts, records) = analyse_domain_with_receipts(&vantage, &domain, &[])
+            .await
+            .expect("scan it-help.tech");
+        let wire = vantage.ledger().drain();
 
         // Dump BOTH modes so the blue and red renders can be compared.
         for (audience, name) in [(Audience::BlueTeam, "blue"), (Audience::RedTeam, "red")] {
             let mut app = App::new(
-                test_resolver(),
-                "cloudflare",
+                vantage.clone(),
+                receipt.clone(),
                 vec![domain.clone()],
                 vec![],
                 audience,
@@ -2164,6 +2339,7 @@ mod tests {
             app.scan = ScanState::Done {
                 result: result.clone(),
                 records: records.clone(),
+                wire: wire.clone(),
                 took: Duration::from_secs(10),
                 at: Instant::now(),
             };
