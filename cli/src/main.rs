@@ -52,8 +52,11 @@ check: skipping would be a silent downgrade.
       a public resolver by name — Cloudflare (1.1.1.1), Quad9 (9.9.9.9),
       Google (8.8.8.8), DNS4EU (86.54.11.100, unfiltered), OpenDNS (208.67.222.222)
   system
-      the resolver this machine already uses (macOS: scutil --dns; Linux:
-      /etc/resolv.conf). Sealed as the word \"system\": its address changes with
+      the resolver this machine already uses. On macOS that is the GLOBAL
+      resolver only (the first block of scutil --dns): a VPN's per-domain or
+      scoped resolvers are not read and never asked — a name your VPN would
+      answer privately goes to the global resolver instead. Linux:
+      /etc/resolv.conf. Sealed as the word \"system\": its address changes with
       every network, the instrument may use any of the addresses listed, and
       the addresses actually sent to are printed beside the seal, never in it.
   9.9.9.9 | 9.9.9.9#5353 | [2620:fe::fe]

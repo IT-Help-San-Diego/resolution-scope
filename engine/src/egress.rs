@@ -70,29 +70,113 @@ pub struct EgressEntry {
 }
 
 /// The outcome of one HTTPS fetch (the MTA-STS policy), as observed.
+///
+/// The failure variants are classified from the `std::error::Error::source()`
+/// chain, never from `Display`: reqwest 0.12's `Display` prints only the kind
+/// and the URL ("error sending request for url (…)"), so a substring test on
+/// it never sees the layer that failed — a closed port and a wrong
+/// certificate print byte-identical text (E8, engine/tests/egress_ledger.rs).
+/// hyper-util's connect stage runs DNS → TCP → TLS and names the first two in
+/// its chain ("dns error", "tcp connect error", …); a connect-stage failure
+/// that names neither is the TLS handshake. Each variant carries the chain
+/// verbatim so a surface prints what the library said, joined by " -> ".
+///
+/// The SNI claim a surface may make follows the stage: `Unresolved` and
+/// `ConnectError` — no ClientHello left, the name was NOT sent; `TlsError`
+/// and `RequestFailed` — the TCP connection completed and the ClientHello
+/// (which carries the name in the clear) was the next thing out.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FetchOutcome {
     /// HTTP status and body bytes read.
     Status(u16, usize),
     /// A 3xx with its Location — recorded, never followed (RFC 8461 §3.3).
     Redirect(u16, String),
-    /// The connection could not be made (refused, unreachable, resolution).
+    /// The policy host could not be resolved through the vantage: no HTTPS
+    /// packet left.
+    Unresolved(String),
+    /// The TCP connect failed (refused, unreachable, or timed out at the
+    /// socket): the SYNs are what left; no TLS handshake began.
     ConnectError(String),
-    /// The TLS handshake failed (bad certificate, protocol error).
+    /// The TCP connection completed and the TLS handshake failed (bad
+    /// certificate, alert, EOF): the ClientHello carried the name (SNI).
     TlsError(String),
-    /// The 10 s client timeout elapsed.
+    /// The TLS session was established and the request failed afterwards
+    /// (protocol error, body read): the name was sent, the request left.
+    RequestFailed(String),
+    /// The 10 s client timeout elapsed. The timeout wraps the whole request
+    /// (resolution included), so the stage reached is NOT recorded here.
     Timeout,
     /// The fetch was recorded but has not completed.
     NotAttempted,
 }
 
+/// The `source()` chain of an error below its top-level `Display`, joined by
+/// " -> " — the text a surface prints verbatim so the user can match it
+/// against what the library actually said.
+pub fn error_chain(e: &dyn std::error::Error) -> String {
+    chain_segments(e).join(" -> ")
+}
+
+fn chain_segments(e: &dyn std::error::Error) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut cur = e.source();
+    while let Some(s) = cur {
+        parts.push(s.to_string());
+        cur = s.source();
+    }
+    parts
+}
+
+impl FetchOutcome {
+    /// Classify a failed `send()` by the layer that failed, from the typed
+    /// source chain (see the enum doc). Order matters: the stage words are
+    /// read BEFORE `is_timeout()`, because a TCP connect that timed out at
+    /// the socket carries `io::ErrorKind::TimedOut` in its chain and is
+    /// still a connect-stage failure (no ClientHello left).
+    ///
+    /// hyper-util 0.1.20 `ConnectError`'s `Display` is exactly its stage word
+    /// (`connect/http.rs`: "dns error"; "tcp connect error", "tcp open
+    /// error", "tcp bind local error", … — every socket-stage word begins
+    /// with "tcp "). The type is public but its message is not, so the word
+    /// is matched on the segment's `Display`, whole, never as a substring of
+    /// a longer message.
+    pub fn classify(e: &reqwest::Error) -> FetchOutcome {
+        let segments = chain_segments(e);
+        let chain = segments.join(" -> ");
+        let has_dns_stage = segments.iter().any(|s| s == "dns error");
+        let has_socket_stage = segments.iter().any(|s| s.starts_with("tcp "));
+        if e.is_connect() {
+            if has_dns_stage {
+                FetchOutcome::Unresolved(chain)
+            } else if has_socket_stage {
+                FetchOutcome::ConnectError(chain)
+            } else if e.is_timeout() {
+                FetchOutcome::Timeout
+            } else {
+                FetchOutcome::TlsError(chain)
+            }
+        } else if e.is_timeout() {
+            FetchOutcome::Timeout
+        } else {
+            FetchOutcome::RequestFailed(chain)
+        }
+    }
+}
+
 /// One HTTPS fetch: where it went, which addresses were handed to the HTTP
-/// client (resolved through the vantage), and what came back.
+/// client (resolved through the vantage — a lookup result, labelled so), the
+/// peer the response actually came from (hyper-util's `getpeername` on the
+/// socket the response arrived over — the ONE measured destination; `None`
+/// when no response arrived, because reqwest's socket is outside the ledger
+/// and a failed connect leaves no peer to read), and what came back.
 #[derive(Debug, Clone)]
 pub struct FetchEntry {
     pub url: String,
     pub host: String,
+    /// Resolved through the vantage — NOT the address connected to.
     pub addrs: Vec<IpAddr>,
+    /// The socket peer of the response, when there was a response.
+    pub peer: Option<SocketAddr>,
     pub via: String,
     pub outcome: FetchOutcome,
 }
@@ -169,7 +253,12 @@ pub struct EgressSnapshot {
     pub datagram_bytes: usize,
     pub undecoded_datagrams: usize,
     pub tcp_connects: usize,
-    pub quic_connections: usize,
+    /// UDP sockets handed to quinn (`QuicSocketBinder::bind_quic` returned
+    /// Ok) — a socket OPENED, never a connection: the ledger does not see
+    /// quinn's handshake, so a fully timed-out DoQ run still counts its
+    /// sockets here. A surface prints "sockets opened; connections not
+    /// counted", never "connections".
+    pub quic_sockets: usize,
     /// Every question name decoded from the datagrams that left, deduplicated,
     /// first-seen order, with the trailing dot hickory writes.
     pub cleartext_qnames: Vec<String>,
@@ -240,7 +329,7 @@ impl EgressSnapshot {
                     if t.protocol.is_empty() {
                         t.protocol = "quic";
                     }
-                    snap.quic_connections += 1;
+                    snap.quic_sockets += 1;
                 }
             }
         }
@@ -592,8 +681,9 @@ mod tests {
         assert!(ledger.drain().is_empty());
     }
 
-    /// A TCP connect and a QUIC bind are connections, never datagrams: a
-    /// snapshot holding only those has `datagrams_sent == 0`.
+    /// A TCP connect and a QUIC bind are not datagrams: a snapshot holding
+    /// only those has `datagrams_sent == 0`. (A QUIC bind is a socket
+    /// opened, not a connection — `quic_sockets`, named for what it is.)
     #[test]
     fn connections_are_not_datagrams() {
         let ledger = EgressLedger::new();
@@ -602,7 +692,7 @@ mod tests {
         let snap = ledger.drain();
         assert_eq!(snap.datagrams_sent, 0);
         assert_eq!(snap.tcp_connects, 1);
-        assert_eq!(snap.quic_connections, 1);
+        assert_eq!(snap.quic_sockets, 1);
         assert_eq!(snap.destinations().len(), 1);
     }
 

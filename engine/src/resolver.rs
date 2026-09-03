@@ -236,10 +236,49 @@ pub enum Target {
 }
 
 /// The resolver choice: where the questions go, and how they travel.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+///
+/// Equality and hashing follow the CANONICAL form — the one `identity()`
+/// writes — never the fields as constructed: the fields are `pub`, so
+/// `Target::Address { port: Some(853), .. }` under `Transport::Tls` can be
+/// built by hand, and it is the same choice as `port: None` (same
+/// identity, same config, same sealed bytes). A structural derive called
+/// them different; `canonical()` is what `PartialEq`/`Hash` compare.
+#[derive(Debug, Clone)]
 pub struct ResolverChoice {
     pub target: Target,
     pub transport: Transport,
+}
+
+impl ResolverChoice {
+    /// The choice with its address normalised the way `identity()` writes
+    /// it: a port equal to the transport default becomes `None`, and a
+    /// server name is kept only under an encrypted transport (no parse
+    /// produces one elsewhere; `server_name()` is the single rule).
+    fn canonical(&self) -> (Target, Transport) {
+        let target = match &self.target {
+            Target::Address { ip, .. } => Target::Address {
+                ip: *ip,
+                port: self.written_port(),
+                server_name: self.server_name(),
+            },
+            other => other.clone(),
+        };
+        (target, self.transport)
+    }
+}
+
+impl PartialEq for ResolverChoice {
+    fn eq(&self, other: &Self) -> bool {
+        self.canonical() == other.canonical()
+    }
+}
+
+impl Eq for ResolverChoice {}
+
+impl std::hash::Hash for ResolverChoice {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.canonical().hash(state);
+    }
 }
 
 impl Default for ResolverChoice {
@@ -574,7 +613,7 @@ impl ResolverChoice {
         let mut s = match &self.target {
             Target::Preset(p) => p.label().to_string(),
             Target::System => "system".to_string(),
-            Target::Address { ip, port, .. } => match port {
+            Target::Address { ip, .. } => match self.written_port() {
                 Some(p) => format!("{}#{p}", display_ip(*ip)),
                 None => display_ip(*ip),
             },
@@ -582,16 +621,39 @@ impl ResolverChoice {
         if let Some(suffix) = self.transport.suffix() {
             s.push('/');
             s.push_str(suffix);
-            if let Target::Address {
-                server_name: Some(n),
-                ..
-            } = &self.target
-            {
+            // A certificate name is part of the identity only where the
+            // transport verifies one — the same rule as `server_name()`, so
+            // the sealed string and equality (the canonical form) never
+            // disagree on a hand-built value.
+            let name = match &self.target {
+                Target::Address {
+                    server_name: Some(n),
+                    ..
+                } if self.transport.is_encrypted() => Some(n.as_str()),
+                _ => None,
+            };
+            if let Some(n) = name {
                 s.push('/');
                 s.push_str(n);
             }
         }
         s
+    }
+
+    /// The port the identity writes: an address's port ONLY when it differs
+    /// from the transport's default. The parser never stores a default port
+    /// (`from_str`), but the fields are `pub`, so a value built as
+    /// `Target::Address { port: Some(853), .. }` under `Transport::Tls` is
+    /// the same choice as `port: None` and must seal the same bytes —
+    /// identity is a pure function of destination + transport, never of
+    /// how the value was constructed.
+    fn written_port(&self) -> Option<u16> {
+        match &self.target {
+            Target::Address { port: Some(p), .. } if *p != self.transport.default_port() => {
+                Some(*p)
+            }
+            _ => None,
+        }
     }
 
     /// The exact inverse of [`identity`](Self::identity). `None` for a legacy
@@ -608,7 +670,7 @@ impl ResolverChoice {
         let mut s = match &self.target {
             Target::Preset(p) => format!("{} ({})", p.operator(), first_address(p.group().ips)),
             Target::System => "this machine's own system resolver (address not sealed)".to_string(),
-            Target::Address { ip, port, .. } => match port {
+            Target::Address { ip, .. } => match self.written_port() {
                 Some(port) => format!("{} port {port}", display_ip(*ip)),
                 None => display_ip(*ip),
             },
@@ -621,7 +683,7 @@ impl ResolverChoice {
             Transport::Quic => s.push_str(" over DNS-over-QUIC, port 853"),
             Transport::H3 => s.push_str(" over DNS-over-HTTP/3, port 443"),
         }
-        if let Target::Address { port: Some(_), .. } = &self.target {
+        if self.written_port().is_some() {
             // The port already appears with the address; do not print the default one twice.
             s = s
                 .replace(", port 53", "")
@@ -849,6 +911,10 @@ pub struct Vantage {
     resolver: ScopeResolver,
     ledger: EgressLedger,
     fetch_overrides: Vec<(String, SocketAddr)>,
+    /// TEST SEAM (`with_policy_port`): the port the MTA-STS policy URL
+    /// names. `None` in every production construction — the URL then
+    /// carries no port and reqwest connects to 443.
+    policy_port: Option<u16>,
 }
 
 impl Deref for Vantage {
@@ -904,6 +970,7 @@ impl Vantage {
             resolver,
             ledger,
             fetch_overrides: Vec::new(),
+            policy_port: None,
         })
     }
 
@@ -930,6 +997,32 @@ impl Vantage {
     pub fn with_fetch_override(mut self, host: &str, addr: SocketAddr) -> Self {
         self.fetch_overrides.push((host.to_ascii_lowercase(), addr));
         self
+    }
+
+    /// TEST SEAM, never a production path: the port the MTA-STS policy URL
+    /// names. reqwest's `.resolve()` override ignores the port it is given
+    /// and the vantage's DNS hook answers with port 0 (E6), so the ONLY way a
+    /// connect can be steered off 443 is through the URL — and an
+    /// unprivileged process cannot bind 127.0.0.1:443 on macOS or the CI
+    /// runner. With this seam a loopback listener on an ephemeral port
+    /// observes the ACCEPT that proves the connect went to the address the
+    /// vantage resolved (egress_ledger.rs E7). The production URL never
+    /// carries a port (`policy_url_carries_a_port_only_through_the_seam`).
+    #[doc(hidden)]
+    pub fn with_policy_port(mut self, port: u16) -> Self {
+        self.policy_port = Some(port);
+        self
+    }
+
+    /// The MTA-STS policy URL for `domain`:
+    /// `https://mta-sts.<domain>/.well-known/mta-sts.txt`. The ONLY producer
+    /// of that string; a `:<port>` appears only under the `with_policy_port`
+    /// test seam.
+    pub fn policy_url(&self, domain: &str) -> String {
+        match self.policy_port {
+            Some(p) => format!("https://mta-sts.{domain}:{p}/.well-known/mta-sts.txt"),
+            None => format!("https://mta-sts.{domain}/.well-known/mta-sts.txt"),
+        }
     }
 
     /// The HTTPS client for the MTA-STS policy fetch: names resolved THROUGH
@@ -1302,6 +1395,216 @@ mod tests {
             }
             let v = Vantage::build(c.clone()).unwrap_or_else(|e| panic!("{c:?}: {e}"));
             assert_eq!(v.identity(), c.identity());
+        }
+    }
+
+    /// T9 — identity is a pure function of destination + transport: a port
+    /// written explicitly through the `pub` fields that equals the
+    /// transport default yields the SAME string as the port omitted, for
+    /// every transport and both address families. Negative control: a
+    /// port that differs from the default is still written.
+    /// Mutant: `identity()` reads `port` directly instead of
+    /// `written_port()` → "9.9.9.9#853/tls/dns.quad9.net" != "9.9.9.9/tls/dns.quad9.net".
+    #[test]
+    fn identity_omits_a_port_equal_to_the_transport_default_however_it_was_built() {
+        for t in Transport::ALL {
+            let name = t.is_encrypted().then(|| "dns.quad9.net".to_string());
+            for ip in ["9.9.9.9", "2620:fe::fe"] {
+                let ip: IpAddr = ip.parse().unwrap();
+                let omitted = ResolverChoice {
+                    target: Target::Address {
+                        ip,
+                        port: None,
+                        server_name: name.clone(),
+                    },
+                    transport: t,
+                };
+                let explicit_default = ResolverChoice {
+                    target: Target::Address {
+                        ip,
+                        port: Some(t.default_port()),
+                        server_name: name.clone(),
+                    },
+                    transport: t,
+                };
+                assert_eq!(
+                    explicit_default.identity(),
+                    omitted.identity(),
+                    "{t:?} {ip}: an explicit default port is the same choice"
+                );
+                assert!(!omitted.identity().contains('#'), "{}", omitted.identity());
+                assert_eq!(explicit_default.gloss(), omitted.gloss());
+                assert_eq!(explicit_default.port(), omitted.port());
+                // Negative: a non-default port is written, and moves the identity.
+                let other = ResolverChoice {
+                    target: Target::Address {
+                        ip,
+                        port: Some(t.default_port() + 1),
+                        server_name: name.clone(),
+                    },
+                    transport: t,
+                };
+                assert!(
+                    other
+                        .identity()
+                        .contains(&format!("#{}", t.default_port() + 1)),
+                    "{}",
+                    other.identity()
+                );
+                assert_ne!(other.identity(), omitted.identity());
+            }
+        }
+    }
+
+    /// The MTA-STS policy-port seam, both controls. NEGATIVE (the
+    /// production path): a vantage built by `build` names no port in the
+    /// policy URL — the string is byte-identical to the one analysis.rs
+    /// fetched before the seam existed. POSITIVE: `with_policy_port` puts
+    /// `:<port>` after the host and nowhere else. Mutant: `policy_url`
+    /// ignores `policy_port` → the positive fails; `build` sets a port →
+    /// the negative fails.
+    #[test]
+    fn policy_url_carries_a_port_only_through_the_seam() {
+        let v = Vantage::build(ResolverChoice::default()).unwrap();
+        assert_eq!(
+            v.policy_url("example.test"),
+            "https://mta-sts.example.test/.well-known/mta-sts.txt"
+        );
+        let v = Vantage::build_unvalidating_for_tests(ResolverChoice::default()).unwrap();
+        assert_eq!(
+            v.policy_url("example.test"),
+            "https://mta-sts.example.test/.well-known/mta-sts.txt",
+            "the unvalidating seam does not touch the URL"
+        );
+        let v = v.with_policy_port(45_678);
+        assert_eq!(
+            v.policy_url("example.test"),
+            "https://mta-sts.example.test:45678/.well-known/mta-sts.txt"
+        );
+    }
+
+    /// T10 — equality and hashing follow the canonical form, as identity
+    /// does. POSITIVE: for every transport and both address families, the
+    /// choice built with `port: Some(default)` equals the one built with
+    /// `port: None` (their identities are equal), hashes equal, and a
+    /// `HashSet` holds one of them. NEGATIVE: a choice with a different
+    /// port, or the same address under a different transport, is not
+    /// equal and the set holds both. Mutant: derive structural
+    /// `PartialEq`/`Hash` again → the positive fails
+    /// (`Some(853) != None`); `canonical()` drops the port → the negative
+    /// fails.
+    #[test]
+    fn equality_and_hash_follow_identity_not_construction() {
+        use std::collections::HashSet;
+        use std::hash::{Hash, Hasher};
+        fn h(c: &ResolverChoice) -> u64 {
+            let mut s = std::collections::hash_map::DefaultHasher::new();
+            c.hash(&mut s);
+            s.finish()
+        }
+        for t in Transport::ALL {
+            let name = t.is_encrypted().then(|| "dns.quad9.net".to_string());
+            for ip in ["9.9.9.9", "2620:fe::fe"] {
+                let ip: IpAddr = ip.parse().unwrap();
+                let at = |port: Option<u16>, transport: Transport| ResolverChoice {
+                    target: Target::Address {
+                        ip,
+                        port,
+                        server_name: name.clone(),
+                    },
+                    transport,
+                };
+                let omitted = at(None, t);
+                let explicit_default = at(Some(t.default_port()), t);
+                assert_eq!(omitted.identity(), explicit_default.identity());
+                assert_eq!(
+                    omitted, explicit_default,
+                    "{t:?} {ip}: one choice, two constructions"
+                );
+                assert_eq!(h(&omitted), h(&explicit_default), "{t:?} {ip}: one hash");
+                let set: HashSet<ResolverChoice> = [omitted.clone(), explicit_default.clone()]
+                    .into_iter()
+                    .collect();
+                assert_eq!(set.len(), 1, "{t:?} {ip}: the set holds one choice");
+                // The parsed form is the same choice too.
+                assert_eq!(
+                    omitted,
+                    omitted.identity().parse::<ResolverChoice>().unwrap()
+                );
+
+                // Negative: a different port is a different choice ...
+                let other_port = at(Some(t.default_port() + 1), t);
+                assert_ne!(other_port.identity(), omitted.identity());
+                assert_ne!(other_port, omitted, "{t:?} {ip}");
+                let set: HashSet<ResolverChoice> =
+                    [omitted.clone(), other_port.clone()].into_iter().collect();
+                assert_eq!(set.len(), 2, "{t:?} {ip}: two choices, two entries");
+                // ... and so is the same address under another transport.
+                let other_transport = Transport::ALL
+                    .into_iter()
+                    .find(|o| *o != t && o.is_encrypted() == t.is_encrypted())
+                    .unwrap();
+                let moved = at(None, other_transport);
+                assert_ne!(moved.identity(), omitted.identity());
+                assert_ne!(moved, omitted, "{t:?} vs {other_transport:?} {ip}");
+            }
+        }
+        // The presets and `system` compare by what they are.
+        assert_eq!(
+            ResolverChoice::default(),
+            "cloudflare".parse::<ResolverChoice>().unwrap()
+        );
+        assert_ne!(
+            ResolverChoice::default(),
+            "quad9".parse::<ResolverChoice>().unwrap()
+        );
+        assert_ne!(
+            ResolverChoice::default(),
+            "tls://cloudflare".parse::<ResolverChoice>().unwrap()
+        );
+    }
+
+    /// T11 — the sealed string and equality agree on a certificate name
+    /// under EVERY transport: a name is part of the choice only where the
+    /// transport verifies one. Built through the pub fields (the parser
+    /// refuses a name under plain/tcp), so this is the corner a derive-free
+    /// Eq must cover. Negative control: without the encryption gate in
+    /// `identity()`, plain/tcp write the name while `canonical()` drops it —
+    /// two different identity strings compare equal, and this fails.
+    #[test]
+    fn identity_and_equality_agree_on_a_name_under_every_transport() {
+        let ip: std::net::IpAddr = "9.9.9.9".parse().unwrap();
+        for t in Transport::ALL {
+            let with = ResolverChoice {
+                target: Target::Address {
+                    ip,
+                    port: None,
+                    server_name: Some("dns.quad9.net".into()),
+                },
+                transport: t,
+            };
+            let without = ResolverChoice {
+                target: Target::Address {
+                    ip,
+                    port: None,
+                    server_name: None,
+                },
+                transport: t,
+            };
+            let same_identity = with.identity() == without.identity();
+            let same_choice = with == without;
+            assert_eq!(
+                same_identity,
+                same_choice,
+                "{t:?}: identity() and Eq disagree on a certificate name — {} vs {}",
+                with.identity(),
+                without.identity()
+            );
+            assert_eq!(
+                same_choice,
+                !t.is_encrypted(),
+                "{t:?}: a name is part of the choice only under an encrypted transport"
+            );
         }
     }
 

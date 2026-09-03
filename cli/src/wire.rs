@@ -4,8 +4,9 @@
 //! choice. Every number printed here was measured at the socket
 //! (`EgressSnapshot`); every configured fact is labelled "(configured)"; no
 //! line prints a TLS version or cipher (hickory does not expose them); a
-//! QUIC/H3 run prints no digit before "datagrams" (quinn's sockets are
-//! outside the ledger). The user can check each line with tcpdump or lsof,
+//! QUIC/H3 run prints no digit before "datagrams" and counts sockets
+//! opened, never connections (quinn's handshake and datagrams are outside
+//! the ledger; the bind is what it sees). The user can check each line with tcpdump or lsof,
 //! and the line says so before they look.
 
 use std::fmt::Write as _;
@@ -42,9 +43,14 @@ fn encryption_sentence(c: &ResolverChoice) -> &'static str {
     }
 }
 
+/// Where the system choice's addresses were read from — named so the user
+/// can read the same source. On macOS hickory-resolver 0.26.1 reads
+/// `State:/Network/Global/DNS` from the System Configuration store: the
+/// GLOBAL resolver only, the first block of `scutil --dns`; a VPN's scoped
+/// or per-domain resolvers are not read and never asked.
 fn system_conf_source() -> &'static str {
     if cfg!(target_vendor = "apple") {
-        "scutil --dns"
+        "the global resolver only — the first block of scutil --dns; a VPN's scoped or per-domain resolvers are not read and never asked"
     } else if cfg!(unix) {
         "/etc/resolv.conf"
     } else {
@@ -54,7 +60,10 @@ fn system_conf_source() -> &'static str {
 
 /// The egress summary for the receipt or a wire line: "6 datagrams →
 /// 1.1.1.1:53 ×3, 1.0.0.1:53 ×3" / "2 TCP connections → …" / "2 QUIC
-/// connections → … (datagrams not counted here)". Zero events → no count.
+/// sockets opened → … (connections and datagrams not counted here)". Zero
+/// events → no count. A QUIC count is SOCKETS handed to quinn (what lsof
+/// shows), never connections: the ledger does not see quinn's handshake,
+/// and a fully timed-out DoQ run opens sockets all the same.
 fn egress_summary(s: &EgressSnapshot) -> String {
     let mut parts = Vec::new();
     if s.datagrams_sent > 0 {
@@ -85,7 +94,7 @@ fn egress_summary(s: &EgressSnapshot) -> String {
             dests.join(", ")
         ));
     }
-    if s.quic_connections > 0 {
+    if s.quic_sockets > 0 {
         let dests: Vec<String> = s
             .per_destination
             .iter()
@@ -93,9 +102,9 @@ fn egress_summary(s: &EgressSnapshot) -> String {
             .map(|(d, t)| format!("{d} ×{}", t.quic_binds))
             .collect();
         parts.push(format!(
-            "{} QUIC connection{} → {} (datagrams not counted here)",
-            s.quic_connections,
-            if s.quic_connections == 1 { "" } else { "s" },
+            "{} QUIC socket{} opened → {} (connections and datagrams not counted here)",
+            s.quic_sockets,
+            if s.quic_sockets == 1 { "" } else { "s" },
             dests.join(", ")
         ));
     }
@@ -358,9 +367,9 @@ pub fn render(s: &EgressSnapshot, c: &ResolverChoice, f: &WireFacts<'_>) -> Stri
         Transport::Quic | Transport::H3 => {
             let _ = writeln!(
                 out,
-                "        DNS    {identity} — {l4} {port} {arrow} · {} connection{} · datagrams not counted here (QUIC sockets are opened by quinn, outside the ledger) — tcpdump udp port {port}",
-                s.quic_connections,
-                if s.quic_connections == 1 { "" } else { "s" }
+                "        DNS    {identity} — {l4} {port} {arrow} · {} QUIC socket{} opened · connections and datagrams not counted here (quinn owns the socket; the ledger sees the bind, not the handshake) — tcpdump udp port {port}",
+                s.quic_sockets,
+                if s.quic_sockets == 1 { "" } else { "s" }
             );
             out.push_str(
                 "               encrypted: the path sees endpoints and sizes, not the DNS names — the HTTPS line below is the one place the domain is visible (SNI)\n",
@@ -376,10 +385,21 @@ pub fn render(s: &EgressSnapshot, c: &ResolverChoice, f: &WireFacts<'_>) -> Stri
             f.domain
         );
     } else if let Some(fe) = s.fetches.first() {
-        let addrs = if fe.addrs.is_empty() {
-            "(address unresolved)".to_string()
+        // Behind the arrow sits ONLY the socket peer (hyper-util's
+        // getpeername on the socket the response came over). The resolved
+        // set is a lookup result: hyper-util connects to one address (the
+        // next only on error), so the set is listed as "resolved", never as
+        // where the bytes went. No response → no peer, and the line says so
+        // rather than promoting the lookup to a measurement.
+        let destination = match &fe.peer {
+            Some(peer) => format!("{peer} (socket peer)"),
+            None => "peer not recorded (no response; reqwest's socket is outside the ledger)"
+                .to_string(),
+        };
+        let resolved = if fe.addrs.is_empty() {
+            format!("resolved via {}: no address", fe.via)
         } else {
-            addrs_list(&fe.addrs)
+            format!("resolved via {}: {}", fe.via, addrs_list(&fe.addrs))
         };
         let outcome = match &fe.outcome {
             FetchOutcome::Status(code, bytes) if (200..300).contains(code) => format!(
@@ -393,19 +413,32 @@ pub fn render(s: &EgressSnapshot, c: &ResolverChoice, f: &WireFacts<'_>) -> Stri
             FetchOutcome::Redirect(code, location) => format!(
                 "{code} to {location} — not followed: the policy is not servable from the domain"
             ),
-            FetchOutcome::ConnectError(e) => {
-                format!("{e} — the connection attempt is what left; nothing further was sent")
+            FetchOutcome::Unresolved(e) => format!(
+                "no HTTPS packet left: {} could not be resolved through {} ({e})",
+                fe.host, fe.via
+            ),
+            FetchOutcome::ConnectError(e) => format!(
+                "TCP connect on port 443 failed ({e}) — the SYNs are what left; no TLS handshake began, so the name {} was not sent",
+                fe.host
+            ),
+            FetchOutcome::TlsError(e) => format!(
+                "the TCP connection completed and the TLS handshake failed ({e}) — the ClientHello that opens it carries the name {} in the clear (SNI)",
+                fe.host
+            ),
+            FetchOutcome::RequestFailed(e) => format!(
+                "the TLS session was established (the name {} was visible, SNI) and the request failed afterwards ({e})",
+                fe.host
+            ),
+            FetchOutcome::Timeout => {
+                "timed out after 10 s — the stage reached was not recorded".to_string()
             }
-            FetchOutcome::TlsError(e) => {
-                format!("{e} — the name {} was visible in that attempt (SNI)", fe.host)
-            }
-            FetchOutcome::Timeout => "timed out after 10 s".to_string(),
             FetchOutcome::NotAttempted => "not attempted".to_string(),
         };
         let _ = writeln!(
             out,
-            "        HTTPS  {} → {addrs} (address via {}) · TCP 443 · {outcome}",
-            fe.host, fe.via
+            "        HTTPS  {} → {destination} · {resolved} · {} · {outcome}",
+            fe.host,
+            connection_claim(&fe.outcome)
         );
     } else {
         let _ = writeln!(
@@ -427,6 +460,25 @@ pub fn render(s: &EgressSnapshot, c: &ResolverChoice, f: &WireFacts<'_>) -> Stri
         tcpdump_filter(c)
     );
     out
+}
+
+/// The transport/port token of the HTTPS line, printed ONLY when a
+/// connection was attempted. `Unresolved` never reached the socket (the
+/// name did not resolve, so no SYN left for :443) and `NotAttempted` never
+/// started; both say "no connection attempted" rather than name a port no
+/// packet went to. `Timeout` wraps the whole request and the stage reached
+/// was not recorded, so the line does not claim a connect either way.
+/// `ConnectError` and every later stage attempted the connect: "TCP 443".
+fn connection_claim(outcome: &FetchOutcome) -> &'static str {
+    match outcome {
+        FetchOutcome::Unresolved(_) | FetchOutcome::NotAttempted => "no connection attempted",
+        FetchOutcome::Timeout => "connection attempt not recorded",
+        FetchOutcome::Status(..)
+        | FetchOutcome::Redirect(..)
+        | FetchOutcome::ConnectError(_)
+        | FetchOutcome::TlsError(_)
+        | FetchOutcome::RequestFailed(_) => "TCP 443",
+    }
 }
 
 /// The host:port of a store DSN, never its credentials.
@@ -505,7 +557,7 @@ pub fn refusal(r: &PreflightRefusal, c: &ResolverChoice) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use resolution_scope_engine::egress::{EgressLedger, FetchEntry};
+    use resolution_scope_engine::egress::{DestinationTotals, EgressLedger, FetchEntry};
     use resolution_scope_engine::preflight::ControlOutcome;
     use std::net::SocketAddr;
 
@@ -564,12 +616,18 @@ mod tests {
              \x20       check it yourself: sudo tcpdump -ni any 'udp port 53 or tcp port 53 or tcp port 443' · lsof -nP -i -a -p <pid>\n"
         );
 
-        // A fetch that read a policy.
+        // A fetch that read a policy: two addresses resolved, ONE peer
+        // measured (the socket the response came over). The peer sits
+        // behind the arrow; the resolved set is labelled a lookup result.
         let mut with_fetch = snap.clone();
         with_fetch.fetches.push(FetchEntry {
             url: "https://mta-sts.example.com/.well-known/mta-sts.txt".into(),
             host: "mta-sts.example.com".into(),
-            addrs: vec!["203.0.113.7".parse().unwrap()],
+            addrs: vec![
+                "203.0.113.7".parse().unwrap(),
+                "2001:db8::7".parse().unwrap(),
+            ],
+            peer: Some("[2001:db8::7]:443".parse().unwrap()),
             via: "cloudflare".into(),
             outcome: FetchOutcome::Status(200, 143),
         });
@@ -578,7 +636,16 @@ mod tests {
             &choice("cloudflare"),
             &facts("example.com", false, true),
         );
-        assert!(text.contains("        HTTPS  mta-sts.example.com → 203.0.113.7 (address via cloudflare) · TCP 443 · 200, 143 bytes, policy read — the name mta-sts.example.com is visible in that TLS handshake (SNI); redirects are never followed\n"), "{text}");
+        assert!(text.contains("        HTTPS  mta-sts.example.com → [2001:db8::7]:443 (socket peer) · resolved via cloudflare: 203.0.113.7, 2001:db8::7 · TCP 443 · 200, 143 bytes, policy read — the name mta-sts.example.com is visible in that TLS handshake (SNI); redirects are never followed\n"), "{text}");
+        // Negative control on the arrow: the unconnected address is never
+        // printed behind it (mutant: put `addrs` behind the arrow → fails).
+        let https_line = text.lines().find(|l| l.contains("HTTPS  mta-sts")).unwrap();
+        let behind_arrow = https_line.split('→').nth(1).unwrap();
+        let behind_arrow = behind_arrow.split('·').next().unwrap();
+        assert!(
+            !behind_arrow.contains("203.0.113.7"),
+            "a lookup result behind the measured-destination arrow: {https_line}"
+        );
 
         // A redirect is recorded, never followed.
         with_fetch.fetches[0].outcome =
@@ -590,14 +657,104 @@ mod tests {
         );
         assert!(text.contains("· TCP 443 · 301 to https://policy.example.net/x — not followed: the policy is not servable from the domain\n"), "{text}");
 
-        // A refused connection.
-        with_fetch.fetches[0].outcome = FetchOutcome::ConnectError("connection refused".into());
+        // A refused connection: no response, so no peer — said so, never
+        // filled in from the lookup. The chain text is what reqwest 0.12.28
+        // / hyper-util 0.1.20 yield for a closed loopback port (E8).
+        with_fetch.fetches[0].peer = None;
+        with_fetch.fetches[0].outcome = FetchOutcome::ConnectError(
+            "client error (Connect) -> tcp connect error -> Connection refused (os error 61)"
+                .into(),
+        );
         let text = render(
             &with_fetch,
             &choice("cloudflare"),
             &facts("example.com", false, true),
         );
-        assert!(text.contains("· TCP 443 · connection refused — the connection attempt is what left; nothing further was sent\n"), "{text}");
+        assert!(text.contains("        HTTPS  mta-sts.example.com → peer not recorded (no response; reqwest's socket is outside the ledger) · resolved via cloudflare: 203.0.113.7, 2001:db8::7 · TCP 443 · TCP connect on port 443 failed (client error (Connect) -> tcp connect error -> Connection refused (os error 61)) — the SYNs are what left; no TLS handshake began, so the name mta-sts.example.com was not sent\n"), "{text}");
+
+        // A TLS failure: the handshake began, so the name left in the
+        // ClientHello — the opposite SNI claim from the connect failure.
+        with_fetch.fetches[0].outcome = FetchOutcome::TlsError(
+            "client error (Connect) -> invalid peer certificate: UnknownIssuer".into(),
+        );
+        let text = render(
+            &with_fetch,
+            &choice("cloudflare"),
+            &facts("example.com", false, true),
+        );
+        assert!(text.contains("· TCP 443 · the TCP connection completed and the TLS handshake failed (client error (Connect) -> invalid peer certificate: UnknownIssuer) — the ClientHello that opens it carries the name mta-sts.example.com in the clear (SNI)\n"), "{text}");
+
+        // Unresolved: no address, no packet — and so no port claimed. The
+        // NEGATIVE control for `connection_claim`: the name never resolved,
+        // no SYN left for :443, and the line must not print "TCP 443"
+        // (mutant: `connection_claim` returns "TCP 443" for every arm →
+        // the `!contains` fails). The POSITIVE is the ConnectError line
+        // above, where the SYNs did leave and "· TCP 443 ·" is printed.
+        with_fetch.fetches[0].addrs.clear();
+        with_fetch.fetches[0].outcome = FetchOutcome::Unresolved(
+            "client error (Connect) -> dns error -> no record found for Query { name: Name(\"mta-sts.example.com.\"), query_type: A, query_class: IN }".into(),
+        );
+        let text = render(
+            &with_fetch,
+            &choice("cloudflare"),
+            &facts("example.com", false, true),
+        );
+        assert!(text.contains("        HTTPS  mta-sts.example.com → peer not recorded (no response; reqwest's socket is outside the ledger) · resolved via cloudflare: no address · no connection attempted · no HTTPS packet left: mta-sts.example.com could not be resolved through cloudflare (client error (Connect) -> dns error -> "), "{text}");
+        let https_line = text.lines().find(|l| l.contains("HTTPS  mta-sts")).unwrap();
+        assert!(
+            !https_line.contains("443"),
+            "a port no packet went to, printed on the Unresolved line: {https_line}"
+        );
+
+        // NotAttempted: the entry recorded before the fetch began and never
+        // updated — nothing was connected, so nothing is claimed.
+        with_fetch.fetches[0].outcome = FetchOutcome::NotAttempted;
+        let text = render(
+            &with_fetch,
+            &choice("cloudflare"),
+            &facts("example.com", false, true),
+        );
+        assert!(
+            text.contains(
+                "· resolved via cloudflare: no address · no connection attempted · not attempted\n"
+            ),
+            "{text}"
+        );
+
+        // The timeout wraps the whole request: no stage claim, no SNI
+        // claim, no connect claim — the stage reached was not recorded.
+        with_fetch.fetches[0].outcome = FetchOutcome::Timeout;
+        let text = render(
+            &with_fetch,
+            &choice("cloudflare"),
+            &facts("example.com", false, true),
+        );
+        assert!(
+            text.contains(
+                "· connection attempt not recorded · timed out after 10 s — the stage reached was not recorded\n"
+            ),
+            "{text}"
+        );
+        assert!(!text.contains("SNI)\n"), "{text}");
+        assert!(!text.contains("TCP 443"), "{text}");
+
+        // Every arm of `connection_claim`, pinned: the port is printed for
+        // ConnectError and every later stage, and for nothing earlier.
+        for (outcome, claim) in [
+            (
+                FetchOutcome::Unresolved("x".into()),
+                "no connection attempted",
+            ),
+            (FetchOutcome::NotAttempted, "no connection attempted"),
+            (FetchOutcome::Timeout, "connection attempt not recorded"),
+            (FetchOutcome::ConnectError("x".into()), "TCP 443"),
+            (FetchOutcome::TlsError("x".into()), "TCP 443"),
+            (FetchOutcome::RequestFailed("x".into()), "TCP 443"),
+            (FetchOutcome::Redirect(301, "x".into()), "TCP 443"),
+            (FetchOutcome::Status(200, 1), "TCP 443"),
+        ] {
+            assert_eq!(connection_claim(&outcome), claim, "{outcome:?}");
+        }
 
         // The store line only when configured, host only, never credentials.
         let f = WireFacts {
@@ -667,14 +824,21 @@ mod tests {
         assert!(!text.contains("answers arrived over TLS"), "{text}");
     }
 
-    /// A QUIC/H3 snapshot never prints a digit before "datagrams".
+    /// A QUIC/H3 snapshot never prints a digit before "datagrams", and never
+    /// calls a socket a connection: `quic_sockets` counts UDP sockets handed
+    /// to quinn (the bind), and a DoQ run that timed out on every one still
+    /// opened them. NEGATIVE — two sockets, zero answers: the line says "2
+    /// QUIC sockets opened" and the word "connection" never follows a digit
+    /// (mutant: print "{} connection{}" from `quic_sockets` → fails).
+    /// POSITIVE — one socket prints the singular, and the count is the
+    /// measured one.
     #[test]
-    fn quic_lines_never_count_datagrams() {
-        let snap = EgressSnapshot::default();
+    fn quic_lines_count_sockets_never_connections() {
+        let mut snap = EgressSnapshot::default();
         for c in [choice("quic://quad9"), choice("h3://cloudflare")] {
             let text = render(&snap, &c, &facts("example.com", true, true));
             let dns_line = text.lines().nth(1).unwrap();
-            assert!(dns_line.contains("datagrams not counted here (QUIC sockets are opened by quinn, outside the ledger)"), "{dns_line}");
+            assert!(dns_line.contains(" · 0 QUIC sockets opened · connections and datagrams not counted here (quinn owns the socket; the ledger sees the bind, not the handshake)"), "{dns_line}");
             let before = dns_line.split("datagrams").next().unwrap();
             let last_token = before.trim_end().rsplit(' ').next().unwrap();
             assert!(
@@ -682,6 +846,48 @@ mod tests {
                 "a digit before 'datagrams' on a QUIC line: {dns_line}"
             );
         }
+        // Two sockets opened, nothing answered (a fully timed-out DoQ run).
+        let dest: std::net::SocketAddr = "9.9.9.9:853".parse().unwrap();
+        snap.quic_sockets = 2;
+        snap.per_destination.push((
+            dest,
+            DestinationTotals {
+                protocol: "quic",
+                datagrams: 0,
+                tcp_connects: 0,
+                quic_binds: 2,
+            },
+        ));
+        let text = render(
+            &snap,
+            &choice("quic://quad9"),
+            &facts("example.com", true, false),
+        );
+        let dns_line = text.lines().nth(1).unwrap();
+        assert!(
+            dns_line
+                .contains(" · 2 QUIC sockets opened · connections and datagrams not counted here"),
+            "{dns_line}"
+        );
+        for (i, word) in dns_line.split(' ').enumerate() {
+            if word.starts_with("connection") {
+                let prev = dns_line.split(' ').nth(i - 1).unwrap();
+                assert!(
+                    !prev.chars().all(|ch| ch.is_ascii_digit()),
+                    "a socket count printed as connections: {dns_line}"
+                );
+            }
+        }
+        assert_eq!(
+            egress_summary(&snap),
+            "2 QUIC sockets opened → 9.9.9.9:853 ×2 (connections and datagrams not counted here)"
+        );
+        snap.quic_sockets = 1;
+        snap.per_destination[0].1.quic_binds = 1;
+        assert_eq!(
+            egress_summary(&snap),
+            "1 QUIC socket opened → 9.9.9.9:853 ×1 (connections and datagrams not counted here)"
+        );
     }
 
     /// Zero events → no count on the vantage receipt.
@@ -768,6 +974,26 @@ mod tests {
             "{text}"
         );
         assert!(text.contains("dnssec-failed.org → Bogus (pass: validation is local only; this resolver does not validate)"), "{text}");
+        // The source clause is honest about WHAT was read: hickory-resolver
+        // 0.26.1 (system_conf/apple.rs) reads State:/Network/Global/DNS —
+        // the global resolver only — so a VPN's scoped resolvers are named
+        // as unread. NEGATIVE: the old clause "read from scutil --dns;"
+        // (which lists scoped resolvers too) never appears. POSITIVE: the
+        // macOS line names the global resolver and the VPN consequence.
+        assert!(!text.contains("read from scutil --dns;"), "{text}");
+        if cfg!(target_vendor = "apple") {
+            assert!(
+                text.contains("(configured, read from the global resolver only — the first block of scutil --dns; a VPN's scoped or per-domain resolvers are not read and never asked; printed here, never sealed"),
+                "{text}"
+            );
+        } else if cfg!(unix) {
+            assert!(
+                text.contains(
+                    "(configured, read from /etc/resolv.conf; printed here, never sealed"
+                ),
+                "{text}"
+            );
+        }
     }
 
     #[test]

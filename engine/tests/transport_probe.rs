@@ -134,6 +134,11 @@ async fn probe_cell(
     }
 }
 
+// #[ignore] stays: eighteen vantages against three public resolvers over the
+// open network; CI promises no network, and a transient timeout there would
+// read as a transport finding. Run by hand (the command in the module doc)
+// and paste the DIFFERENTIAL lines into the PR; the assertion at the end is
+// what makes a real difference fail the run.
 #[tokio::test]
 #[ignore = "network: the M3 §3 transport differential against Cloudflare, Quad9, Google"]
 async fn transport_differential_probe() {
@@ -221,7 +226,7 @@ async fn transport_differential_probe() {
                 "  wire {spelling}: datagrams={} tcp={} quic={} dests={:?} connections={:?}",
                 snap.datagrams_sent,
                 snap.tcp_connects,
-                snap.quic_connections,
+                snap.quic_sockets,
                 snap.destinations(),
                 conns
             );
@@ -230,45 +235,273 @@ async fn transport_differential_probe() {
     for e in &build_errors {
         eprintln!("build error: {e}");
     }
-    // The comparison, within one resolver across transports: RDATA-ex-RRSIG,
-    // Proof, and AD must be identical among the cells that answered.
-    for r in resolvers {
-        for (name, rt) in names {
-            let rtype = if rt == RecordType::SOA {
-                "SOA"
+    // The comparison, within one resolver across transports — printed in
+    // full, THEN asserted, so a finding fails the run with the whole table
+    // above it (before this the FINDING lines were printed and nothing was
+    // asserted: a probe that could not fail on the property it is for).
+    let findings = differential_findings(&cells);
+    eprintln!("probe end {} (UTC)", utc_now_to_the_second());
+    assert!(
+        findings.is_empty(),
+        "transport differential — {} finding(s):\n{}",
+        findings.len(),
+        findings.join("\n")
+    );
+}
+
+/// The differential rule (M3 §3, with Science's signing control): within
+/// one resolver, among the transports that ANSWERED a (name, rtype), the
+/// RDATA-ex-RRSIG hash and the AD flag must be identical, and the RRSIG
+/// bytes must be identical ONLY for the offline-signed pq / pq2 fixtures —
+/// resolutionscope.com is online-signed at Route 53 and a different
+/// signature per fetch is expected there, never a finding. The Proof column
+/// is printed for the reader and not asserted: it is this machine's
+/// validation result, not the resolver's answer.
+///
+/// Pure over the cells: every comparison is printed (one DIFFERENTIAL line
+/// per group, one RRSIG line per pq group) and every violation is returned
+/// as a line, so the unit test below exercises both controls without the
+/// network. A group with fewer than two answering transports has nothing to
+/// compare and yields no finding.
+fn differential_findings(cells: &[Cell]) -> Vec<String> {
+    use std::collections::{BTreeMap, BTreeSet};
+    let mut groups: BTreeMap<(&str, &str, &str), Vec<&Cell>> = BTreeMap::new();
+    for c in cells {
+        groups
+            .entry((c.resolver, c.name, c.rtype))
+            .or_default()
+            .push(c);
+    }
+    let mut findings = Vec::new();
+    for ((r, name, rtype), group) in groups {
+        let answered: Vec<&Cell> = group.iter().copied().filter(|c| c.ok).collect();
+        let hashes: BTreeSet<&str> = answered.iter().map(|c| c.rdata_hash.as_str()).collect();
+        let proofs: BTreeSet<&str> = answered.iter().map(|c| c.proofs.as_str()).collect();
+        let ads: BTreeSet<&str> = answered.iter().map(|c| c.ad.as_str()).collect();
+        let transports: Vec<&str> = answered.iter().map(|c| c.transport).collect();
+        let rdata_differs = hashes.len() > 1;
+        let ad_differs = ads.len() > 1;
+        eprintln!(
+            "DIFFERENTIAL {r} {name} {rtype}: transports answered={transports:?} rdata-hashes={hashes:?} proofs={proofs:?} ad={ads:?}{}",
+            if rdata_differs || ad_differs {
+                "  <-- FINDING"
+            } else if proofs.len() > 1 {
+                "  (proof differs — local validation, printed not asserted)"
             } else {
-                "DNSKEY"
-            };
-            let answered: Vec<&Cell> = cells
-                .iter()
-                .filter(|c| c.resolver == r && c.name == name && c.rtype == rtype && c.ok)
-                .collect();
-            let hashes: std::collections::BTreeSet<&str> =
-                answered.iter().map(|c| c.rdata_hash.as_str()).collect();
-            let proofs: std::collections::BTreeSet<&str> =
-                answered.iter().map(|c| c.proofs.as_str()).collect();
-            let ads: std::collections::BTreeSet<&str> =
-                answered.iter().map(|c| c.ad.as_str()).collect();
-            let transports: Vec<&str> = answered.iter().map(|c| c.transport).collect();
+                "  (identical)"
+            }
+        );
+        if rdata_differs {
+            findings.push(format!(
+                "{r} {name} {rtype}: RDATA-ex-RRSIG differs across {transports:?}: {hashes:?}"
+            ));
+        }
+        if ad_differs {
+            findings.push(format!(
+                "{r} {name} {rtype}: AD flag differs across {transports:?}: {ads:?}"
+            ));
+        }
+        if name.starts_with("pq") {
+            let sigs: BTreeSet<&str> = answered.iter().map(|c| c.rrsig.as_str()).collect();
+            let differs = sigs.len() > 1;
             eprintln!(
-                "DIFFERENTIAL {r} {name} {rtype}: transports answered={transports:?} rdata-hashes={hashes:?} proofs={proofs:?} ad={ads:?}{}",
-                if hashes.len() > 1 || proofs.len() > 1 || ads.len() > 1 { "  <-- FINDING" } else { "  (identical)" }
+                "  RRSIG bytes ({name}, offline-signed fixture): {sigs:?}{}",
+                if differs {
+                    "  <-- FINDING"
+                } else {
+                    "  (identical)"
+                }
             );
-            if name.starts_with("pq") {
-                let sigs: std::collections::BTreeSet<&str> =
-                    answered.iter().map(|c| c.rrsig.as_str()).collect();
-                eprintln!(
-                    "  RRSIG bytes ({name}, offline-signed fixture): {sigs:?}{}",
-                    if sigs.len() > 1 {
-                        "  <-- FINDING"
-                    } else {
-                        "  (identical)"
-                    }
-                );
+            if differs {
+                findings.push(format!(
+                    "{r} {name} {rtype}: RRSIG bytes differ across {transports:?} on an offline-signed fixture: {sigs:?}"
+                ));
             }
         }
     }
-    eprintln!("probe end {} (UTC)", utc_now_to_the_second());
+    findings
+}
+
+/// Both controls for the differential rule, without the network — the
+/// assertion the probe makes must be able to fail on the property it is
+/// cited for, and must stay quiet where a difference is by design.
+#[test]
+fn differential_rule_fires_on_a_difference_and_stays_quiet_on_identity() {
+    #[allow(clippy::too_many_arguments)]
+    fn cell(
+        resolver: &'static str,
+        transport: &'static str,
+        name: &'static str,
+        rtype: &'static str,
+        ok: bool,
+        rdata_hash: &str,
+        ad: &str,
+        rrsig: &str,
+    ) -> Cell {
+        Cell {
+            resolver,
+            transport,
+            name,
+            rtype,
+            at: String::new(),
+            ms: 0,
+            ok,
+            err_display: if ok {
+                String::new()
+            } else {
+                "request timed out".into()
+            },
+            err_debug: if ok { String::new() } else { "Timeout".into() },
+            rdata_hash: rdata_hash.into(),
+            proofs: "Secure".into(),
+            ad: ad.into(),
+            rrsig: rrsig.into(),
+        }
+    }
+    let pq = "pq.resolutionscope.com";
+    let apex = "resolutionscope.com";
+
+    // POSITIVE: identical RDATA, AD and RRSIG across three transports; an
+    // errored transport is excluded; a lone answering transport on another
+    // resolver has nothing to compare. No finding.
+    let quiet = vec![
+        cell("quad9", "plain", pq, "SOA", true, "h1", "true", "SOA:s1/s1"),
+        cell("quad9", "tls", pq, "SOA", true, "h1", "true", "SOA:s1/s1"),
+        cell("quad9", "quic", pq, "SOA", true, "h1", "true", "SOA:s1/s1"),
+        cell("quad9", "h3", pq, "SOA", false, "", "", ""),
+        cell(
+            "google",
+            "plain",
+            pq,
+            "SOA",
+            true,
+            "h1",
+            "true",
+            "SOA:s1/s1",
+        ),
+        cell("google", "h3", pq, "SOA", false, "", "", ""),
+        // The online-signed apex: a different RRSIG per transport is
+        // expected (Route 53 signs on the fly) and is NOT a finding.
+        cell(
+            "quad9",
+            "plain",
+            apex,
+            "SOA",
+            true,
+            "h2",
+            "true",
+            "SOA:s2/s2",
+        ),
+        cell("quad9", "tls", apex, "SOA", true, "h2", "true", "SOA:s3/s3"),
+    ];
+    assert_eq!(differential_findings(&quiet), Vec::<String>::new());
+
+    // NEGATIVE (the defect): the assertion fires on each property.
+    // Mutant: `findings.push` deleted for a property → that case yields an
+    // empty Vec and its assertion below fails.
+    let rdata = vec![
+        cell("quad9", "plain", pq, "SOA", true, "h1", "true", "SOA:s1/s1"),
+        cell("quad9", "tls", pq, "SOA", true, "hX", "true", "SOA:s1/s1"),
+    ];
+    let f = differential_findings(&rdata);
+    assert_eq!(f.len(), 1, "{f:?}");
+    assert!(f[0].contains("RDATA-ex-RRSIG differs"), "{f:?}");
+
+    let ad = vec![
+        cell(
+            "cloudflare",
+            "plain",
+            pq,
+            "DNSKEY",
+            true,
+            "h1",
+            "true",
+            "DNSKEY:s1/s1",
+        ),
+        cell(
+            "cloudflare",
+            "https",
+            pq,
+            "DNSKEY",
+            true,
+            "h1",
+            "false",
+            "DNSKEY:s1/s1",
+        ),
+    ];
+    let f = differential_findings(&ad);
+    assert_eq!(f.len(), 1, "{f:?}");
+    assert!(f[0].contains("AD flag differs"), "{f:?}");
+
+    // RRSIG bytes on an offline-signed fixture (pq2 too) ARE a finding …
+    let sig = vec![
+        cell(
+            "google",
+            "plain",
+            "pq2.resolutionscope.com",
+            "SOA",
+            true,
+            "h1",
+            "true",
+            "SOA:s1/s1",
+        ),
+        cell(
+            "google",
+            "tcp",
+            "pq2.resolutionscope.com",
+            "SOA",
+            true,
+            "h1",
+            "true",
+            "SOA:sY/sY",
+        ),
+    ];
+    let f = differential_findings(&sig);
+    assert_eq!(f.len(), 1, "{f:?}");
+    assert!(f[0].contains("RRSIG bytes differ"), "{f:?}");
+    // … and never on the online-signed apex, even with a differing hash
+    // elsewhere in the same run (the two rules are independent).
+    let apex_only = vec![
+        cell(
+            "google",
+            "plain",
+            apex,
+            "DNSKEY",
+            true,
+            "h1",
+            "true",
+            "DNSKEY:s1/s1",
+        ),
+        cell(
+            "google",
+            "tcp",
+            apex,
+            "DNSKEY",
+            true,
+            "h1",
+            "true",
+            "DNSKEY:sZ/sZ",
+        ),
+    ];
+    assert_eq!(differential_findings(&apex_only), Vec::<String>::new());
+
+    // A difference across RESOLVERS is not a finding: the rule is within one
+    // resolver. (Cloudflare and Quad9 may legitimately hold different cached
+    // RRsets at the same second.)
+    let across = vec![
+        cell("quad9", "plain", pq, "SOA", true, "h1", "true", "SOA:s1/s1"),
+        cell(
+            "cloudflare",
+            "plain",
+            pq,
+            "SOA",
+            true,
+            "hQ",
+            "true",
+            "SOA:s1/s1",
+        ),
+    ];
+    assert_eq!(differential_findings(&across), Vec::<String>::new());
 }
 
 /// X2 — the DoT handshake succeeds with the bundled roots: a `tls://cloudflare`

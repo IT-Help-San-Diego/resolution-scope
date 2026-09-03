@@ -1457,7 +1457,9 @@ async fn score_mta_sts(
     // state of the advertised policy — TransientError is no longer honest from
     // here on (a hint without a servable policy is the T1-1 measured absence,
     // which is what PolicyInvalid's chain() encodes).
-    let policy_url = format!("https://mta-sts.{}/.well-known/mta-sts.txt", domain);
+    // The URL comes from the vantage (`Vantage::policy_url`): no port in
+    // production; `:<port>` only under the E7 test seam.
+    let policy_url = v.policy_url(domain);
     // The HTTP I/O lives inline here (it is async glue, not a decision); the
     // status→ok/err decision is the pure `mta_sts_policy_from_response` below,
     // so the `!status.is_success()` gate and the body passthrough are unit-pinned
@@ -1475,17 +1477,24 @@ async fn score_mta_sts(
     let policy_host = format!("mta-sts.{}", domain);
     let via = v.identity();
     let ledger = v.ledger().clone();
-    let record_outcome = |addrs: Vec<std::net::IpAddr>, outcome: FetchOutcome| {
+    let record_outcome = |addrs: Vec<std::net::IpAddr>,
+                          peer: Option<std::net::SocketAddr>,
+                          outcome: FetchOutcome| {
         ledger.record_fetch(FetchEntry {
             url: policy_url.clone(),
             host: policy_host.clone(),
             addrs,
+            peer,
             via: via.clone(),
             outcome,
         });
     };
-    record_outcome(Vec::new(), FetchOutcome::NotAttempted);
+    record_outcome(Vec::new(), None, FetchOutcome::NotAttempted);
     let policy_result: anyhow::Result<String> = async {
+        // A lookup result, recorded as such: the addresses the vantage
+        // returned for the policy host. NOT the destination — hyper-util
+        // connects to ONE of them (the next only on error); the destination
+        // is the peer read off the response's socket below.
         let addrs: Vec<std::net::IpAddr> = match v.lookup_ip(policy_host.as_str()).await {
             Ok(ips) => ips.iter().collect(),
             Err(_) => Vec::new(), // the client's own resolution reports the error below
@@ -1494,36 +1503,42 @@ async fn score_mta_sts(
         let resp = match client.get(&policy_url).send().await {
             Ok(r) => r,
             Err(e) => {
-                let text = e.to_string();
-                let outcome = if e.is_timeout() {
-                    FetchOutcome::Timeout
-                } else if text.contains("certificate")
-                    || text.contains("tls")
-                    || text.contains("TLS")
-                {
-                    FetchOutcome::TlsError(text)
-                } else {
-                    FetchOutcome::ConnectError(text)
-                };
-                record_outcome(addrs, outcome);
+                // Classified from the typed source chain, never from
+                // `Display` (`FetchOutcome` doc): a wrong certificate and a
+                // closed port print the same Display text. No response, so
+                // no peer — reqwest's socket is outside the ledger.
+                record_outcome(addrs, None, FetchOutcome::classify(&e));
                 return Err(e.into());
             }
         };
+        // The peer: hyper-util's getpeername on the socket the response came
+        // over (reqwest `Response::remote_addr`, HttpInfo) — the one measured
+        // destination a surface may print behind the arrow.
+        let peer = resp.remote_addr();
         let status = resp.status();
-        if status.is_redirection() {
-            let location = resp
-                .headers()
-                .get(reqwest::header::LOCATION)
-                .and_then(|h| h.to_str().ok())
-                .unwrap_or("")
-                .to_string();
-            record_outcome(addrs, FetchOutcome::Redirect(status.as_u16(), location));
-            // Through the non-2xx gate below: PolicyInvalid, never followed.
-            return mta_sts_policy_from_response(status, String::new());
-        }
-        let body = resp.text().await?;
-        record_outcome(addrs, FetchOutcome::Status(status.as_u16(), body.len()));
-        mta_sts_policy_from_response(status, body)
+        let location = resp
+            .headers()
+            .get(reqwest::header::LOCATION)
+            .and_then(|h| h.to_str().ok())
+            .map(str::to_string);
+        let body = if status.is_redirection() {
+            String::new() // never followed; the body of a 3xx is not a policy
+        } else {
+            match resp.text().await {
+                Ok(b) => b,
+                Err(e) => {
+                    record_outcome(
+                        addrs,
+                        peer,
+                        FetchOutcome::RequestFailed(crate::egress::error_chain(&e)),
+                    );
+                    return Err(e.into());
+                }
+            }
+        };
+        let (outcome, result) = mta_sts_fetch_outcome(status, location.as_deref(), body);
+        record_outcome(addrs, peer, outcome);
+        result
     }
     .await;
     match policy_result {
@@ -1550,6 +1565,31 @@ async fn score_mta_sts(
             MtaStsDisposition::PolicyInvalid // hint present, policy not servable
         }
     }
+}
+
+/// Pure: the response gate for an MTA-STS policy fetch — the ledger outcome
+/// and the verdict input, decided together so neither can be dropped without
+/// the other. A 3xx is recorded with its Location and NEVER followed (RFC
+/// 8461 §3.3: "HTTP 3xx redirects MUST NOT be followed"); it fails the fetch
+/// through the same non-2xx gate as a 404. Extracted so the redirect arm is
+/// unit-pinned: deleting the `is_redirection` branch turns a 301 into a
+/// `Status(301, n)` — n the length of the body it was handed: 0 on the
+/// production path, which never reads a 3xx body (`score_mta_sts` passes
+/// `String::new()`), 50 in the unit test, which passes its 50-byte policy —
+/// that the wire line would print as "not a policy" instead of "not
+/// followed".
+fn mta_sts_fetch_outcome(
+    status: reqwest::StatusCode,
+    location: Option<&str>,
+    body: String,
+) -> (FetchOutcome, anyhow::Result<String>) {
+    if status.is_redirection() {
+        let outcome = FetchOutcome::Redirect(status.as_u16(), location.unwrap_or("").to_string());
+        let result = mta_sts_policy_from_response(status, String::new());
+        return (outcome, result);
+    }
+    let outcome = FetchOutcome::Status(status.as_u16(), body.len());
+    (outcome, mta_sts_policy_from_response(status, body))
 }
 
 /// Pure: the HTTP status gate for an MTA-STS policy fetch. A non-2xx response
@@ -3717,6 +3757,48 @@ mod tests {
             mta_sts_policy_from_response(reqwest::StatusCode::OK, String::new()).unwrap(),
             ""
         );
+    }
+
+    // --- the redirect gate: recorded with its Location, never followed --------
+    #[test]
+    fn mta_sts_fetch_outcome_records_a_redirect_and_never_follows_it() {
+        use reqwest::StatusCode;
+        // Negative control: every 3xx is recorded as a Redirect with its
+        // Location and fails the fetch — the body a redirecting server sent
+        // is never read as a policy. Mutant: delete the `is_redirection`
+        // branch of `mta_sts_fetch_outcome` → `Status(301, 50)` (the
+        // 50-byte body below), this fails.
+        for code in [
+            StatusCode::MOVED_PERMANENTLY,
+            StatusCode::FOUND,
+            StatusCode::TEMPORARY_REDIRECT,
+            StatusCode::PERMANENT_REDIRECT,
+        ] {
+            let (outcome, result) = mta_sts_fetch_outcome(
+                code,
+                Some("https://policy.example.net/x"),
+                "version: STSv1\nmode: enforce\nmx: smtp.example.com\n".to_string(),
+            );
+            assert_eq!(
+                outcome,
+                FetchOutcome::Redirect(code.as_u16(), "https://policy.example.net/x".into()),
+                "{code}"
+            );
+            assert!(result.is_err(), "{code}: a redirect is never a policy");
+        }
+        // A 3xx without a Location still records the code.
+        let (outcome, result) = mta_sts_fetch_outcome(StatusCode::FOUND, None, String::new());
+        assert_eq!(outcome, FetchOutcome::Redirect(302, String::new()));
+        assert!(result.is_err());
+        // Positive control: a 200 passes the body through as the policy; a
+        // 404 is a recorded status that fails the gate.
+        let body = "version: STSv1\nmode: enforce\nmx: smtp.example.com\n".to_string();
+        let (outcome, result) = mta_sts_fetch_outcome(StatusCode::OK, None, body.clone());
+        assert_eq!(outcome, FetchOutcome::Status(200, body.len()));
+        assert_eq!(result.unwrap(), body);
+        let (outcome, result) = mta_sts_fetch_outcome(StatusCode::NOT_FOUND, None, "nope".into());
+        assert_eq!(outcome, FetchOutcome::Status(404, 4));
+        assert!(result.is_err());
     }
 
     // --- the policy-state three-way split (the MatchArm mutation survivor) -----
