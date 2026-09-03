@@ -28,6 +28,21 @@ compile_error!(
      See Cargo.toml [features] and docs/ARCHITECTURE.md."
 );
 
+// Encrypted-transport guard (cc/resolver-choice): the empty-root-store hole.
+// hickory-net 0.26.1 src/tls.rs `client_config()` builds
+// `RootCertStore::empty()` unless `webpki-roots` (or rustls-platform-verifier)
+// is on; every DoT/DoH/DoQ/DoH3 handshake then fails InvalidCertificate
+// (UnknownIssuer) and the pool swallows the Io error, surfacing only
+// "no connections available". Measured with both controls on 2026-09-03.
+#[cfg(all(feature = "encrypted-transport", not(feature = "tls-roots")))]
+compile_error!(
+    "encrypted DNS transport enabled with an EMPTY TLS root store: every \
+     DoT/DoH/DoQ/DoH3 handshake fails InvalidCertificate(UnknownIssuer) and \
+     hickory reports only 'no connections available' (hickory-net 0.26.1 \
+     src/tls.rs client_config). Enable `tls-roots` (webpki-roots 1.0.9 is \
+     already in the lockfile via reqwest)."
+);
+
 // =============================================================================
 // Module structure
 // =============================================================================
@@ -43,10 +58,13 @@ pub mod analysis;
 pub mod asn_classification;
 pub mod corpus_filter;
 pub mod denial_proof;
+pub mod egress;
 pub mod flux;
 pub mod ipc;
 pub mod name_similarity;
+pub mod preflight;
 pub mod report;
+pub mod resolver;
 pub mod seal;
 pub mod tristate;
 pub mod truth_chain;
@@ -66,6 +84,9 @@ pub use analysis::TlsRptDisposition;
 pub use denial_proof::{
     control_from_key, control_key, extract_denial_proof, DenialProof, LookupReceipt, ReceiptRcode,
 };
+pub use egress::{EgressLedger, EgressSnapshot, ScopeResolver};
+pub use preflight::{PreflightRefusal, VantageReceipt};
+pub use resolver::{ResolverChoice, Vantage};
 pub use seal::{seal, SEAL_SCHEME};
 pub use tristate::TriState;
 pub use truth_chain::{

@@ -30,11 +30,9 @@
 // cannot fail). It prints the raw wire facts so the evidence is inspectable.
 
 use hickory_proto::rr::{Name, RecordType};
-use hickory_resolver::config::{ResolverConfig, ResolverOpts};
-use hickory_resolver::net::runtime::TokioRuntimeProvider;
 use hickory_resolver::net::{DnsError, NetError};
-use hickory_resolver::TokioResolver;
 use resolution_scope_engine::denial_proof::extract_denial_proof;
+use resolution_scope_engine::resolver::{ResolverChoice, Vantage};
 
 /// One lookup of a (nonexistent) name: report rcode, authority count, and the
 /// grade the classifier would emit from those authorities.
@@ -61,14 +59,8 @@ fn report(domain: &str, call: usize, e: &NetError) {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut opts = ResolverOpts::default();
-    opts.validate = true;
-    let resolver = TokioResolver::builder_with_config(
-        ResolverConfig::udp_and_tcp(&hickory_resolver::config::CLOUDFLARE),
-        TokioRuntimeProvider::default(),
-    )
-    .with_options(opts)
-    .build()?;
+    // The default vantage: Cloudflare over plain 53, validate=true.
+    let resolver = Vantage::build(ResolverChoice::default())?;
 
     for domain in ["example.com", "microsoft.com", "resolutionscope.com"] {
         // A name that cannot exist, under a zone that does: the probe target.

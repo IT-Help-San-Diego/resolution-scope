@@ -27,11 +27,28 @@ license     = "AGPL-3.0"
 repository  = "https://github.com/IT-Help-San-Diego/resolution-scope"
 
 [features]
-default = ["dnssec-ring"]
+default = ["dnssec-ring", "encrypted-transport", "tls-roots"]
 dnssec-ring = [
     "hickory-resolver/dnssec-ring",
     "hickory-proto/dnssec-ring",
 ]
+# Every encrypted transport hickory 0.26.1 can attempt: DoT (853), DoH (443,
+# h2), DoQ (853, quinn), DoH3 (443, h3). `quinn` is named directly ONLY so the
+# egress ledger can wrap hickory's QuicSocketBinder (its trait signature names
+# quinn::AsyncUdpSocket); the version is unified with hickory-net's.
+encrypted-transport = [
+    "hickory-resolver/tls-ring",
+    "hickory-resolver/https-ring",
+    "hickory-resolver/quic-ring",
+    "hickory-resolver/h3-ring",
+    "dep:quinn",
+]
+# The TLS root store for those transports. Without it hickory-net 0.26.1
+# builds `RootCertStore::empty()` (src/tls.rs client_config) and EVERY
+# handshake fails UnknownIssuer, surfaced only as "no connections available"
+# — the 2026-08-18 "DoT is broken" note was this omission. lib.rs turns the
+# combination encrypted-transport-without-tls-roots into a compile error.
+tls-roots = ["hickory-resolver/webpki-roots"]
 
 [dependencies]
 # The verdict type surface (TriState, the eight dispositions, ScoredAnalysis) —
@@ -40,7 +57,9 @@ dnssec-ring = [
 # source.
 resolution-scope-types = { path = "../types" }
 
-hickory-resolver = { version = "0.26", features = ["dnssec-ring", "tls-ring"] }
+hickory-resolver = { version = "0.26", features = ["dnssec-ring"] }
+# See the encrypted-transport feature above for why quinn is named here.
+quinn = { version = "0.11", optional = true, default-features = false }
 hickory-proto     = { version = "0.26", features = ["dnssec-ring"] }
 
 tokio = { version = "1", features = ["full"] }
