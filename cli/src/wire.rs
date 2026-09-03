@@ -4,8 +4,9 @@
 //! choice. Every number printed here was measured at the socket
 //! (`EgressSnapshot`); every configured fact is labelled "(configured)"; no
 //! line prints a TLS version or cipher (hickory does not expose them); a
-//! QUIC/H3 run prints no digit before "datagrams" (quinn's sockets are
-//! outside the ledger). The user can check each line with tcpdump or lsof,
+//! QUIC/H3 run prints no digit before "datagrams" and counts sockets
+//! opened, never connections (quinn's handshake and datagrams are outside
+//! the ledger; the bind is what it sees). The user can check each line with tcpdump or lsof,
 //! and the line says so before they look.
 
 use std::fmt::Write as _;
@@ -54,7 +55,10 @@ fn system_conf_source() -> &'static str {
 
 /// The egress summary for the receipt or a wire line: "6 datagrams →
 /// 1.1.1.1:53 ×3, 1.0.0.1:53 ×3" / "2 TCP connections → …" / "2 QUIC
-/// connections → … (datagrams not counted here)". Zero events → no count.
+/// sockets opened → … (connections and datagrams not counted here)". Zero
+/// events → no count. A QUIC count is SOCKETS handed to quinn (what lsof
+/// shows), never connections: the ledger does not see quinn's handshake,
+/// and a fully timed-out DoQ run opens sockets all the same.
 fn egress_summary(s: &EgressSnapshot) -> String {
     let mut parts = Vec::new();
     if s.datagrams_sent > 0 {
@@ -85,7 +89,7 @@ fn egress_summary(s: &EgressSnapshot) -> String {
             dests.join(", ")
         ));
     }
-    if s.quic_connections > 0 {
+    if s.quic_sockets > 0 {
         let dests: Vec<String> = s
             .per_destination
             .iter()
@@ -93,9 +97,9 @@ fn egress_summary(s: &EgressSnapshot) -> String {
             .map(|(d, t)| format!("{d} ×{}", t.quic_binds))
             .collect();
         parts.push(format!(
-            "{} QUIC connection{} → {} (datagrams not counted here)",
-            s.quic_connections,
-            if s.quic_connections == 1 { "" } else { "s" },
+            "{} QUIC socket{} opened → {} (connections and datagrams not counted here)",
+            s.quic_sockets,
+            if s.quic_sockets == 1 { "" } else { "s" },
             dests.join(", ")
         ));
     }
@@ -358,9 +362,9 @@ pub fn render(s: &EgressSnapshot, c: &ResolverChoice, f: &WireFacts<'_>) -> Stri
         Transport::Quic | Transport::H3 => {
             let _ = writeln!(
                 out,
-                "        DNS    {identity} — {l4} {port} {arrow} · {} connection{} · datagrams not counted here (QUIC sockets are opened by quinn, outside the ledger) — tcpdump udp port {port}",
-                s.quic_connections,
-                if s.quic_connections == 1 { "" } else { "s" }
+                "        DNS    {identity} — {l4} {port} {arrow} · {} QUIC socket{} opened · connections and datagrams not counted here (quinn owns the socket; the ledger sees the bind, not the handshake) — tcpdump udp port {port}",
+                s.quic_sockets,
+                if s.quic_sockets == 1 { "" } else { "s" }
             );
             out.push_str(
                 "               encrypted: the path sees endpoints and sizes, not the DNS names — the HTTPS line below is the one place the domain is visible (SNI)\n",
@@ -528,7 +532,7 @@ pub fn refusal(r: &PreflightRefusal, c: &ResolverChoice) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use resolution_scope_engine::egress::{EgressLedger, FetchEntry};
+    use resolution_scope_engine::egress::{DestinationTotals, EgressLedger, FetchEntry};
     use resolution_scope_engine::preflight::ControlOutcome;
     use std::net::SocketAddr;
 
@@ -750,14 +754,21 @@ mod tests {
         assert!(!text.contains("answers arrived over TLS"), "{text}");
     }
 
-    /// A QUIC/H3 snapshot never prints a digit before "datagrams".
+    /// A QUIC/H3 snapshot never prints a digit before "datagrams", and never
+    /// calls a socket a connection: `quic_sockets` counts UDP sockets handed
+    /// to quinn (the bind), and a DoQ run that timed out on every one still
+    /// opened them. NEGATIVE — two sockets, zero answers: the line says "2
+    /// QUIC sockets opened" and the word "connection" never follows a digit
+    /// (mutant: print "{} connection{}" from `quic_sockets` → fails).
+    /// POSITIVE — one socket prints the singular, and the count is the
+    /// measured one.
     #[test]
-    fn quic_lines_never_count_datagrams() {
-        let snap = EgressSnapshot::default();
+    fn quic_lines_count_sockets_never_connections() {
+        let mut snap = EgressSnapshot::default();
         for c in [choice("quic://quad9"), choice("h3://cloudflare")] {
             let text = render(&snap, &c, &facts("example.com", true, true));
             let dns_line = text.lines().nth(1).unwrap();
-            assert!(dns_line.contains("datagrams not counted here (QUIC sockets are opened by quinn, outside the ledger)"), "{dns_line}");
+            assert!(dns_line.contains(" · 0 QUIC sockets opened · connections and datagrams not counted here (quinn owns the socket; the ledger sees the bind, not the handshake)"), "{dns_line}");
             let before = dns_line.split("datagrams").next().unwrap();
             let last_token = before.trim_end().rsplit(' ').next().unwrap();
             assert!(
@@ -765,6 +776,48 @@ mod tests {
                 "a digit before 'datagrams' on a QUIC line: {dns_line}"
             );
         }
+        // Two sockets opened, nothing answered (a fully timed-out DoQ run).
+        let dest: std::net::SocketAddr = "9.9.9.9:853".parse().unwrap();
+        snap.quic_sockets = 2;
+        snap.per_destination.push((
+            dest,
+            DestinationTotals {
+                protocol: "quic",
+                datagrams: 0,
+                tcp_connects: 0,
+                quic_binds: 2,
+            },
+        ));
+        let text = render(
+            &snap,
+            &choice("quic://quad9"),
+            &facts("example.com", true, false),
+        );
+        let dns_line = text.lines().nth(1).unwrap();
+        assert!(
+            dns_line
+                .contains(" · 2 QUIC sockets opened · connections and datagrams not counted here"),
+            "{dns_line}"
+        );
+        for (i, word) in dns_line.split(' ').enumerate() {
+            if word.starts_with("connection") {
+                let prev = dns_line.split(' ').nth(i - 1).unwrap();
+                assert!(
+                    !prev.chars().all(|ch| ch.is_ascii_digit()),
+                    "a socket count printed as connections: {dns_line}"
+                );
+            }
+        }
+        assert_eq!(
+            egress_summary(&snap),
+            "2 QUIC sockets opened → 9.9.9.9:853 ×2 (connections and datagrams not counted here)"
+        );
+        snap.quic_sockets = 1;
+        snap.per_destination[0].1.quic_binds = 1;
+        assert_eq!(
+            egress_summary(&snap),
+            "1 QUIC socket opened → 9.9.9.9:853 ×1 (connections and datagrams not counted here)"
+        );
     }
 
     /// Zero events → no count on the vantage receipt.
@@ -851,6 +904,7 @@ mod tests {
             "{text}"
         );
         assert!(text.contains("dnssec-failed.org → Bogus (pass: validation is local only; this resolver does not validate)"), "{text}");
+    }
     }
 
     #[test]

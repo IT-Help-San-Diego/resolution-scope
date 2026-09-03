@@ -558,7 +558,8 @@ fn render_controls(
 /// The compact wire token: `udp 53 ×41 → 1.1.1.1 +1` (footer) or the Seal
 /// tab's fuller `UDP 53 → 1.1.1.1 ×22, 1.0.0.1 ×19 · 41 datagrams · 0 TCP`.
 /// Every number is from the socket-layer snapshot; a QUIC/H3 run prints
-/// connections and no datagram digit.
+/// sockets opened (the bind quinn was handed) — never connections, never a
+/// datagram digit.
 fn wire_token(w: &EgressSnapshot, full: bool) -> String {
     let (word, port, count) = match w.per_destination.first() {
         Some((d, t)) => {
@@ -581,10 +582,11 @@ fn wire_token(w: &EgressSnapshot, full: bool) -> String {
                 format!("{} \u{00d7}{n}", d.ip())
             })
             .collect();
-        let counts = if w.quic_connections > 0 {
+        let counts = if w.quic_sockets > 0 {
             format!(
-                "{} QUIC connections \u{00b7} datagrams not counted here",
-                w.quic_connections
+                "{} QUIC socket{} opened \u{00b7} connections and datagrams not counted here",
+                w.quic_sockets,
+                if w.quic_sockets == 1 { "" } else { "s" }
             )
         } else if w.datagrams_sent > 0 {
             format!(
@@ -600,8 +602,8 @@ fn wire_token(w: &EgressSnapshot, full: bool) -> String {
             dests.join(", ")
         )
     } else {
-        let total = if w.quic_connections > 0 {
-            w.quic_connections
+        let total = if w.quic_sockets > 0 {
+            w.quic_sockets
         } else if w.datagrams_sent > 0 {
             w.datagrams_sent
         } else {

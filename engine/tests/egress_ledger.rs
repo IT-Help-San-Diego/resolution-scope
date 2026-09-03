@@ -75,7 +75,7 @@ async fn negative_control_stub_only() {
     );
     assert!(snap.datagrams_sent > 0);
     assert_eq!(snap.tcp_connects, 0);
-    assert_eq!(snap.quic_connections, 0);
+    assert_eq!(snap.quic_sockets, 0);
     assert_eq!(snap.undecoded_datagrams, 0, "our own datagrams decode");
     assert!(
         snap.cleartext_qnames.iter().any(|q| q == "example.test."),

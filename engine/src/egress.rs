@@ -253,7 +253,12 @@ pub struct EgressSnapshot {
     pub datagram_bytes: usize,
     pub undecoded_datagrams: usize,
     pub tcp_connects: usize,
-    pub quic_connections: usize,
+    /// UDP sockets handed to quinn (`QuicSocketBinder::bind_quic` returned
+    /// Ok) — a socket OPENED, never a connection: the ledger does not see
+    /// quinn's handshake, so a fully timed-out DoQ run still counts its
+    /// sockets here. A surface prints "sockets opened; connections not
+    /// counted", never "connections".
+    pub quic_sockets: usize,
     /// Every question name decoded from the datagrams that left, deduplicated,
     /// first-seen order, with the trailing dot hickory writes.
     pub cleartext_qnames: Vec<String>,
@@ -324,7 +329,7 @@ impl EgressSnapshot {
                     if t.protocol.is_empty() {
                         t.protocol = "quic";
                     }
-                    snap.quic_connections += 1;
+                    snap.quic_sockets += 1;
                 }
             }
         }
@@ -676,8 +681,9 @@ mod tests {
         assert!(ledger.drain().is_empty());
     }
 
-    /// A TCP connect and a QUIC bind are connections, never datagrams: a
-    /// snapshot holding only those has `datagrams_sent == 0`.
+    /// A TCP connect and a QUIC bind are not datagrams: a snapshot holding
+    /// only those has `datagrams_sent == 0`. (A QUIC bind is a socket
+    /// opened, not a connection — `quic_sockets`, named for what it is.)
     #[test]
     fn connections_are_not_datagrams() {
         let ledger = EgressLedger::new();
@@ -686,7 +692,7 @@ mod tests {
         let snap = ledger.drain();
         assert_eq!(snap.datagrams_sent, 0);
         assert_eq!(snap.tcp_connects, 1);
-        assert_eq!(snap.quic_connections, 1);
+        assert_eq!(snap.quic_sockets, 1);
         assert_eq!(snap.destinations().len(), 1);
     }
 

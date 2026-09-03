@@ -221,7 +221,7 @@ async fn transport_differential_probe() {
                 "  wire {spelling}: datagrams={} tcp={} quic={} dests={:?} connections={:?}",
                 snap.datagrams_sent,
                 snap.tcp_connects,
-                snap.quic_connections,
+                snap.quic_sockets,
                 snap.destinations(),
                 conns
             );

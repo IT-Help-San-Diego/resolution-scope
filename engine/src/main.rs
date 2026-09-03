@@ -237,7 +237,7 @@ async fn main() -> Result<()> {
             domain = %domain,
             datagrams = wire.datagrams_sent,
             tcp_connections = wire.tcp_connects,
-            quic_connections = wire.quic_connections,
+            quic_sockets = wire.quic_sockets,
             destinations = ?wire.destinations(),
             "egress, counted at the socket"
         );
