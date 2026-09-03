@@ -574,7 +574,7 @@ impl ResolverChoice {
         let mut s = match &self.target {
             Target::Preset(p) => p.label().to_string(),
             Target::System => "system".to_string(),
-            Target::Address { ip, port, .. } => match port {
+            Target::Address { ip, .. } => match self.written_port() {
                 Some(p) => format!("{}#{p}", display_ip(*ip)),
                 None => display_ip(*ip),
             },
@@ -594,6 +594,22 @@ impl ResolverChoice {
         s
     }
 
+    /// The port the identity writes: an address's port ONLY when it differs
+    /// from the transport's default. The parser never stores a default port
+    /// (`from_str`), but the fields are `pub`, so a value built as
+    /// `Target::Address { port: Some(853), .. }` under `Transport::Tls` is
+    /// the same choice as `port: None` and must seal the same bytes —
+    /// identity is a pure function of destination + transport, never of
+    /// how the value was constructed.
+    fn written_port(&self) -> Option<u16> {
+        match &self.target {
+            Target::Address { port: Some(p), .. } if *p != self.transport.default_port() => {
+                Some(*p)
+            }
+            _ => None,
+        }
+    }
+
     /// The exact inverse of [`identity`](Self::identity). `None` for a legacy
     /// opaque label (`default`, `test`, …) that no choice produces.
     pub fn parse_identity(s: &str) -> Option<Self> {
@@ -608,7 +624,7 @@ impl ResolverChoice {
         let mut s = match &self.target {
             Target::Preset(p) => format!("{} ({})", p.operator(), first_address(p.group().ips)),
             Target::System => "this machine's own system resolver (address not sealed)".to_string(),
-            Target::Address { ip, port, .. } => match port {
+            Target::Address { ip, .. } => match self.written_port() {
                 Some(port) => format!("{} port {port}", display_ip(*ip)),
                 None => display_ip(*ip),
             },
@@ -621,7 +637,7 @@ impl ResolverChoice {
             Transport::Quic => s.push_str(" over DNS-over-QUIC, port 853"),
             Transport::H3 => s.push_str(" over DNS-over-HTTP/3, port 443"),
         }
-        if let Target::Address { port: Some(_), .. } = &self.target {
+        if self.written_port().is_some() {
             // The port already appears with the address; do not print the default one twice.
             s = s
                 .replace(", port 53", "")
@@ -1302,6 +1318,64 @@ mod tests {
             }
             let v = Vantage::build(c.clone()).unwrap_or_else(|e| panic!("{c:?}: {e}"));
             assert_eq!(v.identity(), c.identity());
+        }
+    }
+
+    /// T9 — identity is a pure function of destination + transport: a port
+    /// written explicitly through the `pub` fields that equals the
+    /// transport default yields the SAME string as the port omitted, for
+    /// every transport and both address families. Negative control: a
+    /// port that differs from the default is still written.
+    /// Mutant: `identity()` reads `port` directly instead of
+    /// `written_port()` → "9.9.9.9#853/tls/dns.quad9.net" != "9.9.9.9/tls/dns.quad9.net".
+    #[test]
+    fn identity_omits_a_port_equal_to_the_transport_default_however_it_was_built() {
+        for t in Transport::ALL {
+            let name = t.is_encrypted().then(|| "dns.quad9.net".to_string());
+            for ip in ["9.9.9.9", "2620:fe::fe"] {
+                let ip: IpAddr = ip.parse().unwrap();
+                let omitted = ResolverChoice {
+                    target: Target::Address {
+                        ip,
+                        port: None,
+                        server_name: name.clone(),
+                    },
+                    transport: t,
+                };
+                let explicit_default = ResolverChoice {
+                    target: Target::Address {
+                        ip,
+                        port: Some(t.default_port()),
+                        server_name: name.clone(),
+                    },
+                    transport: t,
+                };
+                assert_eq!(
+                    explicit_default.identity(),
+                    omitted.identity(),
+                    "{t:?} {ip}: an explicit default port is the same choice"
+                );
+                assert!(!omitted.identity().contains('#'), "{}", omitted.identity());
+                assert_eq!(explicit_default.gloss(), omitted.gloss());
+                assert_eq!(explicit_default.port(), omitted.port());
+                // Negative: a non-default port is written, and moves the identity.
+                let other = ResolverChoice {
+                    target: Target::Address {
+                        ip,
+                        port: Some(t.default_port() + 1),
+                        server_name: name.clone(),
+                    },
+                    transport: t,
+                };
+                assert!(
+                    other
+                        .identity()
+                        .contains(&format!("#{}", t.default_port() + 1)),
+                    "{}",
+                    other.identity()
+                );
+                assert_ne!(other.identity(), omitted.identity());
+            }
         }
     }
 

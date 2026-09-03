@@ -88,3 +88,46 @@ fn another_choice_moves_the_seal() {
         DEFAULT_VANTAGE_KAT
     );
 }
+
+/// T10 — the seal is a pure function of the choice, not of its
+/// construction: an address with the transport-default port written
+/// explicitly through the `pub` fields seals byte-identically to the same
+/// choice with the port omitted (finding g). Negative control: a port that
+/// differs from the default moves the seal.
+#[test]
+fn an_explicit_default_port_seals_identically_to_the_port_omitted() {
+    use resolution_scope_engine::resolver::{Target, Transport};
+    let ip: std::net::IpAddr = "9.9.9.9".parse().unwrap();
+    let omitted = ResolverChoice {
+        target: Target::Address {
+            ip,
+            port: None,
+            server_name: Some("dns.quad9.net".into()),
+        },
+        transport: Transport::Tls,
+    };
+    let explicit_default = ResolverChoice {
+        target: Target::Address {
+            ip,
+            port: Some(853),
+            server_name: Some("dns.quad9.net".into()),
+        },
+        transport: Transport::Tls,
+    };
+    let parsed: ResolverChoice = "tls://9.9.9.9#853/dns.quad9.net".parse().unwrap();
+    let seal_of = |c: &ResolverChoice| {
+        seal_versioned_under_scheme(&fixture(c.identity()), "0.0.0-kat", SEAL_SCHEME)
+    };
+    assert_eq!(omitted.identity(), "9.9.9.9/tls/dns.quad9.net");
+    assert_eq!(seal_of(&explicit_default), seal_of(&omitted));
+    assert_eq!(seal_of(&parsed), seal_of(&omitted));
+    let other = ResolverChoice {
+        target: Target::Address {
+            ip,
+            port: Some(8853),
+            server_name: Some("dns.quad9.net".into()),
+        },
+        transport: Transport::Tls,
+    };
+    assert_ne!(seal_of(&other), seal_of(&omitted));
+}
