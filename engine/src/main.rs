@@ -85,67 +85,6 @@ fn parse_invocation(args: Vec<String>, env_resolver: Option<&str>) -> Result<Inv
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn args(v: &[&str]) -> Vec<String> {
-        v.iter().map(|s| s.to_string()).collect()
-    }
-
-    /// Both controls for the flag-over-environment rule, without mutating
-    /// the process environment (tests run in parallel).
-    ///
-    /// NEGATIVE (the defect): the operator types the DEFAULT, `cloudflare`,
-    /// and the environment says quad9 — the typed word must stand. Mutant:
-    /// restore `choice == ResolverChoice::default()` as the guard in place
-    /// of `!flag_given` → the first assertion reads "quad9" and fails.
-    /// POSITIVE: no flag → the environment is honoured, or refused with
-    /// the fix named; an empty env is no env.
-    #[test]
-    fn a_typed_default_is_not_overridden_by_the_environment() {
-        let i = parse_invocation(
-            args(&["--resolver", "cloudflare", "example.com"]),
-            Some("quad9"),
-        )
-        .unwrap();
-        assert_eq!(i.choice.identity(), "cloudflare");
-        let i = parse_invocation(args(&["--resolver=cloudflare"]), Some("tls://quad9")).unwrap();
-        assert_eq!(i.choice.identity(), "cloudflare");
-        // A typed non-default beats the env too.
-        let i = parse_invocation(args(&["--resolver", "google"]), Some("quad9")).unwrap();
-        assert_eq!(i.choice.identity(), "google");
-        // The env is not even parsed when a flag was typed.
-        let i = parse_invocation(args(&["--resolver", "cloudflare"]), Some("bogus!")).unwrap();
-        assert_eq!(i.choice.identity(), "cloudflare");
-        // Positive: no flag → the environment is honoured, or refused.
-        let i = parse_invocation(args(&["example.com"]), Some("quad9")).unwrap();
-        assert_eq!(i.choice.identity(), "quad9");
-        let i = parse_invocation(args(&[]), Some("tls://quad9")).unwrap();
-        assert_eq!(i.choice.identity(), "quad9/tls");
-        let err = parse_invocation(args(&[]), Some("bogus!")).unwrap_err();
-        assert!(err.to_string().starts_with("RS_RESOLVER=bogus!: "), "{err}");
-        // Empty env is no env; no env is the default.
-        let i = parse_invocation(args(&[]), Some("")).unwrap();
-        assert_eq!(i.choice, ResolverChoice::default());
-        let i = parse_invocation(args(&[]), None).unwrap();
-        assert_eq!(i.choice, ResolverChoice::default());
-    }
-
-    #[test]
-    fn domains_and_json_parse() {
-        let i = parse_invocation(args(&["--json", "a.test", "b.test"]), None).unwrap();
-        assert!(i.json);
-        assert_eq!(i.domains, ["a.test", "b.test"]);
-        assert_eq!(i.choice, ResolverChoice::default());
-        let i = parse_invocation(args(&[]), None).unwrap();
-        assert_eq!(i.domains, ["example.com"]);
-        assert!(!i.json);
-        assert!(parse_invocation(args(&["--resolver"]), None).is_err());
-        assert!(parse_invocation(args(&["--resolver", "nine"]), None).is_err());
-    }
-}
-
 // =============================================================================
 // Async runtime — OUTSIDE seL4 compartment (see architecture note above)
 // =============================================================================
@@ -245,4 +184,65 @@ async fn main() -> Result<()> {
 
     info!("done");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// Both controls for the flag-over-environment rule, without mutating
+    /// the process environment (tests run in parallel).
+    ///
+    /// NEGATIVE (the defect): the operator types the DEFAULT, `cloudflare`,
+    /// and the environment says quad9 — the typed word must stand. Mutant:
+    /// restore `choice == ResolverChoice::default()` as the guard in place
+    /// of `!flag_given` → the first assertion reads "quad9" and fails.
+    /// POSITIVE: no flag → the environment is honoured, or refused with
+    /// the fix named; an empty env is no env.
+    #[test]
+    fn a_typed_default_is_not_overridden_by_the_environment() {
+        let i = parse_invocation(
+            args(&["--resolver", "cloudflare", "example.com"]),
+            Some("quad9"),
+        )
+        .unwrap();
+        assert_eq!(i.choice.identity(), "cloudflare");
+        let i = parse_invocation(args(&["--resolver=cloudflare"]), Some("tls://quad9")).unwrap();
+        assert_eq!(i.choice.identity(), "cloudflare");
+        // A typed non-default beats the env too.
+        let i = parse_invocation(args(&["--resolver", "google"]), Some("quad9")).unwrap();
+        assert_eq!(i.choice.identity(), "google");
+        // The env is not even parsed when a flag was typed.
+        let i = parse_invocation(args(&["--resolver", "cloudflare"]), Some("bogus!")).unwrap();
+        assert_eq!(i.choice.identity(), "cloudflare");
+        // Positive: no flag → the environment is honoured, or refused.
+        let i = parse_invocation(args(&["example.com"]), Some("quad9")).unwrap();
+        assert_eq!(i.choice.identity(), "quad9");
+        let i = parse_invocation(args(&[]), Some("tls://quad9")).unwrap();
+        assert_eq!(i.choice.identity(), "quad9/tls");
+        let err = parse_invocation(args(&[]), Some("bogus!")).unwrap_err();
+        assert!(err.to_string().starts_with("RS_RESOLVER=bogus!: "), "{err}");
+        // Empty env is no env; no env is the default.
+        let i = parse_invocation(args(&[]), Some("")).unwrap();
+        assert_eq!(i.choice, ResolverChoice::default());
+        let i = parse_invocation(args(&[]), None).unwrap();
+        assert_eq!(i.choice, ResolverChoice::default());
+    }
+
+    #[test]
+    fn domains_and_json_parse() {
+        let i = parse_invocation(args(&["--json", "a.test", "b.test"]), None).unwrap();
+        assert!(i.json);
+        assert_eq!(i.domains, ["a.test", "b.test"]);
+        assert_eq!(i.choice, ResolverChoice::default());
+        let i = parse_invocation(args(&[]), None).unwrap();
+        assert_eq!(i.domains, ["example.com"]);
+        assert!(!i.json);
+        assert!(parse_invocation(args(&["--resolver"]), None).is_err());
+        assert!(parse_invocation(args(&["--resolver", "nine"]), None).is_err());
+    }
 }
