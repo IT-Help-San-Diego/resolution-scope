@@ -59,7 +59,9 @@ Controls: engine/tests/egress_ledger.rs E5 (the fetch attempt is a
           socket-layer fact); engine/src/analysis.rs
           `mta_sts_fetch_outcome_records_a_redirect_and_never_follows_it`
           (every 3xx → Redirect, result Err; deleting the branch turns a 301
-          into `Status(301, 0)`).
+          into `Status(301, 50)` in that test — the 50-byte policy body it
+          passes — and into `Status(301, 0)` on the production path, which
+          never reads a 3xx body).
 
 ## MTA-STS — the policy host is resolved through the validating vantage
 

@@ -1573,8 +1573,11 @@ async fn score_mta_sts(
 /// 8461 §3.3: "HTTP 3xx redirects MUST NOT be followed"); it fails the fetch
 /// through the same non-2xx gate as a 404. Extracted so the redirect arm is
 /// unit-pinned: deleting the `is_redirection` branch turns a 301 into a
-/// `Status(301, 0)` that the wire line would print as "not a policy" instead
-/// of "not followed".
+/// `Status(301, n)` — n the length of the body it was handed: 0 on the
+/// production path, which never reads a 3xx body (`score_mta_sts` passes
+/// `String::new()`), 50 in the unit test, which passes its 50-byte policy —
+/// that the wire line would print as "not a policy" instead of "not
+/// followed".
 fn mta_sts_fetch_outcome(
     status: reqwest::StatusCode,
     location: Option<&str>,
@@ -3763,7 +3766,8 @@ mod tests {
         // Negative control: every 3xx is recorded as a Redirect with its
         // Location and fails the fetch — the body a redirecting server sent
         // is never read as a policy. Mutant: delete the `is_redirection`
-        // branch of `mta_sts_fetch_outcome` → `Status(301, 52)`, this fails.
+        // branch of `mta_sts_fetch_outcome` → `Status(301, 50)` (the
+        // 50-byte body below), this fails.
         for code in [
             StatusCode::MOVED_PERMANENTLY,
             StatusCode::FOUND,
