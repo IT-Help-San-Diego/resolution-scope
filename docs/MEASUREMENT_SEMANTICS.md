@@ -403,8 +403,14 @@ COST:     One extra wire query per NXDOMAIN leg that the packet cannot decide,
           The claim is TRUE as of this change because the probe is LAZY and
           MEMOISED (`host_probe_at`): taken on first need, and never twice for
           one host in one scan. Strictly fewer questions than the pre-probe
-          tree in ALL EIGHT measured cells, and fewer than PR #45's eager pass
-          in four of them (equal in the other four, more in none).
+          tree in ALL EIGHT measured cells, and against PR #45's eager pass:
+          fewer in THREE cells, equal in five, more in none. (The earlier
+          wording said "four and four"; that miscounted the table printed
+          directly above it. Cell by cell: gate armed, lazy 1/1/1/1 against
+          eager 1/2/3/5 is equal at one host and fewer at two, three and
+          five; gate not armed the two rows are identical. A tally that
+          contradicts its own table is the defect this entry exists to
+          record, committed one paragraph after recording it.)
 KNOWN COST, RE-DERIVABILITY: a DANE or TLS-RPT verdict now depends on a SECOND
           packet taken at a different instant, and that packet is NOT in the
           receipt — the probe deliberately bypasses `observed_lookup` to
@@ -459,8 +465,15 @@ Controls: every kill set below was OBSERVED by mutating the source, running
           sealed `tlsa_zone` from `SameZone` to `ForeignZone`);
           `an_exact_soa_tlsa_nxdomain_is_immune_to_an_unanswerable_probe`.
           engine/tests/dane_probe_cost.rs — the COST controls (added
-          2026-09-04). Every number in the COST table above is read off these
-          two scans; they assert the counts, so the claim cannot rot silently:
+            2026-09-04). SCOPE, stated exactly: these two scans assert the
+            LAZY row of each half of the table, the eight numbers that
+            describe THIS tree, so those cannot rot silently. The
+            pre-probe and eager rows are sixteen HISTORICAL numbers no
+            shipped test can reproduce, because this cost test does not
+            compile at 3935807^; they rest on the run recorded here and
+            are NOT gated. An earlier wording claimed every number in the
+            table was read off these two scans, false for two thirds of
+            them:
           `dnssec_gate_armed_costs_one_host_probe_regardless_of_mx_count`;
           `dnssec_gate_not_armed_costs_one_host_probe_per_host_not_two`.
           OBSERVED KILL SETS (mutant -> tests that failed):
