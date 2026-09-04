@@ -240,7 +240,8 @@ Controls: engine/src/analysis.rs — every kill set below OBSERVED by mutating
 
 ## DANE + TLS-RPT — existence is MEASURED with a second query, never inferred from the SOA's name
 
-Release:  unreleased — first tag after 2026-09-03 (PR #45)   Since: 2026-09-04
+Release:  unreleased — first tag after 2026-09-03 (PR #45, corrected in the
+          same unreleased window by PR #47)   Since: 2026-09-04
 Where:    engine/src/analysis.rs `tlsa_err_to_count`,
           `tls_rpt_err_to_disposition`, `score_dane` (the tlsa_zone loop, the
           DnssecRequired gate loop and the TLSA loop), `score_tls_rpt`;
@@ -478,7 +479,8 @@ Controls: every kill set below was OBSERVED by mutating the source, running
           M1-M12 were observed against the tree PR #45 shipped and are kept
           as recorded.
 
-          CORRECTION, 2026-09-04 — M1-M12 WERE NOT THE WHOLE KILL SET, and
+          CORRECTION (PR #47), 2026-09-04 — M1-M12 WERE NOT THE WHOLE KILL
+          SET, and
           "No survivors" as first written was FALSE. Two mutants survived the
           full engine suite (250 passed, 0 failed) on the shipped tree. Both
           are now dead; observed the same way, against the tree this
