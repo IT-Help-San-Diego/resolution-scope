@@ -390,7 +390,8 @@ COST:     One extra wire query per NXDOMAIN leg that the packet cannot decide,
 
           <!-- cost-table begin: dane-host-soa-questions -->
           # THE MACHINE-READABLE FORM of the cost table. Nothing here is
-          # inferred from prose: every line matches one of six grammars or
+          # inferred from prose: every line matches one of the grammars the script
+          # enumerates in its own error message, or
           # scripts/check-semantics-numbers.sh fails naming the line.
           #
           # [src gated:<test>]     the next [row] is asserted by that shipped
@@ -439,9 +440,16 @@ COST:     One extra wire query per NXDOMAIN leg that the packet cannot decide,
           # Claims DERIVED from the rows above, RECOMPUTED by the gate. PR
           # #47's defect was a tally that contradicted the table three lines
           # above it, so the guard for a tally is arithmetic. The prose below
-          # states these same two claims in English; if the English and the
-          # numbers ever disagree, CI goes red rather than a reader catching
-          # it — or not.
+            # states these same two claims in English. THE ENGLISH IS NOT
+            # GATED. This block binds the [derived] LINES to the [row]
+            # numbers, so a wrong tally INSIDE the block fails CI — but a
+            # sentence in the prose below that contradicts them still
+            # passes. #47's actual defect, an English tally disagreeing
+            # with its own table, would NOT be caught here.
+            # Binding prose would mean guessing which integers in English
+            # are claims, and guessing over prose is how this class of bug
+            # arrived. Read the [derived] lines as the checked statement
+            # and the sentences as their unchecked gloss.
           [derived lhs=lazy rhs=pre-probe fewer=8 equal=0 more=0]
           [derived lhs=lazy rhs=eager     fewer=3 equal=5 more=0]
           <!-- cost-table end -->

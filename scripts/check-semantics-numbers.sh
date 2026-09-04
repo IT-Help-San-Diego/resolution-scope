@@ -271,6 +271,12 @@ def parse(text):
 def check_derived(m):
     """Recompute every [derived] tally from the [row] numbers. PR #47's defect."""
     p = []
+    # FLOOR (reviewers, 2026-09-04): deleting every [derived] line removes the
+    # arithmetic guard against #47's defect and leaves this function checking
+    # nothing — a guard that passes because it was emptied. At least one.
+    if not m["derived"]:
+        return ["no [derived] line: the arithmetic guard against a tally that "
+                "contradicts its own table has been removed"]
     for d in m["derived"]:
         lhs = {r["regime"]: r for r in m["rows"] if r["series"] == d["lhs"]}
         rhs = {r["regime"]: r for r in m["rows"] if r["series"] == d["rhs"]}
@@ -469,6 +475,20 @@ def check(text, root, run_harness):
     p += check_outside(text, m)
     if run_harness and not p:
         p += check_harness(m, root)
+        # COVERAGE FLOOR — REAL DOCUMENT ONLY (reviewers, 2026-09-04).
+        # "at least one gated row" lets an author downgrade seven of eight
+        # gated cells to testimony and still pass. Pinned here, in the
+        # real-document path only: the self-test's synthetic fixtures have
+        # their own smaller blocks and must not be measured against it —
+        # my first attempt put this in the shared parser and the self-test
+        # caught it, which is what a self-test is for.
+        expected_gated_cells = 8
+        n_cells = sum(len(r["vals"]) for r in m["rows"] if r.get("kind") == "gated")
+        if n_cells != expected_gated_cells:
+            p.append("gated coverage is %d cells, expected %d — a row was downgraded "
+                     "to testimony or the axis changed; if deliberate, change "
+                     "expected_gated_cells and say why in the commit"
+                     % (n_cells, expected_gated_cells))
     return p, m
 
 
