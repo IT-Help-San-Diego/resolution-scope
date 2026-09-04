@@ -388,24 +388,71 @@ COST:     One extra wire query per NXDOMAIN leg that the packet cannot decide,
           that is why those numbers are testimony here rather than a
           gated assertion.
 
-            MX hosts                        1    2    3    5
-            DnssecRequired gate ARMED (MX host zone unsigned — the Google
-            Workspace / Microsoft 365 shape this gate's own comment cites):
-              pre-probe (3935807^)          2    2    2    2
-              eager probe (PR #45)          1    2    3    5
-              lazy + memoised (this change) 1    1    1    1  [1]
-            [1] one probe holds when the FIRST MX host in the answer
-                exists: the attribution loop `break`s at the first
-                RESOLVABLE host and the gate reads it as a cache hit.
-                A dangling first host is probed, yields no apex, does
-                not break, and the loop pays for the next one — so the
-                count is the number of hosts tried before the first
-                that resolves, not a constant.
-            gate NOT ARMED (the gate must read EVERY host's zone, so no
-            short-circuit can help and the count is the host count):
-              pre-probe (3935807^)          2    3    4    6
-              eager probe (PR #45)          1    2    3    5
-              lazy + memoised (this change) 1    2    3    5
+          <!-- cost-table begin: dane-host-soa-questions -->
+          # THE MACHINE-READABLE FORM of the cost table. Nothing here is
+          # inferred from prose: every line matches one of the grammars the script
+          # enumerates in its own error message, or
+          # scripts/check-semantics-numbers.sh fails naming the line.
+          #
+          # [src gated:<test>]     the next [row] is asserted by that shipped
+          #                        test, in THIS tree, and the gate re-checks
+          #                        it against the test's own source and runs
+          #                        the test to watch it pass.
+          # [src testimony:<ref>]  the next [row] was measured once at <ref>
+          #                        and NO shipped test reproduces it. The gate
+          #                        does not check these numbers and must not
+          #                        pretend to. (<ref> itself is unverified:
+          #                        CI clones shallow, so a historical rev
+          #                        cannot be resolved without full history.)
+          # A [row] with no [src] is an UNMARKED ROW and fails by name — an
+          # unmarked number is an ungated claim wearing a gated number's
+          # clothes. A row whose integers do not fill the axis fails. A block
+          # with zero gated rows fails: a gate with nothing to check must go
+          # red, not pass vacuously.
+          [gatefile engine/tests/dane_probe_cost.rs]
+          [axis var=hosts suffix=usize]                 1    2    3    5
+          # gate ARMED (DnssecRequired; MX host zone unsigned — the Google
+          # Workspace / Microsoft 365 shape this gate's own comment cites).
+          [src testimony:3935807^]
+          [row regime=armed series=pre-probe]           2    2    2    2
+          [src testimony:pr45]
+          [row regime=armed series=eager]               1    2    3    5
+          [src gated:dnssec_gate_armed_costs_one_host_probe_regardless_of_mx_count]
+          [call measure(hosts, true)]
+          [expect const=1]
+          [row regime=armed series=lazy]                1    1    1    1
+          # The lazy row's constancy holds only when the FIRST MX host in the
+          # answer exists: the attribution loop `break`s at the first
+          # RESOLVABLE host and the gate reads it as a cache hit. A dangling
+          # first host is probed, yields no apex, does not break, and the loop
+          # pays for the next one — so the count is the number of hosts tried
+          # before the first that resolves, not a constant.
+          # gate NOT ARMED (the gate must read EVERY host's zone, so no
+          # short-circuit can help and the count is the host count).
+          [src testimony:3935807^]
+          [row regime=unarmed series=pre-probe]         2    3    4    6
+          [src testimony:pr45]
+          [row regime=unarmed series=eager]             1    2    3    5
+          [src gated:dnssec_gate_not_armed_costs_one_host_probe_per_host_not_two]
+          [call measure(hosts, false)]
+          [expect axis]
+          [row regime=unarmed series=lazy]              1    2    3    5
+          # Claims DERIVED from the rows above, RECOMPUTED by the gate. PR
+          # #47's defect was a tally that contradicted the table three lines
+          # above it, so the guard for a tally is arithmetic. The prose below
+            # states these same two claims in English. THE ENGLISH IS NOT
+            # GATED. This block binds the [derived] LINES to the [row]
+            # numbers, so a wrong tally INSIDE the block fails CI — but a
+            # sentence in the prose below that contradicts them still
+            # passes. #47's actual defect, an English tally disagreeing
+            # with its own table, would NOT be caught here.
+            # Binding prose would mean guessing which integers in English
+            # are claims, and guessing over prose is how this class of bug
+            # arrived. Read the [derived] lines as the checked statement
+            # and the sentences as their unchecked gloss.
+          [derived lhs=lazy rhs=pre-probe fewer=8 equal=0 more=0]
+          [derived lhs=lazy rhs=eager     fewer=3 equal=5 more=0]
+          <!-- cost-table end -->
 
           THE FIRST VERSION OF THIS LINE WAS FALSE AND IS RETRACTED. It read
           "DANE: ZERO extra ... the DANE scan issues FEWER queries than

@@ -70,6 +70,40 @@ jobs:
       - name: Every seal scheme is KAT'd, literal-pinned, and re-derivable
         run: bash scripts/check-seal-scheme-consistency.sh
 
+  semantics-numbers:
+    # Three rounds running, the CODE was right and the ACCOUNTING was wrong:
+    # #45 shipped a cost claim measurably INVERTED on the commonest mail
+    # shape; #47 shipped a tally contradicting the table printed three lines
+    # above it. Both were human-style arithmetic/scope errors in prose that
+    # no compiler reads, and three occurrences of one failure mode is this
+    # project's signal for a mechanical guard rather than more care.
+    # Every number MEASUREMENT_SEMANTICS.md marks `gated:` is re-checked
+    # against the test that asserts it AND that test is run and watched
+    # passing; every `derived:` tally is recomputed from the rows; an
+    # UNMARKED row fails by name; a block with zero gated rows fails rather
+    # than passing vacuously. Testimony rows are marked and deliberately NOT
+    # checked — the gate must not pretend to cover them.
+    # Watched failing before shipping: edit one gated cell -> exit 1 naming
+    # the cell (even with the tally repaired); delete one [src] -> exit 1
+    # naming the row; remove every gated marker -> exit 1 "ZERO GATED ROWS";
+    # #[ignore] the cited test -> exit 1 though cargo itself exits 0.
+    # No network: the cost tests answer from a loopback stub.
+    name: Measurement-semantics numbers (gated cells re-checked, tests run)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5 tag @ 2026-08-29
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch, pinned 2026-08-29
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: engine
+      - name: Every gated number in MEASUREMENT_SEMANTICS.md is re-checked
+        run: bash scripts/check-semantics-numbers.sh
+
   # One matrix for every host crate — a new renderer is a ONE-TOKEN addition
   # here, not a copied job (the hand-maintained-mirror lesson: flipper shipped
   # with no CI job because the per-crate jobs were copies). native is separate
@@ -274,6 +308,7 @@ jobs:
         citation-boundary,
         corpus-identity-absence,
         seal-scheme-consistency,
+        semantics-numbers,
         crates,
         native-lib,
         licenses,
