@@ -241,3 +241,252 @@ async fn apex_scan_spends_no_probe_on_tls_rpt() {
         "the exact-equality shortcut must not spend a query"
     );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P4-P6 — the classes PR #45 shipped without a control (2026-09-04).
+//
+// P4  A host that EXISTS whose PROBE cannot answer. The probe added a new way
+//     for a correctly-configured domain's DANE row to move, and neither the
+//     Moves list nor any test named it: NotConfigured -> TransientError, which
+//     is Absent -> Indet, Low -> Unmeasured, and the control LEAVES the
+//     denominator, so coverage and the risk-weighted score both move.
+// P5  A MIXED MX list. Every wired probe control shipped with #45 used ONE MX
+//     host, so the per-host INDEX — the thing that carries each measurement to
+//     the right host — was unpinned, and `host_exists[i] -> host_exists[0]`
+//     survived the whole suite.
+// P6  The packet that decides by itself. When the TLSA NXDOMAIN's SOA names
+//     the host EXACTLY, the zone answered for itself and no probe is asked;
+//     that case must therefore be IMMUNE to a probe that cannot answer.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The F2 world: the ordinary third-party-provider shape. `f2.test` has one
+/// MX, `mx.provider.test`, a host that EXISTS in a zone that is not the
+/// scanned domain's. Its TLSA name answers NXDOMAIN carrying the SOA of the
+/// proper ancestor `provider.test`, so the packet alone cannot decide and the
+/// probe is consulted. `provider.test`'s DNSKEY is REFUSED (`Unreachable`), so
+/// the DnssecRequired gate does not fire and the TLSA loop is reached.
+///
+/// The parameter is the host's own SOA answer — the probe, and nothing else.
+fn p4_world(host_soa: Canned) -> HashMap<(String, RecordType), Canned> {
+    let mut c = HashMap::new();
+    c.insert(
+        key("f2.test", RecordType::MX),
+        Canned::ok(vec![Record::from_rdata(
+            n("f2.test"),
+            300,
+            RData::MX(MX::new(10, n("mx.provider.test"))),
+        )]),
+    );
+    c.insert(key("f2.test", RecordType::SOA), soa_answer("f2.test"));
+    // THE ENTRY UNDER TEST.
+    c.insert(key("mx.provider.test", RecordType::SOA), host_soa);
+    c.insert(
+        key("_25._tcp.mx.provider.test", RecordType::TLSA),
+        Canned::with_soa(ResponseCode::NXDomain, "provider.test"),
+    );
+    c
+}
+
+/// P4. An existing, correctly-configured MX host whose EXISTENCE PROBE is
+/// REFUSED reads `TransientError`, not `NotConfigured`. Both controls; the
+/// TLSA packet is byte-identical across them, so the probe's own answer is the
+/// only variable.
+///
+/// This is a REGRESSION CLASS, recorded rather than argued away: nothing at
+/// the domain changed, the host exists and is configured exactly as before,
+/// and a query that the instrument newly asks — not any measurement of the
+/// domain — moved the verdict out of the denominator. The abstention is the
+/// right verdict for an unanswerable probe (the alternative is claiming an
+/// absence nothing measured), and the honest accounting is to name the class,
+/// which docs/MEASUREMENT_SEMANTICS.md now does.
+#[tokio::test]
+async fn an_existing_host_whose_probe_is_refused_abstains_rather_than_claiming_absence() {
+    // ── POSITIVE: the probe answers. The host exists; no TLSA is a measured
+    // absence.
+    let stub = Stub::start_with(p4_world(Canned::with_soa(
+        ResponseCode::NoError,
+        "provider.test",
+    )))
+    .await;
+    let v = vantage_at(&stub);
+    let a = analyse_domain(&v, "f2.test").await.unwrap();
+    assert_eq!(
+        a.dane_disposition,
+        DaneDisposition::NotConfigured,
+        "an existing provider-hosted MX with no TLSA is a measured absence"
+    );
+    assert_eq!(a.tlsa_zone, TlsaZone::ForeignZone);
+
+    // ── NEGATIVE: the probe is REFUSED. Nothing about the host changed.
+    let stub = Stub::start_with(p4_world(Canned::code(ResponseCode::Refused))).await;
+    let v = vantage_at(&stub);
+    let a = analyse_domain(&v, "f2.test").await.unwrap();
+    assert_eq!(
+        a.dane_disposition,
+        DaneDisposition::TransientError,
+        "an unanswerable probe must abstain — it may not be spent as an absence"
+    );
+    assert_eq!(
+        a.tlsa_zone,
+        TlsaZone::ZoneUnmeasured,
+        "no zone was measured for the host, so none may be attributed"
+    );
+}
+
+/// P5a. A MIXED MX list, existing host FIRST, dangling host SECOND — the
+/// arrangement that pins the per-host index.
+///
+/// `mx1.provider.test` exists (its TLSA NXDOMAIN under an ancestor SOA is a
+/// MEASURED absence, `Some(0)`); `gone.nx.co.test` does not (`None`, nothing
+/// measurable at a name whose domain is gone). The fold takes any `None` to
+/// `TransientError`. Carry host 1's measurement to host 2 — the
+/// `host_probe_at(..., i) -> host_probe_at(..., 0)` mutant — and BOTH hosts
+/// read `Some(0)`, the fold reads `NotConfigured`, and this assertion fails.
+/// A single-host world cannot make that mutation observable at all.
+#[tokio::test]
+async fn a_mixed_mx_list_carries_each_hosts_own_measurement() {
+    let mut c = HashMap::new();
+    c.insert(
+        key("mixed.test", RecordType::MX),
+        Canned::ok(vec![
+            Record::from_rdata(
+                n("mixed.test"),
+                300,
+                RData::MX(MX::new(10, n("mx1.provider.test"))),
+            ),
+            Record::from_rdata(
+                n("mixed.test"),
+                300,
+                RData::MX(MX::new(20, n("gone.nx.co.test"))),
+            ),
+        ]),
+    );
+    c.insert(key("mixed.test", RecordType::SOA), soa_answer("mixed.test"));
+    // Host 1 EXISTS (NODATA on its own SOA, under provider.test).
+    c.insert(
+        key("mx1.provider.test", RecordType::SOA),
+        Canned::with_soa(ResponseCode::NoError, "provider.test"),
+    );
+    // Host 2's domain does NOT exist.
+    c.insert(
+        key("gone.nx.co.test", RecordType::SOA),
+        Canned::with_soa(ResponseCode::NXDomain, "co.test"),
+    );
+    // Both TLSA legs are the SAME shape: NXDOMAIN under a proper-ancestor SOA.
+    // Only the per-host probe separates them.
+    c.insert(
+        key("_25._tcp.mx1.provider.test", RecordType::TLSA),
+        Canned::with_soa(ResponseCode::NXDomain, "provider.test"),
+    );
+    c.insert(
+        key("_25._tcp.gone.nx.co.test", RecordType::TLSA),
+        Canned::with_soa(ResponseCode::NXDomain, "co.test"),
+    );
+    // The registry suffix is UNSIGNED: if the gate ever read the dead host's
+    // enclosing zone as its own, the scan would return DnssecRequired instead.
+    c.insert(
+        key("co.test", RecordType::DNSKEY),
+        Canned::code(ResponseCode::NoError),
+    );
+
+    let stub = Stub::start_with(c).await;
+    let v = vantage_at(&stub);
+    let a = analyse_domain(&v, "mixed.test").await.unwrap();
+    assert_eq!(
+        a.dane_disposition,
+        DaneDisposition::TransientError,
+        "host 2's domain is gone — its own measurement, not host 1's, decides its count"
+    );
+    assert_eq!(
+        a.tlsa_zone,
+        TlsaZone::ForeignZone,
+        "attribution follows the FIRST resolvable host"
+    );
+    assert!(stub.saw("mx1.provider.test", RecordType::SOA));
+    assert!(stub.saw("gone.nx.co.test", RecordType::SOA));
+}
+
+/// P5b. The same mixed list with the DANGLING host FIRST — the attribution
+/// loop's skip, on a list where skipping actually changes the answer.
+///
+/// `gone.mixed.test` does not exist, and the NXDOMAIN that says so carries the
+/// SOA of `mixed.test` — the scanned domain's own zone, because that is the
+/// closest enclosing zone that exists. Attribute the dead host to that zone
+/// and the sealed `tlsa_zone` reads `SameZone`: "this domain operates its own
+/// mail", asserted about a host with no zone at all. Skipping it, the
+/// attribution falls to the live host and reads `ForeignZone`.
+#[tokio::test]
+async fn a_dangling_primary_mx_does_not_claim_the_scanned_domains_zone() {
+    let mut c = HashMap::new();
+    c.insert(
+        key("mixed.test", RecordType::MX),
+        Canned::ok(vec![
+            Record::from_rdata(
+                n("mixed.test"),
+                300,
+                RData::MX(MX::new(10, n("gone.mixed.test"))),
+            ),
+            Record::from_rdata(
+                n("mixed.test"),
+                300,
+                RData::MX(MX::new(20, n("mx1.provider.test"))),
+            ),
+        ]),
+    );
+    c.insert(key("mixed.test", RecordType::SOA), soa_answer("mixed.test"));
+    c.insert(
+        key("gone.mixed.test", RecordType::SOA),
+        Canned::with_soa(ResponseCode::NXDomain, "mixed.test"),
+    );
+    c.insert(
+        key("mx1.provider.test", RecordType::SOA),
+        Canned::with_soa(ResponseCode::NoError, "provider.test"),
+    );
+    c.insert(
+        key("_25._tcp.gone.mixed.test", RecordType::TLSA),
+        Canned::with_soa(ResponseCode::NXDomain, "mixed.test"),
+    );
+    c.insert(
+        key("_25._tcp.mx1.provider.test", RecordType::TLSA),
+        Canned::with_soa(ResponseCode::NXDomain, "provider.test"),
+    );
+
+    let stub = Stub::start_with(c).await;
+    let v = vantage_at(&stub);
+    let a = analyse_domain(&v, "mixed.test").await.unwrap();
+    assert_eq!(
+        a.tlsa_zone,
+        TlsaZone::ForeignZone,
+        "a host that does not exist may not be attributed to the zone that \
+         merely answered its NXDOMAIN"
+    );
+    assert_eq!(
+        a.dane_disposition,
+        DaneDisposition::TransientError,
+        "the dangling host contributes None, and the fold abstains"
+    );
+}
+
+/// P6. The packet that decides by itself is IMMUNE to a probe that cannot
+/// answer. `_25._tcp.mx.provider.test` NXDOMAIN carrying the SOA of
+/// `mx.provider.test` — the host ITSELF — proves the host exists, because a
+/// zone that answers for itself demonstrably exists. So the host-SOA question
+/// is never asked for this decision, the P4 exposure does not apply, and the
+/// verdict must stay `NotConfigured` even with the probe REFUSED.
+#[tokio::test]
+async fn an_exact_soa_tlsa_nxdomain_is_immune_to_an_unanswerable_probe() {
+    let mut c = p4_world(Canned::code(ResponseCode::Refused));
+    c.insert(
+        key("_25._tcp.mx.provider.test", RecordType::TLSA),
+        Canned::with_soa(ResponseCode::NXDomain, "mx.provider.test"),
+    );
+    let stub = Stub::start_with(c).await;
+    let v = vantage_at(&stub);
+    let a = analyse_domain(&v, "f2.test").await.unwrap();
+    assert_eq!(
+        a.dane_disposition,
+        DaneDisposition::NotConfigured,
+        "the SOA names the host itself — the packet already proves existence, \
+         so a failed probe cannot move this verdict"
+    );
+}

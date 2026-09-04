@@ -1369,6 +1369,68 @@ async fn zone_apex_of(resolver: &ScopeResolver, name: &str) -> Option<String> {
     zone_apex_and_existence(resolver, name).await.0
 }
 
+/// Pure: may a ZONE-BASED decision use this MX host's measured apex?
+///
+/// `score_dane` asks it twice — once for the `tlsa_zone` attribution, once for
+/// the DnssecRequired gate — and the two guards it folds are NOT
+/// interchangeable, which is the whole reason it is a named function instead
+/// of an inline comparison:
+///
+///   `Some(false)` — the host was MEASURED not to exist. Its "apex" is only
+///                   the registry suffix that answered the NXDOMAIN. Using it
+///                   attributes the host to someone else's zone (a sealed
+///                   `ForeignZone` for a host with no zone), and lets an
+///                   unsigned registry suffix `return` DnssecRequired for a
+///                   host that has no zone to sign. -> refuse the apex.
+///   `None`        — the probe COULD NOT MEASURE. That is not evidence of
+///                   absence and must not be spent as if it were: whatever
+///                   apex the packet did carry is still the best measurement
+///                   in hand. -> the apex stands.
+///   `Some(true)`  — measured to exist. -> the apex stands.
+///
+/// WHY THIS IS A FUNCTION AND NOT `exists != Some(true)`: with hickory 0.26.1
+/// only NoError and NXDomain responses become `NoRecordsFound` (hickory-net
+/// src/error.rs), and every other rcode becomes `ResponseCode(_)` with NO SOA.
+/// So `apex.is_some()` currently IMPLIES `exists.is_some()`, and the two
+/// spellings are indistinguishable end to end — a wired control cannot tell
+/// them apart, which is exactly how the `!= Some(true)` mutant survived the
+/// full suite on #45. Extracting the decision makes the `None` row reachable
+/// in a unit test (`host_zone_for_decision_separates_unmeasured_from_absent`)
+/// and pins the intended semantics against a future error shape that carries
+/// an SOA beside a rcode this crate cannot read as existence.
+fn host_zone_for_decision(apex: Option<&str>, exists: Option<bool>) -> Option<&str> {
+    match exists {
+        Some(false) => None,
+        Some(true) | None => apex,
+    }
+}
+
+/// LAZY, MEMOISED per-host probe for `score_dane`: `zone_apex_and_existence`
+/// at `hosts[i]`, taken on FIRST NEED and reused by every later reader.
+///
+/// `cache[i]` is `None` until host `i` is actually reached. Both of
+/// `score_dane`'s zone loops short-circuit (`break` at the first resolvable
+/// host; `return` at the first unsigned one), so an eager pass over every host
+/// spends queries the scan's own control flow proves it never needs — measured
+/// as 5 host-SOA questions where 1 suffices on a five-host unsigned-provider
+/// MX (engine/tests/dane_probe_cost.rs). Memoisation is what keeps the
+/// laziness honest: the gate loop re-reading a host the attribution loop
+/// already probed must NOT put a second question on the wire, and must not
+/// risk a different answer for the same host inside one scan.
+async fn host_probe_at(
+    resolver: &ScopeResolver,
+    hosts: &[String],
+    cache: &mut [Option<(Option<String>, Option<bool>)>],
+    i: usize,
+) -> (Option<String>, Option<bool>) {
+    if let Some(hit) = &cache[i] {
+        return hit.clone();
+    }
+    let fresh = zone_apex_and_existence(resolver, &hosts[i]).await;
+    cache[i] = Some(fresh.clone());
+    fresh
+}
+
 /// Pure gate: does an MX host's zone DNSSEC state force `DnssecRequired`?
 /// Extracted so the host-zone decision is unit-pinned without a mock resolver
 /// (the async `score_dane` can't be — same pattern as `dane_from_tlsa_counts`).
@@ -1426,24 +1488,29 @@ async fn score_dane(
                 MxShape::NoMx => (DaneDisposition::NoMx, TlsaZone::NoMxHost),
                 MxShape::NoMail => (DaneDisposition::NoMail, TlsaZone::NoMxHost),
                 MxShape::Hosts(hosts) => {
-                    // ── one SOA query per MX host, read for BOTH facts ──
-                    // The zone apex (the zone-cut attribution) and whether the
-                    // host NAME ITSELF exists. Both were needed; the apex alone
-                    // could not supply the second, because an NXDOMAIN's SOA
-                    // names the closest enclosing zone THAT EXISTS and says
-                    // nothing about the queried name's own domain. This loop
-                    // REPLACES the two separate `zone_apex_of` passes below
-                    // (attribution, then the DNSSEC gate), so the existence
-                    // measurement costs zero extra queries and the previous
-                    // double lookup per host collapses to one.
+                    // ── the per-host SOA probe: LAZY and MEMOISED ──────────
+                    // One SOA query per MX host reads BOTH facts: the zone apex
+                    // (the zone-cut attribution) and whether the host NAME
+                    // ITSELF exists. The apex alone could not supply the second,
+                    // because an NXDOMAIN's SOA names the closest enclosing zone
+                    // THAT EXISTS and says nothing about the queried name's own
+                    // domain.
+                    //
+                    // It is taken ON FIRST NEED, not eagerly for every host.
+                    // Both loops below short-circuit — the attribution loop
+                    // `break`s at the first resolvable host, the gate loop
+                    // `return`s at the first unsigned one — and an eager pass
+                    // spends a query for every host those `break`s never reach.
+                    // MEASURED on the loopback stub (engine/tests/dane_probe_cost.rs),
+                    // host-SOA questions on the wire, five MX hosts in an
+                    // unsigned provider zone (the Google Workspace / Microsoft
+                    // 365 shape this gate's own comment cites): eager 5, lazy 1,
+                    // pre-probe 2. The eager pass made the DANE scan DEARER than
+                    // before on the dominant real-world mail shape, which is the
+                    // opposite of what this log's COST line claimed.
                     let domain_apex = zone_apex_of(resolver, domain).await;
-                    let mut host_apex: Vec<Option<String>> = Vec::with_capacity(hosts.len());
-                    let mut host_exists: Vec<Option<bool>> = Vec::with_capacity(hosts.len());
-                    for host in &hosts {
-                        let (apex, exists) = zone_apex_and_existence(resolver, host).await;
-                        host_apex.push(apex);
-                        host_exists.push(exists);
-                    }
+                    let mut host_probe: Vec<Option<(Option<String>, Option<bool>)>> =
+                        vec![None; hosts.len()];
 
                     // ── DANE attribution zone (the tlsa_zone measurement) ──
                     // The zone-cut relationship of the PRIMARY MX host to the
@@ -1455,11 +1522,10 @@ async fn score_dane(
                     // mail host lives in someone else's zone, when the host has
                     // no zone at all. `ZoneUnmeasured` is the honest value.
                     let mut tlsa_zone = TlsaZone::ZoneUnmeasured;
-                    for (i, _host) in hosts.iter().enumerate() {
-                        if host_exists[i] == Some(false) {
-                            continue;
-                        }
-                        if let Some(apex) = host_apex[i].as_deref() {
+                    for i in 0..hosts.len() {
+                        let (apex, exists) =
+                            host_probe_at(resolver, &hosts, &mut host_probe, i).await;
+                        if let Some(apex) = host_zone_for_decision(apex.as_deref(), exists) {
                             tlsa_zone = classify_tlsa_zone(domain_apex.as_deref(), Some(apex));
                             break;
                         }
@@ -1486,27 +1552,26 @@ async fn score_dane(
                     // host that has no zone at all — BEFORE the TLSA loop below
                     // ever runs. A repair confined to `tlsa_err_to_count` is
                     // bypassed on that whole input subset.
-                    for (i, host) in hosts.iter().enumerate() {
-                        if host_exists[i] == Some(false) {
-                            continue;
-                        }
-                        if let Some(apex) = host_apex[i].as_deref() {
+                    for i in 0..hosts.len() {
+                        let (apex, exists) =
+                            host_probe_at(resolver, &hosts, &mut host_probe, i).await;
+                        if let Some(apex) = host_zone_for_decision(apex.as_deref(), exists) {
                             // Internal sub-measurement of the MX host's zone —
                             // not the control's primary lookup; no receipt slot.
                             let d = score_dnssec(resolver, apex, &mut None, &mut Vec::new()).await;
                             if dane_host_zone_requires_dnssec(d) {
                                 warn!(
                                     domain,
-                                    host = %host,
+                                    host = %hosts[i],
                                     apex = %apex,
                                     "SMTP DANE host zone unsigned — DnssecRequired"
                                 );
                                 return (DaneDisposition::DnssecRequired, tlsa_zone);
                             }
                         }
-                        // apex None = couldn't measure the host zone; fall
-                        // through to the TLSA loop, which will report the
-                        // host's own lookup outcome honestly.
+                        // apex None (or a host measured not to exist) = no zone
+                        // to gate on; fall through to the TLSA loop, which will
+                        // report the host's own lookup outcome honestly.
                     }
 
                     let mut counts = Vec::with_capacity(hosts.len());
@@ -1532,10 +1597,36 @@ async fn score_dane(
                                 // NODATA (the host exists, no TLSA) is a
                                 // MEASURED absence — Some(0) — not "couldn't
                                 // measure". An NXDOMAIN is decided by the
-                                // per-host existence MEASUREMENT taken above,
-                                // never by a string property of the SOA name.
+                                // per-host existence MEASUREMENT, never by a
+                                // string property of the SOA name.
+                                //
+                                // MEASURED, NOT ASSUMED — and this read costs
+                                // nothing: `host_probe_at` is a cache hit for
+                                // every host here. The DnssecRequired gate above
+                                // reads EVERY host's zone before this loop can
+                                // run (it only stops by `return`ing, which ends
+                                // the scan), so by now every host has been
+                                // probed exactly once.
+                                //
+                                // That is also why this call site does NOT carry
+                                // `score_tls_rpt`'s `nxdomain_soa_is_not` gate,
+                                // which asks "is a probe worth a query for this
+                                // packet". Here the answer is always "the query
+                                // is already spent", so the gate could save
+                                // nothing — and a branch that cannot change an
+                                // outcome is an unkillable mutant, MEASURED as
+                                // one: deleting it left all 258 tests passing.
+                                // The unambiguous case is still short-circuited,
+                                // in the place where it is load-bearing —
+                                // `tlsa_err_to_count`'s exact-equality arm never
+                                // consults `host_exists` at all, so an NXDOMAIN
+                                // whose SOA names the host itself is immune to a
+                                // probe that could not answer (pinned wired by
+                                // `an_exact_soa_tlsa_nxdomain_is_immune_to_an_unanswerable_probe`).
                                 warn!(domain, host = %host, error = %e, "SMTP DANE TLSA lookup error");
-                                counts.push(tlsa_err_to_count(&e, host, host_exists[i]));
+                                let exists =
+                                    host_probe_at(resolver, &hosts, &mut host_probe, i).await.1;
+                                counts.push(tlsa_err_to_count(&e, host, exists));
                             }
                         }
                     }
@@ -1950,13 +2041,20 @@ fn tls_rpt_err_to_disposition(
         //                  in both score sums)
         //   Some(false) -> the domain does not exist -> NoZone, and the claim
         //                  the renderer prints is true
-        //   None        -> not probed (transient error) or the probe itself
-        //                  failed -> NoZone, unchanged from before. Note this
-        //                  is NOT an abstention: NoZone still renders "domain
-        //                  does not exist". It is the inherited verdict for a
-        //                  case no measurement reached, and a bare-TLD SOA or
-        //                  no SOA at all lands here too — for those the claim
-        //                  is true.
+        //   None        -> the probe was SPENT and could not answer
+        //                  (SERVFAIL, Refused, timeout) -> NoZone, unchanged
+        //                  from before. Note this is NOT an abstention: NoZone
+        //                  still renders "domain does not exist", so for a live
+        //                  name whose probe did not answer the instrument still
+        //                  prints a claim the packets cannot support.
+        //
+        //                  It is the ONLY way to reach this arm with `None`.
+        //                  Every NXDOMAIN whose SOA is not the scanned name
+        //                  exactly — a bare-TLD SOA and a missing SOA included —
+        //                  IS probed (`nxdomain_soa_is_not` returns true for
+        //                  both), and a transient failure never reaches this
+        //                  branch at all: `is_nx_domain()` is false for it and
+        //                  it exits below as TransientError.
         match err_soa_zone(e) {
             Some(z) if z.eq_ignore_ascii_case(domain.trim_end_matches('.')) => {
                 TlsRptDisposition::RecordAbsent
@@ -3323,6 +3421,41 @@ mod tests {
             None
         );
         assert_eq!(name_exists_from_lookup(false, None), None);
+    }
+
+    /// MUT12, the mutant that survived #45's whole suite: replacing
+    /// `host_exists[i] == Some(false)` with `!= Some(true)` at BOTH zone
+    /// guards in `score_dane`. Nothing distinguished "MEASURED not to exist"
+    /// from "COULD NOT MEASURE", and no wired test could: with hickory 0.26.1
+    /// only NoError and NXDomain responses carry an SOA into `NoRecordsFound`
+    /// (hickory-net src/error.rs), so a probe that returns `None` returns no
+    /// apex either, and both spellings do nothing. The mutant was EQUIVALENT
+    /// end to end — surviving because it was unreachable, not because the
+    /// suite was thin, which is why the decision was extracted to
+    /// `host_zone_for_decision` where the `None` row IS reachable.
+    ///
+    /// The row that matters is the third: an apex measured, existence NOT
+    /// measured. Unmeasured existence is not absence, so the apex stands.
+    #[test]
+    fn host_zone_for_decision_separates_unmeasured_from_absent() {
+        // measured to exist -> the apex stands
+        assert_eq!(
+            host_zone_for_decision(Some("provider.test"), Some(true)),
+            Some("provider.test")
+        );
+        // MEASURED not to exist -> the apex is only the zone that ANSWERED the
+        // NXDOMAIN, never the host's own. Refuse it.
+        assert_eq!(host_zone_for_decision(Some("co.test"), Some(false)), None);
+        // COULD NOT MEASURE -> not evidence of absence. The apex stands.
+        // This is the row `!= Some(true)` gets wrong.
+        assert_eq!(
+            host_zone_for_decision(Some("provider.test"), None),
+            Some("provider.test")
+        );
+        // No apex measured -> nothing to decide with, whatever existence says.
+        assert_eq!(host_zone_for_decision(None, Some(true)), None);
+        assert_eq!(host_zone_for_decision(None, Some(false)), None);
+        assert_eq!(host_zone_for_decision(None, None), None);
     }
 
     #[test]

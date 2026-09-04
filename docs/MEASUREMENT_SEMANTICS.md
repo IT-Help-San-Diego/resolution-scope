@@ -240,12 +240,15 @@ Controls: engine/src/analysis.rs — every kill set below OBSERVED by mutating
 
 ## DANE + TLS-RPT — existence is MEASURED with a second query, never inferred from the SOA's name
 
-Release:  unreleased — first tag after 2026-09-03 (PR #TBD)   Since: 2026-09-04
+Release:  unreleased — first tag after 2026-09-03 (PR #45, corrected in the
+          same unreleased window by PR #47)   Since: 2026-09-04
 Where:    engine/src/analysis.rs `tlsa_err_to_count`,
           `tls_rpt_err_to_disposition`, `score_dane` (the tlsa_zone loop, the
           DnssecRequired gate loop and the TLSA loop), `score_tls_rpt`;
           new `name_exists_from_lookup` / `nxdomain_soa_is_not` /
-          `zone_apex_and_existence` / `name_exists`;
+          `zone_apex_and_existence` / `name_exists`, and (2026-09-04)
+          `host_probe_at` (the lazy memoised probe) / `host_zone_for_decision`
+          (the pure apex-usability decision both zone guards fold);
           DELETED `zone_contains_host` and its unit test
 Before:   An NXDOMAIN's verdict was decided by a STRING PROPERTY of the SOA
           name in the same packet. `zone_contains_host` graded a TLSA
@@ -294,8 +297,34 @@ Moves:    DANE — a domain whose MX names a host in a NONEXISTENT domain (a
           (types/src/dispositions.rs), so the domain's tally and
           risk-weighted score both change. A scored regression for any such
           domain, and the intended repair.
+          DANE (the PROBE'S OWN failure — a second, distinct scored
+          regression, unnamed when this entry first shipped and added
+          2026-09-04) — an MX host that DOES EXIST, in the ordinary
+          third-party-provider configuration, whose EXISTENCE PROBE cannot
+          answer (SERVFAIL, Refused, timeout) ALSO moves `NotConfigured` ->
+          `TransientError`: `Absent` -> `Indet`, `Severity::Low` ->
+          `Severity::Unmeasured`, and the control LEAVES the denominator, so
+          coverage and the risk-weighted score both move. NOTHING AT THE DOMAIN
+          CHANGED — the host is there, correctly configured, and its own TLSA
+          packet is byte-identical to before; only a query the instrument
+          NEWLY ASKS failed. Abstaining is the right verdict for an
+          unanswerable probe (the alternative is claiming an absence nothing
+          measured), but it is a new way for a HEALTHY domain's sealed report
+          to stop reproducing, and a reader comparing two reports across this
+          release cannot identify it from "a dangling or typo MX target"
+          alone. It does NOT reach the case the packet decides by itself: an
+          NXDOMAIN whose SOA names the MX host EXACTLY takes
+          `tlsa_err_to_count`'s exact-equality arm, which never reads the probe
+          (pinned by `an_exact_soa_tlsa_nxdomain_is_immune_to_an_unanswerable_probe`).
           DANE (attribution, sealed) — the same host's `tlsa_zone` moves
-          `ForeignZone` -> `ZoneUnmeasured`. `ForeignZone` was derived from the
+          `ForeignZone`, `SameZone` or `DescendantZone` -> `ZoneUnmeasured`.
+          ALL THREE move, not only the first: `classify_tlsa_zone` emits
+          SameZone, DescendantZone or ForeignZone depending on where the
+          enclosing zone that answered sits relative to the scanned apex,
+          so a dangling host previously took whichever of the three its
+          ANSWERING zone implied. An earlier wording named only
+          `ForeignZone`, which understated a sealed field's movement.
+          The old value was derived from the
           registry suffix that answered the NXDOMAIN and asserted the mail host
           lives in someone else's zone, when the host has no zone at all.
           DANE (latent, now closed) — for a dangling MX host whose closest
@@ -311,9 +340,13 @@ Moves:    DANE — a domain whose MX names a host in a NONEXISTENT domain (a
           name and moves the control from Indet into a measured Low finding, so
           it re-enters both score sums. Any prior sealed report of a subdomain
           scan will not reproduce.
-          DOES NOT MOVE: apex scans whose NXDOMAIN carries their own SOA (the
-          exact-equality shortcut, unchanged and unprobed); every NODATA
-          outcome on any control; every SERVFAIL/timeout; DNSSEC, CSYNC, CDS
+          DOES NOT MOVE — and every item on this list is scoped to the
+          CONTROL'S OWN lookup. The probe is a SEPARATE query taken at a
+          different instant, and ITS failure is the class named above, not an
+          exception to anything here. Apex scans whose NXDOMAIN carries their
+          own SOA (the exact-equality shortcut, unchanged and unprobed); every
+          NODATA outcome on any control; every SERVFAIL/timeout IN THE
+          CONTROL'S OWN LOOKUP; DNSSEC, CSYNC, CDS
           and CDNSKEY, whose NXDOMAIN is measured at the scanned name itself
           and was already right; SPF, DKIM, DMARC, MTA-STS and CAA, which stay
           on `record_absence_verdict`'s exact equality, untouched.
@@ -345,12 +378,57 @@ COST:     One extra wire query per NXDOMAIN leg that the packet cannot decide,
           including negatives, so the real cost is lower; the hit rate inside
           one scan is UNVERIFIED). TLS-RPT: at most one per scan, and ZERO on
           an apex scan (pinned by `apex_scan_spends_no_probe_on_tls_rpt`).
-          DANE: ZERO extra — `score_dane` already issued `lookup(host, SOA)`
-          TWICE per MX host (attribution, then the DnssecRequired gate) and
-          `apex_from_soa_result` threw away the response code that is the whole
-          existence signal. `zone_apex_and_existence` reads both facts from one
-          answer, so the two passes collapse to one and the DANE scan issues
-          FEWER queries than before.
+          DANE: MEASURED, not derived. The numbers below are host-SOA
+          questions COUNTED ON THE WIRE by engine/tests/dane_probe_cost.rs
+          against a loopback stub, one scan per cell; the pre-probe column was
+          counted the same way, with the same world and the same counter, on a
+          worktree at 3935807^ — with an ADAPTED copy of the test, not the
+          shipped file, which does not compile at that tree. Anyone
+          re-deriving the pre-probe row must make the same adaptation;
+          that is why those numbers are testimony here rather than a
+          gated assertion.
+
+            MX hosts                        1    2    3    5
+            DnssecRequired gate ARMED (MX host zone unsigned — the Google
+            Workspace / Microsoft 365 shape this gate's own comment cites):
+              pre-probe (3935807^)          2    2    2    2
+              eager probe (PR #45)          1    2    3    5
+              lazy + memoised (this change) 1    1    1    1  [1]
+            [1] one probe holds when the FIRST MX host in the answer
+                exists: the attribution loop `break`s at the first
+                RESOLVABLE host and the gate reads it as a cache hit.
+                A dangling first host is probed, yields no apex, does
+                not break, and the loop pays for the next one — so the
+                count is the number of hosts tried before the first
+                that resolves, not a constant.
+            gate NOT ARMED (the gate must read EVERY host's zone, so no
+            short-circuit can help and the count is the host count):
+              pre-probe (3935807^)          2    3    4    6
+              eager probe (PR #45)          1    2    3    5
+              lazy + memoised (this change) 1    2    3    5
+
+          THE FIRST VERSION OF THIS LINE WAS FALSE AND IS RETRACTED. It read
+          "DANE: ZERO extra ... the DANE scan issues FEWER queries than
+          before", on the stated premise that `score_dane` "already issued
+          `lookup(host, SOA)` TWICE per MX host". Both pre-probe loops
+          SHORT-CIRCUIT — the attribution loop `break`s at the first resolvable
+          host, the gate loop `return`s at the first unsigned one — so the old
+          cost was two questions TOTAL, not two per host. PR #45's eager pass
+          therefore made the DOMINANT real-world mail shape DEARER, not
+          cheaper: five questions where two sufficed. That was a DERIVATION
+          recorded as a measured fact in this log — the exact defect class the
+          entry it sits in exists to repair.
+          The claim is TRUE as of this change because the probe is LAZY and
+          MEMOISED (`host_probe_at`): taken on first need, and never twice for
+          one host in one scan. Strictly fewer questions than the pre-probe
+          tree in ALL EIGHT measured cells, and against PR #45's eager pass:
+          fewer in THREE cells, equal in five, more in none. (The earlier
+          wording said "four and four"; that miscounted the table printed
+          directly above it. Cell by cell: gate armed, lazy 1/1/1/1 against
+          eager 1/2/3/5 is equal at one host and fewer at two, three and
+          five; gate not armed the two rows are identical. A tally that
+          contradicts its own table is the defect this entry exists to
+          record, committed one paragraph after recording it.)
 KNOWN COST, RE-DERIVABILITY: a DANE or TLS-RPT verdict now depends on a SECOND
           packet taken at a different instant, and that packet is NOT in the
           receipt — the probe deliberately bypasses `observed_lookup` to
@@ -383,13 +461,39 @@ Controls: every kill set below was OBSERVED by mutating the source, running
           `tls_rpt_err_nxdomain_ancestor_zone_is_decided_by_the_probe` (this
           assertion MOVED — it asserted NoZone before this change, and that it
           moved is the visible proof the behaviour did).
+          `host_zone_for_decision_separates_unmeasured_from_absent` (added
+          2026-09-04 — the row that separates "MEASURED not to exist" from
+          "COULD NOT MEASURE").
           engine/tests/nxdomain_existence_probe.rs — the WIRING controls, two
           scans per guard differing in ONE canned answer, every packet on
           127.0.0.1 (the loopback stub gained an AUTHORITY section, without
           which it could not emit NXDOMAIN-with-SOA at all):
           `dangling_mx_host_is_not_a_measured_dane_absence`;
           `tls_rpt_ancestor_soa_is_decided_by_a_second_query`;
-          `apex_scan_spends_no_probe_on_tls_rpt`.
+          `apex_scan_spends_no_probe_on_tls_rpt`;
+          and, added 2026-09-04,
+          `an_existing_host_whose_probe_is_refused_abstains_rather_than_claiming_absence`
+          (the probe-failure regression class named in Moves, both controls,
+          TLSA packet held constant);
+          `a_mixed_mx_list_carries_each_hosts_own_measurement` (two MX hosts,
+          the first existing and the second dangling — the FIRST control in
+          this suite with more than one MX host);
+          `a_dangling_primary_mx_does_not_claim_the_scanned_domains_zone`
+          (the attribution skip on a mixed list, where skipping changes the
+          sealed `tlsa_zone` from `SameZone` to `ForeignZone`);
+          `an_exact_soa_tlsa_nxdomain_is_immune_to_an_unanswerable_probe`.
+          engine/tests/dane_probe_cost.rs — the COST controls (added
+            2026-09-04). SCOPE, stated exactly: these two scans assert the
+            LAZY row of each half of the table, the eight numbers that
+            describe THIS tree, so those cannot rot silently. The
+            pre-probe and eager rows are sixteen HISTORICAL numbers no
+            shipped test can reproduce, because this cost test does not
+            compile at 3935807^; they rest on the run recorded here and
+            are NOT gated. An earlier wording claimed every number in the
+            table was read off these two scans, false for two thirds of
+            them:
+          `dnssec_gate_armed_costs_one_host_probe_regardless_of_mx_count`;
+          `dnssec_gate_not_armed_costs_one_host_probe_per_host_not_two`.
           OBSERVED KILL SETS (mutant -> tests that failed):
             M1  `Some(false) => Some(0)` in tlsa_err_to_count            -> 4
             M2  delete the exact-equality arm in tlsa_err_to_count       -> 1
@@ -403,7 +507,86 @@ Controls: every kill set below was OBSERVED by mutating the source, running
             M10 TLS-RPT call site stops probing                          -> 1
             M11 transient probe promoted to Some(true)                   -> 1
             M12 `if ok { return None }` in name_exists_from_lookup       -> 2
-          No survivors. Suite green on restore after every one.
+          M1-M12 were observed against the tree PR #45 shipped and are kept
+          as recorded.
+
+          CORRECTION (PR #47), 2026-09-04 — M1-M12 WERE NOT THE WHOLE KILL
+          SET, and
+          "No survivors" as first written was FALSE. Two mutants survived the
+          full engine suite (250 passed, 0 failed) on the shipped tree. Both
+          are now dead; observed the same way, against the tree this
+          correction ships, `cargo test --locked --no-fail-fast` in engine/,
+          restored and re-run green (258 passed, 0 failed) after each:
+            M13 `host_probe_at(.., i)` -> `(.., 0)` in the TLSA loop
+                (`host_exists[i]` -> `host_exists[0]` as PR #45 spelled it)
+                                                                    -> 1
+                `a_mixed_mx_list_carries_each_hosts_own_measurement`
+                (257 passed, 1 failed: NotConfigured where TransientError is
+                owed). It survived because EVERY wired probe control shipped
+                with #45 used a SINGLE MX host, so the per-host index — the
+                thing that carries each measurement to the right host — was
+                never observable.
+            M14 `Some(false) => None` -> `Some(false) | None => None` in
+                `host_zone_for_decision` (PR #45's `host_exists[i] ==
+                Some(false)` -> `!= Some(true)`, at BOTH zone guards)
+                                                                    -> 1
+                `host_zone_for_decision_separates_unmeasured_from_absent`
+                (257 passed, 1 failed).
+                WHY IT SURVIVED, and why no wired control could have killed
+                it: with hickory 0.26.1 only NoError and NXDomain responses
+                become `NoRecordsFound` and can carry an SOA (hickory-net
+                src/error.rs); every other rcode becomes `ResponseCode(_)`
+                with no SOA. So a probe that returns `None` returns no apex
+                either, `apex.is_some()` IMPLIES `exists.is_some()`, and the
+                two spellings cannot differ end to end — an EQUIVALENT mutant
+                at the wiring level, surviving because it was unreachable and
+                not because the suite was thin. The repair is therefore
+                structural: the decision is extracted to the pure
+                `host_zone_for_decision`, where the `None` row IS reachable
+                and IS pinned, and where the intent survives a future hickory
+                error shape that carries an SOA beside an unreadable rcode.
+            M15 memoisation removed from `host_probe_at` (probe on every read)
+                                                                    -> 2
+                both engine/tests/dane_probe_cost.rs controls
+                (256 passed, 2 failed).
+          Each of the controls added with this correction also has its OWN
+          observed kill set — a control whose kill set is predicted is not a
+          control:
+            M16 `host_zone_for_decision` ignores existence entirely (BOTH zone
+                skips removed at once)                              -> 4
+                `dangling_mx_host_is_not_a_measured_dane_absence`;
+                `a_mixed_mx_list_carries_each_hosts_own_measurement`;
+                `a_dangling_primary_mx_does_not_claim_the_scanned_domains_zone`
+                (SameZone claimed for a host with no zone);
+                `host_zone_for_decision_separates_unmeasured_from_absent`
+                (254 passed, 4 failed).
+            M17 `None => Some(0)` in `tlsa_err_to_count` (an unmeasurable
+                probe spent as a measured absence)                  -> 4
+                `an_existing_host_whose_probe_is_refused_abstains_rather_than_claiming_absence`;
+                `tlsa_err_nxdomain_ancestor_soa_is_decided_by_the_probe`;
+                `tlsa_err_nxdomain_containing_zone_needs_the_probe_now`;
+                `tlsa_err_nxdomain_tld_zone_is_unmeasured`
+                (254 passed, 4 failed).
+            M18 delete the exact-equality arm in `tlsa_err_to_count`
+                (M2 re-run — it now kills two, not one)             -> 2
+                `an_exact_soa_tlsa_nxdomain_is_immune_to_an_unanswerable_probe`;
+                `tlsa_err_nxdomain_own_zone_is_measured_absence_without_a_probe`
+                (256 passed, 2 failed).
+          A SURVIVOR FOUND AND REMOVED RATHER THAN LEFT STANDING: this change
+          first carried `score_tls_rpt`'s `nxdomain_soa_is_not` gate into the
+          DANE TLSA loop, so a probe would be spent only on packets that
+          cannot decide themselves. Deleting that branch left all 258 tests
+          passing — an unkillable mutant, and correctly so: the DnssecRequired
+          gate reads EVERY host's zone before the TLSA loop can run, so by
+          then every host is already probed and the gate could save no query.
+          The branch is deleted, not guarded. The unambiguous case is still
+          short-circuited where the shortcut is load-bearing — inside
+          `tlsa_err_to_count`, whose exact-equality arm never reads
+          `host_exists` at all.
+          NO KNOWN SURVIVORS as of 2026-09-04, which is a report of what was
+          MEASURED (M1-M18 plus the deleted branch), not a proof that none
+          exist. The first version of this line said "No survivors" of a set
+          that had two.
           DELIBERATE COVERAGE LOSS, stated so it does not read as an accident:
           `zone_contains_host` and its passing test
           `zone_contains_host_suffix_matching` are DELETED. The helper was the
