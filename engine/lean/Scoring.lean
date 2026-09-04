@@ -301,10 +301,11 @@ private theorem filter_eq_nil_of_all_false {α : Type} (l : List α) (f : α →
 control is provably inert — adding it in any state cannot move the score. -/
 theorem zero_weight_neutral {α : Type} [BEq α]
     (w : WeightFn α) (c : α) (hc : w c = 0)
-    (pairs : List (α × TriState)) :
-    weightedScore w pairs = weightedScore w (pairs ++ [(c, .Present)]) := by
-  simp [weightedScore, List.filter_append, List.foldl_append,
-    List.filter_nil, hc]
+    (pairs : List (α × TriState)) (s : TriState) :
+    weightedScore w pairs = weightedScore w (pairs ++ [(c, s)]) := by
+  cases s <;>
+    simp [weightedScore, List.filter_append, List.foldl_append,
+      List.filter_nil, hc]
 
 /-- Bounded: the score never exceeds 100 (covered ≤ surface; weights ≥ 0). -/
 theorem weightedScore_le_100 {α : Type} [BEq α]
