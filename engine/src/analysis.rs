@@ -200,19 +200,10 @@ pub async fn analyse_domain_with_receipts(
 /// NXDOMAIN = the queried NAME does not exist. Whether that means "domain
 ///   missing" (Indet) or "record absent" (Absent) depends on which zone
 ///   returned NXDOMAIN, read from the SOA in the authority section:
-///     * SOA's zone CONTAINS the name  -> domain exists, name absent -> Absent
-///     * SOA is a bare TLD (or none)   -> domain itself missing -> Indet
+///     * SOA is the domain's own zone  -> domain exists, name absent -> Absent
+///     * SOA is a parent/TLD (or none) -> domain itself missing -> Indet
 ///   (the domain_exists doctrine: `Absent` is a claim about a zone's
 ///    configuration, and there is no zone).
-///   Containment, not equality: a scanned name that is not its own zone apex
-///   (`support.google.com` under the `google.com` zone) is answered by its
-///   PARENT zone's SOA, so exact equality read a live zone as "domain
-///   missing" and turned every control whose query NXDOMAINs — DMARC and
-///   MTA-STS always, SPF/CAA/DANE whenever the scanned name itself does not
-///   exist — into TransientError at once: "re-run" guidance for a re-run
-///   that can never come out differently. `zone_contains_host` is the same
-///   suffix test, and the same >=2-label TLD guard, that `tlsa_err_to_count`
-///   already uses for the identical bug class.
 /// transient -> Indet.
 fn record_absence_verdict(e: &NetError, domain: &str) -> TriState {
     use hickory_proto::op::ResponseCode;
@@ -223,10 +214,10 @@ fn record_absence_verdict(e: &NetError, domain: &str) -> TriState {
             ResponseCode::NXDomain => {
                 let soa_zone = nr.soa.as_ref().map(|s| s.name.to_ascii());
                 match soa_zone {
-                    Some(z) if zone_contains_host(domain, z.trim_end_matches('.')) => {
-                        TriState::Absent // containing zone: name absent, not domain
+                    Some(z) if z.trim_end_matches('.').eq_ignore_ascii_case(domain) => {
+                        TriState::Absent // domain's own zone: name absent, not domain
                     }
-                    _ => TriState::Indet, // bare TLD (or no SOA): domain missing
+                    _ => TriState::Indet, // parent/TLD zone (or no SOA): domain missing
                 }
             }
             _ => TriState::Indet, // SERVFAIL etc. — transient
@@ -1772,20 +1763,39 @@ fn tls_rpt_err_to_disposition(e: &NetError, domain: &str) -> TlsRptDisposition {
         // NXDOMAIN on `_smtp._tls.<domain>` says the queried NAME is absent.
         // It never says the domain is. The refuting evidence rides in the same
         // packet: the SOA in the authority section names the zone that
-        // answered. READ it — the identical measurement `record_absence_verdict`
-        // and `tlsa_err_to_count` already make. Assuming absence from the
-        // response code alone is derivation, and it printed "domain does not
-        // exist" over live zones (cia.gov, irs.gov, apple.com, amazon.com,
-        // akamai.com, wellsfargo.com, bankofamerica.com, nih.gov all return
-        // NXDOMAIN carrying their OWN SOA), contradicting the MTA-STS row of
-        // the same sealed report.
+        // answered. READ it — assuming absence from the response code alone is
+        // derivation, and it printed "domain does not exist" over live zones
+        // (cia.gov, irs.gov, apple.com, amazon.com, akamai.com, wellsfargo.com,
+        // bankofamerica.com, nih.gov all return NXDOMAIN carrying their OWN
+        // SOA), contradicting the MTA-STS row of the same sealed report.
         //
-        // `_smtp._tls.<domain>` is a LEAF name inside the zone, so the test is
-        // `zone_contains_host` SUFFIX containment — the DANE fix, which also
-        // covers a scanned name below its own apex. A bare-TLD SOA (or no SOA
-        // at all) is the domain itself missing, and `NoZone` stands.
+        // EXACT ZONE EQUALITY, deliberately narrow. `RecordAbsent` is claimed
+        // ONLY when the SOA names the scanned domain itself: the zone answered
+        // for itself, so the zone demonstrably exists and only the leaf name is
+        // missing. That inference needs nothing outside the packet.
+        //
+        // Every other shape keeps `NoZone`, unchanged from before this fix. A
+        // PROPER-ANCESTOR SOA is deliberately NOT read as RecordAbsent: the
+        // packet cannot separate an ordinary parent zone from a registry
+        // suffix. `support.google.com` with SOA `google.com` (zone exists, name
+        // absent) and `nonexistent.co.uk` with SOA `co.uk` (domain genuinely
+        // does not exist) are the SAME shape — scanned name one label below the
+        // answering zone — with OPPOSITE correct answers. Separating them needs
+        // the Public Suffix List or a second measurement (the scanned domain's
+        // own SOA); neither is available here, so no claim is made. A bare-TLD
+        // SOA, or no SOA at all, is likewise `NoZone`.
+        //
+        // This still fixes the headline: an apex scan's `_smtp._tls` NXDOMAIN
+        // carries the apex's own SOA, and apex scans are the common case.
+        //
+        // NOTE: `zone_contains_host` is intentionally NOT called here. Its
+        // `z.contains('.')` guard admits `co.uk`, which is the registry-suffix
+        // defect above; it is carried as its own board item on the DANE path
+        // and is not widened by this change.
         match err_soa_zone(e) {
-            Some(z) if zone_contains_host(domain, &z) => TlsRptDisposition::RecordAbsent,
+            Some(z) if z.eq_ignore_ascii_case(domain.trim_end_matches('.')) => {
+                TlsRptDisposition::RecordAbsent
+            }
             _ => TlsRptDisposition::NoZone,
         }
     } else if e.is_no_records_found() {
@@ -3326,48 +3336,15 @@ mod tests {
         assert_eq!(record_absence_verdict(&e, "example.com"), TriState::Indet);
     }
 
-    #[test]
-    fn record_absence_nxdomain_containing_zone_is_absent() {
-        // The MIDDLE case the two tests above straddle: a scanned name that is
-        // NOT its own zone apex. `support.google.com` has no zone cut of its
-        // own, so NXDOMAIN for `_dmarc.support.google.com` carries the SOA of
-        // the CONTAINING zone, `google.com`. Exact equality read that as
-        // "domain missing" and turned SPF, DMARC, MTA-STS and CAA all
-        // TransientError at once — "re-run" guidance for a re-run that can
-        // never change. Containment reads it as what it is: the zone exists,
-        // the name does not.
-        let e = nxdomain_err_with_soa("google.com.");
-        assert_eq!(
-            record_absence_verdict(&e, "support.google.com"),
-            TriState::Absent
-        );
-        // ...and the collapsed control dispositions follow it out of Indet.
-        assert_eq!(
-            mta_sts_err_to_disposition(&e, "support.google.com"),
-            MtaStsDisposition::RecordAbsent
-        );
-        assert_eq!(
-            spf_err_to_disposition(&e, "support.google.com"),
-            SpfDisposition::NotConfigured
-        );
-        assert_eq!(
-            dmarc_err_to_disposition(&e, "support.google.com"),
-            DmarcDisposition::NotConfigured
-        );
-        assert_eq!(
-            caa_err_to_disposition(&e, "support.google.com"),
-            CaaDisposition::NotConfigured
-        );
-    }
-
     // --- TLS-RPT NXDOMAIN: the SOA is in the packet, so READ it --------------
     // `tls_rpt_err_to_disposition` used to `let _ = domain;` and return NoZone
     // for every NXDOMAIN, which renders (truth_chain.rs:790) as
     // "no zone — domain does not exist" at Severity::Ok — a sealed assertion
     // that a live domain is absent, contradicted by the MTA-STS row of the
-    // SAME report a few lines above. These are the paired controls: the
-    // positive that must pass, and the negative that must fail if the SOA read
-    // is made unconditional.
+    // SAME report a few lines above. The fix is deliberately narrow: ONLY an
+    // SOA naming the scanned domain EXACTLY moves the verdict. These are the
+    // paired controls: the positive that must pass, and the three negatives
+    // that must fail if the exact-equality test is loosened.
 
     #[test]
     fn tls_rpt_err_nxdomain_own_zone_is_record_absent() {
@@ -3383,14 +3360,38 @@ mod tests {
     }
 
     #[test]
-    fn tls_rpt_err_nxdomain_containing_zone_is_record_absent() {
-        // POSITIVE, sub-label shape. A scanned name below its own apex gets
-        // the containing zone's SOA; suffix containment covers it with the
-        // same edit (`zone_contains_host`, not exact equality).
-        let e = nxdomain_err_with_soa("google.com.");
+    fn tls_rpt_err_nxdomain_own_zone_match_is_case_and_dot_insensitive() {
+        // POSITIVE, the comparison's own normalisation. DNS names are
+        // case-insensitive (RFC 4343) and the SOA owner arrives fully
+        // qualified, so the equality test must trim the trailing dot on the
+        // scanned name and compare ASCII-case-insensitively. Without this
+        // test a bare `z == domain` mutant SURVIVES the whole suite — the
+        // other fixtures happen to be lowercase and dotless on both sides.
         assert_eq!(
-            tls_rpt_err_to_disposition(&e, "support.google.com"),
+            tls_rpt_err_to_disposition(&nxdomain_err_with_soa("Example.COM."), "eXaMpLe.com."),
             TlsRptDisposition::RecordAbsent
+        );
+    }
+
+    #[test]
+    fn tls_rpt_err_nxdomain_ancestor_zone_is_no_zone() {
+        // NEGATIVE, and the reason this fix is exact-equality only. A scanned
+        // name one label below the answering zone is UNDECIDABLE from the
+        // packet: `support.google.com` with SOA `google.com` (zone exists,
+        // name absent) and `nonexistent.co.uk` with SOA `co.uk` (domain
+        // genuinely does not exist) are the SAME shape with OPPOSITE correct
+        // answers. Both keep `NoZone` — unchanged from before this fix —
+        // because no claim is inferable without the Public Suffix List or a
+        // second measurement. This test fails if the SOA test is widened to
+        // suffix containment (`zone_contains_host`), which is exactly the
+        // change that was reverted.
+        assert_eq!(
+            tls_rpt_err_to_disposition(&nxdomain_err_with_soa("google.com."), "support.google.com"),
+            TlsRptDisposition::NoZone
+        );
+        assert_eq!(
+            tls_rpt_err_to_disposition(&nxdomain_err_with_soa("co.uk."), "nonexistent.co.uk"),
+            TlsRptDisposition::NoZone
         );
     }
 
@@ -3399,8 +3400,8 @@ mod tests {
         // NEGATIVE. A bare-TLD SOA means the domain's own zone is what is
         // missing -> NoZone is CORRECT and must stay reachable. This test is
         // the one that fails if the SOA read is made unconditional (return
-        // RecordAbsent for every NXDOMAIN): the >=2-label guard inside
-        // `zone_contains_host` is what refuses a bare TLD as a containing zone.
+        // RecordAbsent for every NXDOMAIN): `com` is not equal to
+        // `example.com`, so exact equality refuses it.
         let e = nxdomain_err_with_soa("com.");
         assert_eq!(
             tls_rpt_err_to_disposition(&e, "example.com"),
@@ -3410,15 +3411,15 @@ mod tests {
 
     #[test]
     fn tls_rpt_err_nxdomain_without_soa_is_no_zone() {
-        // NEGATIVE, second arm — kept a separate test so it is exercised on its
-        // own rather than shadowed by the bare-TLD assertion above. An NXDOMAIN
+        // NEGATIVE, third arm — kept a separate test so it is exercised on
+        // its own rather than shadowed by the assertions above. An NXDOMAIN
         // that carried NO SOA measured nothing about the zone; the conservative
         // NoZone stands. Measured kill: adding `None => RecordAbsent` to the
         // match in `tls_rpt_err_to_disposition` fails THIS test and no other.
         // (A weaker mutant — having `err_soa_zone` fall back to the QUERY name
         // when no SOA was carried — survives, and correctly so: the query name
-        // `_smtp._tls.example.com` does not contain `example.com` as a zone, so
-        // the verdict is NoZone either way. Recorded rather than hidden.)
+        // `_smtp._tls.example.com` is not equal to `example.com`, so the
+        // verdict is NoZone either way. Recorded rather than hidden.)
         assert_eq!(
             tls_rpt_err_to_disposition(&nxdomain_err_no_soa(), "example.com"),
             TlsRptDisposition::NoZone
