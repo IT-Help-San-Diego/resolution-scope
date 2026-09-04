@@ -78,13 +78,45 @@ for word in ("contributor_ip", "raw_ip", "ip_address", "asn", "country",
             problems.append(f"forbidden identity vocabulary '{word}' appears in code: {line.strip()[:80]}")
             break
 
-# 3) The ruled constants and closed vocabulary:
+# 3) The ruled constants and closed vocabulary — EXACTLY the ruled set.
 if 'pub const UC_ANON: &str = "uc-anon"' not in src:
     problems.append("UC_ANON constant missing or altered (D2: pooling token)")
-for alias in ("Cloudflare", "Google", "Quad9", "OpenDNS", "Dns4Eu", "Unknown"):
-    # (unchanged)
-    if f"ResolverAlias::{alias}" not in src:
-        problems.append(f"ResolverAlias::{alias} missing from the closed vocabulary")
+alias_match = re.search(r"pub enum ResolverAlias \{(.*?)\n\}", src, re.S)
+if not alias_match:
+    problems.append("ResolverAlias enum not found")
+else:
+    body = alias_match.group(1)
+    # variant lines: identifiers at brace depth 1, before any `impl` — a
+    # unit-only enum has bare names; a data-carrying variant (RawIp(..),
+    # Named(String)) carries a payload and must fail BOTH as a non-ruled
+    # variant AND as a data-carrying shape (the alias is a LABEL, not a value).
+    variants = re.findall(r"^\s+([A-Za-z_]\w*)\s*(\(.*?\))?\s*,?\s*$", body, re.M)
+    names = {n for n, _ in variants}
+    ruled = {"Cloudflare", "Google", "Quad9", "OpenDNS", "Dns4Eu", "Unknown"}
+    missing = ruled - names
+    if missing:
+        problems.append(f"ResolverAlias lost ruled variants: {sorted(missing)}")
+    extra = names - ruled
+    if extra:
+        problems.append(f"ResolverAlias gained variants beyond the ruled set: {sorted(extra)} — the alias vocabulary is CLOSED (B2); every addition must re-rule")
+    for n, payload in variants:
+        if payload:
+            problems.append(f"ResolverAlias::{n} carries data ({payload.strip()}) — the alias is a closed LABEL, not a value; data-carrying variants are identity hazards by construction")
+            break
+
+# 3b) Identity-bearing TYPES anywhere in the file — not just CorpusEntry's
+#      own fields (the 1031dc6 hole-2: a nested struct smuggles an IpAddr
+#      past a field-list scan). Every `pub NAME: TYPE` field declaration in
+#      the file is checked; String remains allowed ONLY for `domain`.
+nested_fields = re.findall(r"pub\s+(\w+)\s*:\s*([A-Za-z0-9_<>,: \[\]().]+?),\s*$", src, re.M)
+for name, typ in nested_fields:
+    # strip generic parameters, then any path prefix (std::net::IpAddr -> IpAddr)
+    base = typ.strip().split("<")[0].strip().rstrip("()")
+    base = base.split("::")[-1].strip()
+    if base in {"IpAddr", "Ipv4Addr", "Ipv6Addr"}:
+        problems.append(f"field '{name}' has type {base} — identity-bearing type in the public corpus surface (any struct, any nesting)")
+    if base == "String" and name != "domain":
+        problems.append(f"field '{name}: String' — only 'domain' may be a String; this holds for EVERY struct in the file")
 
 # 4) Corroboration compares content, never seals:
 if "corroboration_key" not in src or "seal" in src.replace("seal_spelling", "").replace("SealSpelling", ""):
