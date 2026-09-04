@@ -605,3 +605,94 @@ substrings of reqwest's `Display`. Every failure was and is
 **PolicyInvalid**; what moved is the ledger's account of the failure
 (TlsError vs ConnectError, and the SNI claim printed from it), not the
 disposition.
+
+## DMARC + MTA-STS — the sub-label under-claim is repaired with the same one-query probe
+
+Release:  unreleased — first tag after 2026-09-04 (the sub-label half of the
+          repair MEASUREMENT_SEMANTICS 2026-09-04 named as "knowingly out of
+          scope" of #47)   Since: 2026-09-04
+Where:    engine/src/analysis.rs `dmarc_err_to_disposition`,
+          `mta_sts_err_to_disposition` (both now take `domain_exists:
+          Option<bool>`), and the `Err` arms of `score_dmarc` /
+          `score_mta_sts` (the call sites that spend the probe). The gate is
+          the existing `nxdomain_soa_is_not`; the probe is the existing
+          `name_exists`.
+Before:   `_dmarc.<domain>` and `_mta-sts.<domain>` NXDOMAIN whose SOA names
+          a PROPER ANCESTOR zone (support.google.com under SOA google.com)
+          read Indet, rendering "could not measure" (TransientError), for a
+          record that is GENUINELY ABSENT from a live domain. The exact-
+          equality arm of `record_absence_verdict` only claims when the SOA
+          IS the scanned domain; every ancestor shape lost the measurement.
+          That direction loses a measurement but never asserts a falsehood,
+          which is why #47 ranked it below the over-claiming repairs and
+          left it out of scope, calling the asymmetry "conspicuous".
+After:    The mappers consult ONE existence probe — `name_exists` at the
+          scanned name, the same second-query repair TLS-RPT carries — when
+          the SOA is a proper ancestor:
+            Some(true)  -> the name exists -> the record's absence is
+                           MEASURED (DMARC NotConfigured / MTA-STS
+                           RecordAbsent, back in both score sums)
+            Some(false) -> the name does not exist -> the abstention is kept
+            None        -> the probe could not answer -> abstention kept
+          The exact-equality arm still decides with NO probe when the SOA
+          names the scanned domain itself, and NODATA/SERVFAIL never reach
+          the branch (`nxdomain_soa_is_not` is false for both).
+Moves:    DMARC and MTA-STS — sub-label scans of live names whose `_dmarc`
+          or `_mta-sts` NXDOMAIN carries an ancestor SOA move TransientError
+          -> NotConfigured / RecordAbsent: Indet -> Absent, Severity::
+          Unmeasured -> Low, and the control RE-ENTERS the denominator, so
+          both score sums move. The OPPOSITE direction of every #45 move —
+          a scored IMPROVEMENT for the domain, not a regression: the old row
+          was an under-claim, never a false claim. Prior sealed reports of
+          such sub-label scans will not reproduce.
+          DOES NOT MOVE — apex scans whose `_dmarc`/`_mta-sts` NXDOMAIN
+          carries their own SOA (exact-equality, unprobed, unchanged); every
+          NODATA outcome; every SERVFAIL/timeout; SPF, DKIM, CAA, CDS/
+          CDNSKEY, CSYNC and the DANE/TLS-RPT arms (already repaired).
+Why:      RFC 1035 §4.3.4 / RFC 2308 §2.1 — the SOA in an NXDOMAIN authority
+          section names the zone that answered, never the queried name's own
+          domain; only a measurement separates "record absent from a live
+          name" from "name does not exist". The #47 entry itself stated the
+          repair: "the same probe would repair it".
+COST:     At most ONE extra wire query per control, and ZERO when the packet
+          already decides (NODATA, SERVFAIL, or an exact-equality SOA) —
+          pinned by `sublabel_probe_is_not_spent_when_the_packet_decides`
+          (the inert-probe control, including a LIED Some(true)) and the
+          wired negative arms in nxdomain_existence_probe.rs. Two controls
+          that share one scanned name in one scan share one probe call each
+          (they probe independently today — one query per control; a shared
+          memoised probe across controls is carded follow-up, same class as
+          the TLS-RPT one-receipt-per-control census rule).
+Controls: engine/src/analysis.rs:
+          `dmarc_ancestor_soa_is_decided_by_the_probe` (three probe values);
+          `mta_sts_ancestor_soa_is_decided_by_the_probe` (three);
+          `sublabel_probe_is_not_spent_when_the_packet_decides` (the probe
+          is INERT in every shape the packet decides, including a lied
+          Some(true)/Some(false));
+          engine/tests/nxdomain_existence_probe.rs — the WIRING controls,
+          two scans per control differing in ONE canned answer:
+          `dmarc_ancestor_soa_is_decided_by_a_second_query`;
+          `mta_sts_ancestor_soa_is_decided_by_a_second_query`;
+          both also assert the probe question reached the wire
+          (`stub.saw(<name>, SOA)`).
+          OBSERVED KILL SETS (mutant -> tests that failed), planted by the
+          author, watched dying, restored and re-run green (263 passed)
+          after each:
+            S1  remove the ancestor-SOA branch from the DMARC mapper   -> 1
+                `dmarc_ancestor_soa_is_decided_by_the_probe`
+            S2  Some(false) folded into Some(true) (the #45 MUT12
+                class, DMARC arm)                                       -> 1
+                `dmarc_ancestor_soa_is_decided_by_the_probe`
+            S3  the call-site gate inverted in `score_dmarc` (probe
+                spent on the WRONG shape — the E2E-only class)           -> 2
+                `dmarc_ancestor_soa_is_decided_by_a_second_query`,
+                `apex_scan_spends_no_probe_on_tls_rpt` (the inverted gate
+                probes every shape the packet already decides, so DMARC's
+                own probe reaches the wire in that world and the "no query
+                spent" assertion fails — the cost control catching a
+                correctness mutant for free)
+          The MTA-STS arm is covered by the same three shapes through its
+          twins; planting its own S1/S2/S3 is the first item if this entry
+          ever needs a re-audit.
+
+---

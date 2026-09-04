@@ -39,7 +39,9 @@ use hickory_proto::rr::{Name, RData, Record, RecordType};
 use resolution_scope_engine::analysis::analyse_domain;
 use resolution_scope_engine::analysis::TlsaZone;
 use resolution_scope_engine::resolver::{ResolverChoice, Vantage};
-use resolution_scope_engine::{DaneDisposition, TlsRptDisposition};
+use resolution_scope_engine::{
+    DaneDisposition, DmarcDisposition, MtaStsDisposition, TlsRptDisposition,
+};
 use support::{key, Canned, Stub};
 
 fn n(s: &str) -> Name {
@@ -239,6 +241,108 @@ async fn apex_scan_spends_no_probe_on_tls_rpt() {
     assert!(
         !stub.saw("apex.test", RecordType::SOA),
         "the exact-equality shortcut must not spend a query"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P7-P8 — the SUB-LABEL UNDER-CLAIM repair (2026-09-04, hermes lane).
+//
+// `record_absence_verdict` stays exact-equality (pinned in the pure tests);
+// the mappers for `_dmarc` and `_mta-sts` now consult ONE existence probe
+// when the NXDOMAIN's SOA is a PROPER ANCESTOR of the scanned name — the
+// item MEASUREMENT_SEMANTICS named as "knowingly out of scope" of #47:
+// "under-claims on sub-label scans — `_dmarc` and `_mta-sts` NXDOMAIN under
+// an ancestor SOA read Indet (could not measure) for a record that is
+// genuinely absent. That direction loses a measurement but never asserts a
+// falsehood." Same packet shape, same one-query repair TLS-RPT already
+// carries; this closes the asymmetry the #47 entry called "conspicuous".
+
+/// The canned world for P7/P8, parameterised on the ONE entry under test:
+/// what the SCANNED NAME's own SOA query answers. Both `_dmarc` and
+/// `_mta-sts` NXDOMAIN carry the SOA of the proper ancestor `exists.test`.
+fn sublabel_world(scanned_soa: Canned) -> HashMap<(String, RecordType), Canned> {
+    let mut c = HashMap::new();
+    c.insert(
+        key("_dmarc.sub.exists.test", RecordType::TXT),
+        Canned::with_soa(ResponseCode::NXDomain, "exists.test"),
+    );
+    c.insert(
+        key("_mta-sts.sub.exists.test", RecordType::TXT),
+        Canned::with_soa(ResponseCode::NXDomain, "exists.test"),
+    );
+    c.insert(key("sub.exists.test", RecordType::SOA), scanned_soa);
+    c
+}
+
+/// P7. The `_dmarc` half, both controls, one canned entry apart. Before the
+/// repair a live sub-label name read TransientError ("could not measure")
+/// for a record that is genuinely absent — the measurement was LOST, never
+/// a false claim. After: NotConfigured (a measured absence, back in both
+/// score sums) when the name exists; the abstention kept when it does not.
+#[tokio::test]
+async fn dmarc_ancestor_soa_is_decided_by_a_second_query() {
+    // ── POSITIVE: the scanned name EXISTS (NODATA on its SOA). The whole
+    // world is byte-identical to the negative below except this one entry.
+    let stub = Stub::start_with(sublabel_world(Canned::with_soa(
+        ResponseCode::NoError,
+        "exists.test",
+    )))
+    .await;
+    let v = vantage_at(&stub);
+    let a = analyse_domain(&v, "sub.exists.test").await.unwrap();
+    assert_eq!(
+        a.dmarc_disposition,
+        DmarcDisposition::NotConfigured,
+        "a live sub-label name's _dmarc absence is MEASURED, not unmeasured"
+    );
+    assert!(
+        stub.saw("sub.exists.test", RecordType::SOA),
+        "the existence probe must reach the wire"
+    );
+
+    // ── NEGATIVE: structurally identical packet, the scanned name is GONE.
+    let stub = Stub::start_with(sublabel_world(Canned::with_soa(
+        ResponseCode::NXDomain,
+        "exists.test",
+    )))
+    .await;
+    let v = vantage_at(&stub);
+    let a = analyse_domain(&v, "sub.exists.test").await.unwrap();
+    assert_eq!(
+        a.dmarc_disposition,
+        DmarcDisposition::TransientError,
+        "a name that does not exist keeps the abstention"
+    );
+}
+
+/// P8. The `_mta-sts` half, same shape.
+#[tokio::test]
+async fn mta_sts_ancestor_soa_is_decided_by_a_second_query() {
+    let stub = Stub::start_with(sublabel_world(Canned::with_soa(
+        ResponseCode::NoError,
+        "exists.test",
+    )))
+    .await;
+    let v = vantage_at(&stub);
+    let a = analyse_domain(&v, "sub.exists.test").await.unwrap();
+    assert_eq!(
+        a.mta_sts_disposition,
+        MtaStsDisposition::RecordAbsent,
+        "a live sub-label name's _mta-sts absence is MEASURED, not unmeasured"
+    );
+    assert!(stub.saw("sub.exists.test", RecordType::SOA));
+
+    let stub = Stub::start_with(sublabel_world(Canned::with_soa(
+        ResponseCode::NXDomain,
+        "exists.test",
+    )))
+    .await;
+    let v = vantage_at(&stub);
+    let a = analyse_domain(&v, "sub.exists.test").await.unwrap();
+    assert_eq!(
+        a.mta_sts_disposition,
+        MtaStsDisposition::TransientError,
+        "a name that does not exist keeps the abstention"
     );
 }
 

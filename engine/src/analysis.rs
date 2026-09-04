@@ -665,7 +665,20 @@ async fn score_dmarc(
                 dmarc_disposition_from_record(&dmarc_records[0])
             }
         }
-        Err(e) => dmarc_err_to_disposition(&e, domain),
+        Err(e) => {
+            // The sub-label under-claim repair: on `_dmarc` NXDOMAIN whose SOA
+            // names an ancestor zone, the packet cannot decide whether the
+            // DOMAIN exists — spend ONE `name_exists` query at the domain
+            // rather than losing the measurement to Indet. Identical wiring to
+            // `score_tls_rpt` (PR #45/#47); deliberately NOT routed through
+            // `observed_lookup` (same one-receipt-per-control census rule).
+            let exists = if nxdomain_soa_is_not(&e, domain) {
+                name_exists(resolver, domain).await
+            } else {
+                None
+            };
+            dmarc_err_to_disposition(&e, domain, exists)
+        }
     }
 }
 
@@ -1698,8 +1711,15 @@ async fn score_mta_sts(
             hint_present
         }
         Err(e) => {
-            // NODATA (no hint) = measured absence; NXDOMAIN/transient = Indet.
-            return mta_sts_err_to_disposition(&e, domain);
+            // NODATA (no hint) = measured absence; NXDOMAIN under an ANCESTOR
+            // SOA = spend the one-query probe (the under-claim repair, same
+            // wiring as `score_dmarc`/`score_tls_rpt`); transient = Indet.
+            let exists = if nxdomain_soa_is_not(&e, domain) {
+                name_exists(resolver, domain).await
+            } else {
+                None
+            };
+            return mta_sts_err_to_disposition(&e, domain, exists);
         }
     };
 
@@ -2412,14 +2432,50 @@ fn spf_err_to_disposition(e: &NetError, domain: &str) -> SpfDisposition {
     }
 }
 
-fn dmarc_err_to_disposition(e: &NetError, domain: &str) -> DmarcDisposition {
+fn dmarc_err_to_disposition(
+    e: &NetError,
+    domain: &str,
+    domain_exists: Option<bool>,
+) -> DmarcDisposition {
+    // The under-claim repair (MEASUREMENT_SEMANTICS, "record_absence_verdict
+    // under-claims on sub-label scans"): `_dmarc.<domain>` NXDOMAIN whose SOA
+    // names a PROPER ANCESTOR zone (support.example.com under SOA example.com)
+    // is a record that is GENUINELY ABSENT from a live domain, not
+    // "could not measure". `record_absence_verdict`'s exact-equality arm only
+    // claims when the SOA IS the scanned domain; every ancestor shape fell to
+    // Indet and lost the measurement. Same packet, same refuting evidence, and
+    // the same one-query probe TLS-RPT already wires (`score_tls_rpt`):
+    //   Some(true)  -> the domain exists, only `_dmarc.` is absent -> NotConfigured
+    //   Some(false) | None -> keep the abstention (TransientError)
+    if e.is_nx_domain() && nxdomain_soa_is_not(e, domain) {
+        return match domain_exists {
+            Some(true) => DmarcDisposition::NotConfigured,
+            Some(false) | None => DmarcDisposition::TransientError,
+        };
+    }
     match record_absence_verdict(e, domain) {
         TriState::Indet => DmarcDisposition::TransientError,
         _ => DmarcDisposition::NotConfigured,
     }
 }
 
-fn mta_sts_err_to_disposition(e: &NetError, domain: &str) -> MtaStsDisposition {
+fn mta_sts_err_to_disposition(
+    e: &NetError,
+    domain: &str,
+    domain_exists: Option<bool>,
+) -> MtaStsDisposition {
+    // The under-claim repair (see `dmarc_err_to_disposition`): `_mta-sts`
+    // NXDOMAIN under a PROPER ANCESTOR SOA on a live domain is a MEASURED
+    // record absence (`RecordAbsent`), not "could not measure". The probe
+    // semantics are identical to TLS-RPT's:
+    //   Some(true)  -> RecordAbsent (a measured Low finding, in both sums)
+    //   Some(false) | None -> TransientError (keep the abstention)
+    if e.is_nx_domain() && nxdomain_soa_is_not(e, domain) {
+        return match domain_exists {
+            Some(true) => MtaStsDisposition::RecordAbsent,
+            Some(false) | None => MtaStsDisposition::TransientError,
+        };
+    }
     match record_absence_verdict(e, domain) {
         TriState::Indet => MtaStsDisposition::TransientError,
         _ => MtaStsDisposition::RecordAbsent,
@@ -3680,14 +3736,17 @@ mod tests {
 
     #[test]
     fn dmarc_err_indet_is_transient_not_notconfigured() {
+        // None is the honest probe value for a SERVFAIL: is_nx_domain() is
+        // false, so the ancestor-SOA branch cannot fire and None is inert.
         assert_eq!(
-            dmarc_err_to_disposition(&servfail_err(), "example.com"),
+            dmarc_err_to_disposition(&servfail_err(), "example.com", None),
             DmarcDisposition::TransientError
         );
         assert_eq!(
             dmarc_err_to_disposition(
                 &no_records_err(hickory_proto::op::ResponseCode::NoError),
-                "example.com"
+                "example.com",
+                None
             ),
             DmarcDisposition::NotConfigured
         );
@@ -3695,14 +3754,16 @@ mod tests {
 
     #[test]
     fn mta_sts_err_indet_is_transient_not_recordabsent() {
+        // None is inert for non-NXDOMAIN shapes (see the dmarc twin above).
         assert_eq!(
-            mta_sts_err_to_disposition(&servfail_err(), "example.com"),
+            mta_sts_err_to_disposition(&servfail_err(), "example.com", None),
             MtaStsDisposition::TransientError
         );
         assert_eq!(
             mta_sts_err_to_disposition(
                 &no_records_err(hickory_proto::op::ResponseCode::NoError),
-                "example.com"
+                "example.com",
+                None
             ),
             MtaStsDisposition::RecordAbsent
         );
@@ -3802,6 +3863,81 @@ mod tests {
     /// measure") for a record that is genuinely absent. That loses a
     /// measurement but never asserts a falsehood, so it stays out of scope;
     /// the same probe would repair it.
+    // ── The sub-label under-claim repair, pure mapper controls ─────────────
+    // `record_absence_verdict` stays exact-equality (pinned above); the
+    // repair lives in the *_err_to_disposition mappers, which consult ONE
+    // existence probe when the SOA is a PROPER ANCESTOR of the scanned name.
+    // Three probe values, three verdicts, both controls — the same matrix
+    // TLS-RPT's repair carries. Before the repair every ancestor shape read
+    // TransientError ("could not measure") for a record that is genuinely
+    // absent from a live domain: a LOST measurement, never a false claim —
+    // which is why this was ranked below the over-claiming repairs.
+
+    #[test]
+    fn dmarc_ancestor_soa_is_decided_by_the_probe() {
+        // The support.google.com shape: `_dmarc.support.google.com` NXDOMAIN
+        // carrying SOA google.com. The packet cannot decide whether
+        // support.google.com exists; the probe can.
+        let e = nxdomain_err_with_soa("google.com.");
+        assert_eq!(
+            dmarc_err_to_disposition(&e, "support.google.com", Some(true)),
+            DmarcDisposition::NotConfigured,
+            "a live domain's _dmarc NXDOMAIN under an ancestor SOA is a MEASURED absence"
+        );
+        assert_eq!(
+            dmarc_err_to_disposition(&e, "support.google.com", Some(false)),
+            DmarcDisposition::TransientError,
+            "a nonexistent domain keeps the abstention"
+        );
+        assert_eq!(
+            dmarc_err_to_disposition(&e, "support.google.com", None),
+            DmarcDisposition::TransientError,
+            "an unanswerable probe keeps the abstention"
+        );
+    }
+
+    #[test]
+    fn mta_sts_ancestor_soa_is_decided_by_the_probe() {
+        let e = nxdomain_err_with_soa("google.com.");
+        assert_eq!(
+            mta_sts_err_to_disposition(&e, "support.google.com", Some(true)),
+            MtaStsDisposition::RecordAbsent,
+            "a live domain's _mta-sts NXDOMAIN under an ancestor SOA is a MEASURED absence"
+        );
+        assert_eq!(
+            mta_sts_err_to_disposition(&e, "support.google.com", Some(false)),
+            MtaStsDisposition::TransientError
+        );
+        assert_eq!(
+            mta_sts_err_to_disposition(&e, "support.google.com", None),
+            MtaStsDisposition::TransientError
+        );
+    }
+
+    #[test]
+    fn sublabel_probe_is_not_spent_when_the_packet_decides() {
+        // The exact-equality SOA (the domain's own zone) decides with NO
+        // probe; the mapper must ignore the probe entirely in that shape —
+        // including a LIED Some(true), which would otherwise be consulted.
+        let own = nxdomain_err_with_soa("example.com.");
+        assert_eq!(
+            dmarc_err_to_disposition(&own, "example.com", Some(true)),
+            DmarcDisposition::NotConfigured,
+            "the exact-equality arm decides; the probe value is inert"
+        );
+        // NODATA is a measured absence by the packet itself; also inert.
+        let nodata = no_records_err(hickory_proto::op::ResponseCode::NoError);
+        assert_eq!(
+            dmarc_err_to_disposition(&nodata, "example.com", Some(false)),
+            DmarcDisposition::NotConfigured
+        );
+        // A SERVFAIL is never an NXDOMAIN; the probe must not be consulted.
+        assert_eq!(
+            mta_sts_err_to_disposition(&servfail_err(), "example.com", Some(true)),
+            MtaStsDisposition::TransientError
+        );
+    }
+
     #[test]
     fn record_absence_soa_test_is_exact_not_containment() {
         // A registry suffix answering for a name below it means the name was
@@ -3948,9 +4084,15 @@ mod tests {
         // "record absent — zone exists, no MTA-STS" while the TLS-RPT row of
         // the same sealed report read "no zone — domain does not exist".
         let e = nxdomain_err_with_soa("example.com.");
+        // The probe is None here — the exact-equality arm decides before any
+        // probe is spent (nxdomain_soa_is_not is false), so the None carries
+        // no meaning in this shape. Passing Some(true) would take the new
+        // ancestor-SOA branch and change the verdict, which is exactly what
+        // the under-claim repair's own controls pin separately.
         let tls =
             crate::truth_chain::tls_rpt_report(tls_rpt_err_to_disposition(&e, "example.com", None));
-        let mta = crate::truth_chain::mta_sts_report(mta_sts_err_to_disposition(&e, "example.com"));
+        let mta =
+            crate::truth_chain::mta_sts_report(mta_sts_err_to_disposition(&e, "example.com", None));
 
         assert_eq!(mta.measured, "record absent — zone exists, no MTA-STS");
         assert_eq!(tls.measured, "record absent — zone exists, no TLS-RPT");
