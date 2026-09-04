@@ -26,8 +26,23 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # The release CLASS is derived from the tag, and an unrecognised
+          # shape STOPS the workflow rather than defaulting to stable.
+          # Without this, `gh release create --draft` wrote `prerelease:
+          # false`, and `--draft=false` at publish then made an ALPHA the
+          # repository's /releases/latest — the field every installer and
+          # package manager keys on. It is the same conflation this file
+          # already fixed one layer down at the version-field gate: there a
+          # glob could not tell an alpha from a GA build, here the metadata
+          # could not either. Fail closed, because the dangerous direction is
+          # an unanticipated tag shipping quietly as stable.
+          case "$GITHUB_REF_NAME" in
+            *-alpha*|*-beta*|*-rc*) PRE="--prerelease" ;;
+            v[0-9]*.[0-9]*.[0-9]*)  PRE="" ;;
+            *) echo "::error::tag '$GITHUB_REF_NAME' matches no known release class (expected vX.Y.Z or vX.Y.Z-alpha/beta/rc*) — refusing to guess"; exit 1 ;;
+          esac
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
-            gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
+            gh release create "$GITHUB_REF_NAME" --draft --verify-tag $PRE \
               --title "resolution-scope $GITHUB_REF_NAME" \
               --notes "Sealed-verdict DNS posture instrument — CLI binaries. Verify each artifact against its .sha256 receipt."
 
@@ -150,3 +165,15 @@ jobs:
             esac
           done
           gh release edit "$GITHUB_REF_NAME" --draft=false
+          # Verify by content, not by the absence of a red check: read the
+          # published flag BACK and assert it matches the tag's class. A
+          # metadata claim nobody re-reads is a claim nobody checked.
+          case "$GITHUB_REF_NAME" in
+            *-alpha*|*-beta*|*-rc*) WANT=true ;;
+            *) WANT=false ;;
+          esac
+          GOT=$(gh release view "$GITHUB_REF_NAME" --json isPrerelease --jq .isPrerelease)
+          if [ "$GOT" != "$WANT" ]; then
+            echo "::error::published prerelease flag is '$GOT', expected '$WANT' for tag $GITHUB_REF_NAME"; exit 1
+          fi
+          echo "published $GITHUB_REF_NAME with prerelease=$GOT"
