@@ -518,6 +518,29 @@ Controls: every kill set below was OBSERVED by mutating the source, running
                                                                     -> 2
                 both engine/tests/dane_probe_cost.rs controls
                 (256 passed, 2 failed).
+          Each of the controls added with this correction also has its OWN
+          observed kill set — a control whose kill set is predicted is not a
+          control:
+            M16 `host_zone_for_decision` ignores existence entirely (BOTH zone
+                skips removed at once)                              -> 4
+                `dangling_mx_host_is_not_a_measured_dane_absence`;
+                `a_mixed_mx_list_carries_each_hosts_own_measurement`;
+                `a_dangling_primary_mx_does_not_claim_the_scanned_domains_zone`
+                (SameZone claimed for a host with no zone);
+                `host_zone_for_decision_separates_unmeasured_from_absent`
+                (254 passed, 4 failed).
+            M17 `None => Some(0)` in `tlsa_err_to_count` (an unmeasurable
+                probe spent as a measured absence)                  -> 4
+                `an_existing_host_whose_probe_is_refused_abstains_rather_than_claiming_absence`;
+                `tlsa_err_nxdomain_ancestor_soa_is_decided_by_the_probe`;
+                `tlsa_err_nxdomain_containing_zone_needs_the_probe_now`;
+                `tlsa_err_nxdomain_tld_zone_is_unmeasured`
+                (254 passed, 4 failed).
+            M18 delete the exact-equality arm in `tlsa_err_to_count`
+                (M2 re-run — it now kills two, not one)             -> 2
+                `an_exact_soa_tlsa_nxdomain_is_immune_to_an_unanswerable_probe`;
+                `tlsa_err_nxdomain_own_zone_is_measured_absence_without_a_probe`
+                (256 passed, 2 failed).
           A SURVIVOR FOUND AND REMOVED RATHER THAN LEFT STANDING: this change
           first carried `score_tls_rpt`'s `nxdomain_soa_is_not` gate into the
           DANE TLSA loop, so a probe would be spent only on packets that
@@ -530,7 +553,7 @@ Controls: every kill set below was OBSERVED by mutating the source, running
           `tlsa_err_to_count`, whose exact-equality arm never reads
           `host_exists` at all.
           NO KNOWN SURVIVORS as of 2026-09-04, which is a report of what was
-          MEASURED (M1-M15 plus the deleted branch), not a proof that none
+          MEASURED (M1-M18 plus the deleted branch), not a proof that none
           exist. The first version of this line said "No survivors" of a set
           that had two.
           DELIBERATE COVERAGE LOSS, stated so it does not read as an accident:
