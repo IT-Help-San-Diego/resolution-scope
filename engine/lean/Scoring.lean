@@ -121,13 +121,17 @@ theorem present_le_findings (xs : List TriState) : countPresent xs ≤ countFind
       cases s <;> simp [countPresent, countFindings, countsInDenominator] <;> omega
 
 /-! ## Axiom audit — the sorry-refusal gate. `lean` exits 0 on
-`sorry`, so a proof-hole was invisible to CI. Every theorem's axiom
-set is now PINNED EXACTLY: the build fails on any change — a `sorryAx`
-appears (proof hole), a foreign axiom appears (smuggled assumption),
-or even a foundation axiom appears/disappears (proof drift). propext
-and Quot.sound are Lean's standard logical foundations (allowed,
-named per-theorem as measured 2026-09-03); sorryAx is not. Mechanism
-verified live: exit 1 on mismatch, exit 0 on exact pin. -/
+`sorry`, so a proof-hole was invisible to CI. Every public theorem's
+axiom set is now PINNED EXACTLY: the build fails on any change — a
+`sorryAx` appears (proof hole), a foreign axiom appears (smuggled
+assumption), or even a foundation axiom appears/disappears (proof
+drift). propext, Classical.choice and Quot.sound are Lean's standard
+logical foundations (allowed, named per-theorem as measured 2026-09-03);
+sorryAx is not. The public pins audit the private support lemmas
+TRANSITIVELY — a sorry in a helper surfaces as sorryAx in every
+theorem that uses it (observed live 2026-09-03: a broken helper
+pinned empty_surface_is_none at [propext, sorryAx] until fixed).
+Mechanism verified live: exit 1 on mismatch, exit 0 on exact pin. -/
 /-- info: 'indet_is_not_absent' does not depend on any axioms -/
 #guard_msgs in
 #print axioms indet_is_not_absent
@@ -192,3 +196,191 @@ verified live: exit 1 on mismatch, exit 0 on exact pin. -/
 #guard_msgs in
 #print axioms present_le_findings
 
+/-! ## Tier 1 — the weighted score doctrine (RiskWeightedScoring).
+
+The weight function is a PARAMETER (edit-safety by construction, Carey's
+2026-09-03 requirement): every theorem is quantified over ALL non-negative
+weight assignments, so a severity re-ruling changes an INSTANCE, never a
+proof. The zero-capability of Nat is load-bearing — it is what makes the
+Csync zero band expressible.
+
+THE ZERO-WEIGHT NEUTRALITY THEOREM is the Csync ruling (2026-09-01) proven:
+a control with weight zero provably cannot move the weighted score.
+
+TWO-FILM NOTE: this section shipped staged on 2026-09-03 with `sorry`
+bodies and pins set to [sorryAx] — deliberately CI-red, the gate doing
+its job. That staged version is the labeled wrong film, preserved in git
+history; the proofs were filled the same day (zero_weight_neutral and
+weightedScore_le_100 on [propext, Quot.sound]; empty_surface_is_none on
+[propext, Classical.choice, Quot.sound] — all three of Lean's standard
+foundation axioms, nothing else), and the pins re-measured to match.
+Verified with `lean -DwarningAsError=true`: exit 0, and the pins below
+fail the build on any axiom drift. -/
+
+namespace WeightedScoring
+
+/-- Weight assignment: control α ↦ non-negative weight. -/
+def WeightFn (α : Type) := α → Nat
+
+/-- The weighted score: covered = Σ w over Present; surface = Σ w over
+Present-or-Absent; `some (covered * 100 / surface)` when surface > 0,
+`none` otherwise (the never-a-fake-100 doctrine). -/
+def weightedScore {α : Type} [BEq α] (w : WeightFn α)
+    (pairs : List (α × TriState)) : Option Nat :=
+  let covered := (pairs.filter fun p => p.2 == .Present).foldl
+    (fun acc p => acc + w p.1) 0
+  let surface := (pairs.filter fun p => p.2 == .Present || p.2 == .Absent).foldl
+    (fun acc p => acc + w p.1) 0
+  if surface = 0 then none
+  else some (covered * 100 / surface)
+
+/-! ### Private support lemmas
+
+The weight-sum fold is monotone in its base and the Present-filter passes
+are a subset of the Present-or-Absent passes; both are proved by induction
+GENERALIZED OVER THE FOLD BASE so `omega` never has to look inside
+`foldl`. -/
+
+/-- The weight-sum fold is monotone in its base: a bigger starting
+accumulator can only give a bigger result. -/
+private theorem foldl_mono_base {α : Type} (w : WeightFn α)
+    (l : List (α × TriState)) : ∀ (base base' : Nat), base ≤ base' →
+    l.foldl (fun acc p => acc + w p.1) base ≤
+    l.foldl (fun acc p => acc + w p.1) base' := by
+  induction l with
+  | nil => intro base base' h; exact h
+  | cons x xs ih =>
+      intro base base' h
+      exact ih (base + w x.1) (base' + w x.1) (Nat.add_le_add_right h (w x.1))
+
+/-- The covered sum never exceeds the surface sum, at ANY fold base:
+the Present filter passes are a subset of the Present-or-Absent filter
+passes and weights are non-negative. -/
+private theorem foldl_mono_filter {α : Type} [BEq α] (w : WeightFn α)
+    (pairs : List (α × TriState)) (base : Nat) :
+    (pairs.filter fun p => p.2 == .Present).foldl (fun acc p => acc + w p.1) base ≤
+    (pairs.filter fun p => p.2 == .Present || p.2 == .Absent).foldl
+      (fun acc p => acc + w p.1) base := by
+  induction pairs generalizing base with
+  | nil => exact Nat.le_refl base
+  | cons p rest ih =>
+      obtain ⟨a, s⟩ := p
+      cases s
+      · -- Present: both filters keep it, base shifts equally on both sides.
+        simp
+        exact ih (base + w a)
+      · -- Absent: dropped from covered, kept on the surface; base-shift
+        -- monotonicity supplies the slack.
+        simp
+        have h1 := ih base
+        have h2 := foldl_mono_base w
+          (rest.filter fun p => p.2 == .Present || p.2 == .Absent) base
+          (base + w a) (Nat.le_add_right base (w a))
+        exact Nat.le_trans h1 h2
+      · -- Indet: dropped from both filters; base unchanged.
+        simp
+        exact ih base
+      · -- NotApplicable: dropped from both filters; base unchanged.
+        simp
+        exact ih base
+
+/-- The public shape used by the score theorem. -/
+private theorem covered_le_surface {α : Type} [BEq α] (w : WeightFn α)
+    (pairs : List (α × TriState)) :
+    (pairs.filter fun p => p.2 == .Present).foldl (fun acc p => acc + w p.1) 0 ≤
+    (pairs.filter fun p => p.2 == .Present || p.2 == .Absent).foldl
+      (fun acc p => acc + w p.1) 0 :=
+  foldl_mono_filter w pairs 0
+
+/-- Every predicate false ⇒ the filter is empty. -/
+private theorem filter_eq_nil_of_all_false {α : Type} (l : List α) (f : α → Bool)
+    (h : ∀ x ∈ l, f x = false) : l.filter f = [] := by
+  simpa using h
+
+/-- ZERO-WEIGHT NEUTRALITY (the Csync ruling, as a theorem): a zero-weight
+control is provably inert — adding it in any state cannot move the score. -/
+theorem zero_weight_neutral {α : Type} [BEq α]
+    (w : WeightFn α) (c : α) (hc : w c = 0)
+    (pairs : List (α × TriState)) :
+    weightedScore w pairs = weightedScore w (pairs ++ [(c, .Present)]) := by
+  simp [weightedScore, List.filter_append, List.foldl_append,
+    List.filter_nil, hc]
+
+/-- Bounded: the score never exceeds 100 (covered ≤ surface; weights ≥ 0). -/
+theorem weightedScore_le_100 {α : Type} [BEq α]
+    (w : WeightFn α) (pairs : List (α × TriState))
+    (n : Nat) (h : weightedScore w pairs = some n) :
+    n ≤ 100 := by
+  have hcs := covered_le_surface w pairs
+  simp only [weightedScore] at h
+  split at h
+  · next _hs => exact absurd h (by simp)
+  · next hs =>
+      have e : (pairs.filter fun p => p.2 == .Present).foldl
+            (fun acc p => acc + w p.1) 0 * 100 /
+          (pairs.filter fun p => p.2 == .Present || p.2 == .Absent).foldl
+            (fun acc p => acc + w p.1) 0 = n := Option.some.inj h
+      have hpos : 0 < (pairs.filter fun p => p.2 == .Present || p.2 == .Absent).foldl
+            (fun acc p => acc + w p.1) 0 := by omega
+      have h3 : (pairs.filter fun p => p.2 == .Present).foldl
+            (fun acc p => acc + w p.1) 0 * 100 ≤
+          (pairs.filter fun p => p.2 == .Present || p.2 == .Absent).foldl
+            (fun acc p => acc + w p.1) 0 * 100 := Nat.mul_le_mul_right 100 hcs
+      have h5 : (pairs.filter fun p => p.2 == .Present).foldl
+            (fun acc p => acc + w p.1) 0 * 100 /
+          (pairs.filter fun p => p.2 == .Present || p.2 == .Absent).foldl
+            (fun acc p => acc + w p.1) 0 ≤
+          (pairs.filter fun p => p.2 == .Present || p.2 == .Absent).foldl
+            (fun acc p => acc + w p.1) 0 * 100 /
+          (pairs.filter fun p => p.2 == .Present || p.2 == .Absent).foldl
+            (fun acc p => acc + w p.1) 0 := Nat.div_le_div_right h3
+      have h6 : (pairs.filter fun p => p.2 == .Present || p.2 == .Absent).foldl
+            (fun acc p => acc + w p.1) 0 * 100 /
+          (pairs.filter fun p => p.2 == .Present || p.2 == .Absent).foldl
+            (fun acc p => acc + w p.1) 0 = 100 := by
+        rw [Nat.mul_comm]
+        exact Nat.mul_div_cancel 100 hpos
+      omega
+
+/-- Never a fake 100: no weighted findings ⇒ score is none, not zero. -/
+theorem empty_surface_is_none {α : Type} [BEq α]
+    (w : WeightFn α) (pairs : List (α × TriState))
+    (h : ∀ p ∈ pairs, p.2 != .Present ∧ p.2 != .Absent) :
+    weightedScore w pairs = none := by
+  have hP : ∀ x ∈ pairs, (x.2 == TriState.Present) = false := by
+    intro x hx
+    obtain ⟨hp1, _⟩ := h x hx
+    obtain ⟨a, s⟩ := x
+    cases s
+    · simp [bne] at hp1
+    · rfl
+    · rfl
+    · rfl
+  have hPA : ∀ x ∈ pairs, (x.2 == TriState.Present || x.2 == TriState.Absent) = false := by
+    intro x hx
+    obtain ⟨hp1, hp2⟩ := h x hx
+    obtain ⟨a, s⟩ := x
+    cases s
+    · simp [bne] at hp1
+    · simp [bne] at hp2
+    · rfl
+    · rfl
+  have f1 : (pairs.filter fun p => p.2 == TriState.Present) = [] :=
+    filter_eq_nil_of_all_false pairs _ hP
+  have f2 : (pairs.filter fun p => p.2 == TriState.Present || p.2 == TriState.Absent) = [] :=
+    filter_eq_nil_of_all_false pairs _ hPA
+  simp [weightedScore, f2]
+
+end WeightedScoring
+
+/-- info: 'WeightedScoring.zero_weight_neutral' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms WeightedScoring.zero_weight_neutral
+
+/-- info: 'WeightedScoring.weightedScore_le_100' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms WeightedScoring.weightedScore_le_100
+
+/-- info: 'WeightedScoring.empty_surface_is_none' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in
+#print axioms WeightedScoring.empty_surface_is_none
