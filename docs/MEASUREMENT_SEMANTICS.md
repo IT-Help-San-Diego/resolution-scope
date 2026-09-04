@@ -654,15 +654,21 @@ Why:      RFC 1035 §4.3.4 / RFC 2308 §2.1 — the SOA in an NXDOMAIN authority
           domain; only a measurement separates "record absent from a live
           name" from "name does not exist". The #47 entry itself stated the
           repair: "the same probe would repair it".
-COST:     At most ONE extra wire query per control, and ZERO when the packet
-          already decides (NODATA, SERVFAIL, or an exact-equality SOA) —
-          pinned by `sublabel_probe_is_not_spent_when_the_packet_decides`
-          (the inert-probe control, including a LIED Some(true)) and the
-          wired negative arms in nxdomain_existence_probe.rs. Two controls
-          that share one scanned name in one scan share one probe call each
-          (they probe independently today — one query per control; a shared
-          memoised probe across controls is carded follow-up, same class as
-          the TLS-RPT one-receipt-per-control census rule).
+COST:     MEASURED (engine/tests/sublabel_probe_cost.rs, the loopback-stub
+          meter): ONE extra wire query per PROBE-ELIGIBLE control, TWO on
+          the wire when both legs are eligible (the probes are NOT shared
+          across controls — the meter falsified the cross-control cache
+          assumption in its first draft), and ZERO when the packet already
+          decides (NODATA, SERVFAIL, or an exact-equality SOA). Pinned by
+          `two_probe_eligible_legs_cost_two_wire_questions`,
+          `a_nonexistent_name_still_spends_both_probes`, and
+          `packet_decided_leg_spends_no_probe`, plus the pure inert-probe
+          control `sublabel_probe_is_not_spent_when_the_packet_decides`
+          (including a LIED Some(true)). A shared memoised probe across
+          controls is the carded follow-up (same class as the TLS-RPT
+          one-receipt-per-control census rule): if it lands, the wire count
+          flips to 1 and this line + the cost test change in the same
+          commit.
 Controls: engine/src/analysis.rs:
           `dmarc_ancestor_soa_is_decided_by_the_probe` (three probe values);
           `mta_sts_ancestor_soa_is_decided_by_the_probe` (three);
