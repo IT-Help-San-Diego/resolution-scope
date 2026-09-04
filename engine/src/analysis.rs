@@ -1103,10 +1103,9 @@ fn dane_from_tlsa_counts(counts: &[Option<usize>]) -> DaneDisposition {
 }
 
 /// Pure: map a TLSA lookup error to the per-host outcome it actually
-/// measured. `Some(0)` = a MEASURED absence (NODATA, or an NXDOMAIN whose SOA
-/// is a zone CONTAINING the host — the host exists within an existing zone and
-/// publishes no TLSA); `None` = couldn't measure (transient, or the host's own
-/// domain is missing).
+/// measured. `Some(0)` = a MEASURED absence (NODATA, or an NXDOMAIN at a name
+/// whose host is known to exist); `None` = couldn't measure (transient, or the
+/// host's own domain is missing, or existence was never probed).
 ///
 /// This is the branch `score_dane` skipped when every other control's Err
 /// path routed through `record_absence_verdict` — the skip folded measured
@@ -1115,32 +1114,51 @@ fn dane_from_tlsa_counts(counts: &[Option<usize>]) -> DaneDisposition {
 /// Both directions lose the distinction DANE's four-way split exists to hold.
 ///
 /// An MX target is a LEAF name, not a zone cut: `_25._tcp.mail3.cia.gov`
-/// NXDOMAIN carries the SOA of the zone that CONTAINS the host (`cia.gov`),
-/// not the host's own (nonexistent) zone. So the "did the host's domain
-/// vanish" test is SUFFIX containment (`cia.gov` contains `mail3.cia.gov`),
-/// not the exact equality `record_absence_verdict` uses for the apex — that
-/// exact match was why a subdomain/third-party MX host reported TransientError
-/// instead of the measured absence it actually is (Arm 1: cia.gov, google.com).
-fn tlsa_err_to_count(e: &NetError, host: &str) -> Option<usize> {
+/// NXDOMAIN carries the SOA of the CLOSEST ENCLOSING ZONE THAT EXISTS
+/// (`cia.gov`), which says NOTHING about whether the host's own domain
+/// exists. The previous guard (`zone_contains_host`, deleted with this
+/// change) inferred existence from the SOA name by suffix containment plus a
+/// `contains('.')` proxy for "a real zone rather than a TLD"; that proxy only
+/// holds for single-label TLDs, so `_25._tcp.mail.nosuchdomain.co.uk`
+/// NXDOMAIN + SOA `co.uk` graded `Some(0)` — "measured absence" for a domain
+/// that does not exist. Measured live 2026-09-04: `.co.uk` and `.com.au`
+/// defective, `.com` correct only by accident (`com` carries no dot).
+///
+/// The replacement is a MEASUREMENT, not a string property: `host_exists`
+/// carries the outcome of one SOA query at the host name ITSELF, made by the
+/// call site that owns the resolver (`score_dane`). `Some(true)` = the name
+/// resolves (NOERROR, including NODATA on a name that exists) so the TLSA's
+/// absence is measured; `Some(false)` = the name is NXDOMAIN so its domain
+/// does not exist and nothing is measurable; `None` = not probed, or the
+/// probe itself failed — never claim. The one SOA-name test that survives is
+/// EXACT equality with the host, which needs no probe at all: a zone that
+/// answered for itself demonstrably exists.
+fn tlsa_err_to_count(e: &NetError, host: &str, host_exists: Option<bool>) -> Option<usize> {
     use hickory_proto::op::ResponseCode;
     use hickory_resolver::net::DnsError;
     let host = host.trim_end_matches('.');
     match e {
-        // NODATA on an existing zone: the host exists, no TLSA → measured absence.
+        // NODATA on an existing zone: the host exists, no TLSA → measured
+        // absence. The probe is not consulted — the name `_25._tcp.<host>`
+        // answered NOERROR itself, so the host demonstrably exists.
         NetError::Dns(DnsError::NoRecordsFound(nr))
             if nr.response_code == ResponseCode::NoError =>
         {
             Some(0)
         }
-        // NXDOMAIN: the name `_25._tcp.<host>` does not exist. Measured absence
-        // iff the SOA's zone contains the host (suffix); a TLD/root SOA means
-        // the host's own domain is missing → couldn't measure.
+        // NXDOMAIN: the name `_25._tcp.<host>` does not exist. The SOA names
+        // the closest enclosing zone that exists, which decides nothing unless
+        // it is the host itself. Otherwise the probe decides.
         NetError::Dns(DnsError::NoRecordsFound(nr))
             if nr.response_code == ResponseCode::NXDomain =>
         {
             match nr.soa.as_ref().map(|s| s.name.to_ascii()) {
-                Some(z) if zone_contains_host(host, z.trim_end_matches('.')) => Some(0),
-                _ => None,
+                Some(z) if z.trim_end_matches('.').eq_ignore_ascii_case(host) => Some(0),
+                _ => match host_exists {
+                    Some(true) => Some(0), // measured: the host exists, no TLSA
+                    Some(false) => None,   // measured: the host's domain is gone
+                    None => None,          // never probed / probe failed
+                },
             }
         }
         // SERVFAIL / timeout / anything else: nothing measured → None.
@@ -1165,17 +1183,6 @@ fn err_soa_zone(e: &NetError) -> Option<String> {
         ),
         _ => None,
     }
-}
-
-/// True when `zone` is a zone that CONTAINS `host` — `zone` equals `host`, or
-/// is a proper label-boundary suffix of it. A containing zone must itself be a
-/// real (>=2-label) zone: `cia.gov` contains `mail3.cia.gov`, but a bare TLD
-/// (`com`) is NOT counted as containing `mail.example.com` — that case is the
-/// host's whole domain missing, which is couldn't-measure, not measured absence.
-fn zone_contains_host(host: &str, zone: &str) -> bool {
-    let h = host.trim_end_matches('.').to_ascii_lowercase();
-    let z = zone.trim_end_matches('.').to_ascii_lowercase();
-    z.contains('.') && (h == z || h.ends_with(&format!(".{}", z)))
 }
 
 /// Pure: classify the MX host's zone relationship to the scanned domain's zone
@@ -1250,17 +1257,116 @@ fn apex_from_soa_result(
     }
 }
 
-/// Derive the zone apex that CONTAINS `name` by asking for the SOA and reading
-/// its owner. If `name` is itself the apex the SOA comes back in the answer
-/// section; if it is a leaf the SOA arrives in the authority section
-/// (`NoRecordsFound` with `soa` populated). `None` when the lookup errored
-/// (couldn't measure the zone, not \"no zone\").
-async fn zone_apex_of(resolver: &ScopeResolver, name: &str) -> Option<String> {
+/// Pure: does the QUERIED NAME itself exist, read from its own lookup outcome?
+///
+/// The existence half of the SOA query `zone_apex_and_existence` makes — the
+/// signal `apex_from_soa_result` throws away. This is the measurement that
+/// replaces every string-property inference about an NXDOMAIN's SOA name:
+///
+///   Ok (NOERROR with answers)              -> Some(true)   the name exists
+///   NoRecordsFound, rcode NOERROR (NODATA) -> Some(true)   the name exists,
+///                                                          it just has no SOA
+///   NoRecordsFound, rcode NXDOMAIN         -> Some(false)  the name does not
+///                                                          exist, and neither
+///                                                          does its domain
+///   SERVFAIL / Refused / timeout / other   -> None         couldn't measure
+///
+/// `None` is never "absent": an unanswerable probe must not license a claim.
+fn name_exists_from_lookup(ok: bool, error: Option<&NetError>) -> Option<bool> {
+    use hickory_proto::op::ResponseCode;
+    use hickory_resolver::net::DnsError;
+    if ok {
+        return Some(true);
+    }
+    match error {
+        Some(NetError::Dns(DnsError::NoRecordsFound(nr))) => match nr.response_code {
+            ResponseCode::NoError => Some(true),
+            ResponseCode::NXDomain => Some(false),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Pure: is an existence probe WORTH A QUERY for this error and name?
+///
+/// True iff the error is an NXDOMAIN whose SOA owner is not exactly `name`
+/// (a missing SOA counts as "needed"). False for NODATA and every transient
+/// shape — a probe cannot rescue those and must not be spent on them; false
+/// for the exact-equality case, where the zone answered for itself and its
+/// existence is already in the packet.
+///
+/// Extracted PURE so the "when do we spend a query" decision is unit-pinned
+/// without a resolver — the same reason `apex_from_soa_result` was extracted
+/// from `zone_apex_of`.
+fn nxdomain_soa_is_not(e: &NetError, name: &str) -> bool {
+    use hickory_proto::op::ResponseCode;
+    use hickory_resolver::net::DnsError;
+    match e {
+        NetError::Dns(DnsError::NoRecordsFound(nr))
+            if nr.response_code == ResponseCode::NXDomain =>
+        {
+            match err_soa_zone(e) {
+                Some(z) => !z.eq_ignore_ascii_case(name.trim_end_matches('.')),
+                None => true,
+            }
+        }
+        _ => false,
+    }
+}
+
+/// One SOA query at `name`, read for BOTH facts it carries.
+///
+/// `.0` — the zone apex that CONTAINS `name`. If `name` is itself the apex the
+/// SOA comes back in the answer section; if it is a leaf the SOA arrives in the
+/// authority section (`NoRecordsFound` with `soa` populated). `None` when the
+/// lookup errored without an SOA (couldn't measure the zone, not "no zone").
+/// NOTE this value is the closest enclosing zone THAT EXISTS: for a name whose
+/// domain does not exist it is the registry suffix, which is why `.1` exists.
+///
+/// `.1` — whether `name` ITSELF exists (`name_exists_from_lookup`).
+///
+/// Deliberately NOT routed through `observed_lookup`: this is an internal
+/// sub-measurement, not a control's primary lookup, and a second receipt for
+/// a `ControlId` breaks the one-receipt-per-control census
+/// (engine/tests/control_enumeration_invariants.rs). Same precedent as the DS
+/// refinement lookup and the MX-host `score_dnssec` sub-call, both of which
+/// pass `&mut None`.
+async fn zone_apex_and_existence(
+    resolver: &ScopeResolver,
+    name: &str,
+) -> (Option<String>, Option<bool>) {
     use hickory_proto::rr::RecordType;
     match resolver.lookup(name, RecordType::SOA).await {
-        Ok(resp) => apex_from_soa_result(Some(resp.answers()), None),
-        Err(e) => apex_from_soa_result(None, Some(&e)),
+        Ok(resp) => (
+            apex_from_soa_result(Some(resp.answers()), None),
+            name_exists_from_lookup(true, None),
+        ),
+        Err(e) => (
+            apex_from_soa_result(None, Some(&e)),
+            name_exists_from_lookup(false, Some(&e)),
+        ),
     }
+}
+
+/// Does this NAME exist? One SOA query at the name itself — the measurement
+/// that separates "the record is absent from a zone that exists" from "the
+/// domain does not exist", with no external data and no Public Suffix List.
+///
+/// The PSL was rejected deliberately: it is a mutable third-party list, so a
+/// verdict derived from it depends on which snapshot produced it, which would
+/// need a vendored pinned copy plus its identity in the receipt and in this
+/// log to keep verdicts re-derivable. A query is reproducible by anyone with
+/// a resolver and has no vintage.
+async fn name_exists(resolver: &ScopeResolver, name: &str) -> Option<bool> {
+    zone_apex_and_existence(resolver, name).await.1
+}
+
+/// The zone apex half of `zone_apex_and_existence`, for the one caller that
+/// needs the zone cut and not the existence (the scanned domain's own apex,
+/// whose existence the MX lookup that reached this code already established).
+async fn zone_apex_of(resolver: &ScopeResolver, name: &str) -> Option<String> {
+    zone_apex_and_existence(resolver, name).await.0
 }
 
 /// Pure gate: does an MX host's zone DNSSEC state force `DnssecRequired`?
@@ -1320,16 +1426,41 @@ async fn score_dane(
                 MxShape::NoMx => (DaneDisposition::NoMx, TlsaZone::NoMxHost),
                 MxShape::NoMail => (DaneDisposition::NoMail, TlsaZone::NoMxHost),
                 MxShape::Hosts(hosts) => {
+                    // ── one SOA query per MX host, read for BOTH facts ──
+                    // The zone apex (the zone-cut attribution) and whether the
+                    // host NAME ITSELF exists. Both were needed; the apex alone
+                    // could not supply the second, because an NXDOMAIN's SOA
+                    // names the closest enclosing zone THAT EXISTS and says
+                    // nothing about the queried name's own domain. This loop
+                    // REPLACES the two separate `zone_apex_of` passes below
+                    // (attribution, then the DNSSEC gate), so the existence
+                    // measurement costs zero extra queries and the previous
+                    // double lookup per host collapses to one.
+                    let domain_apex = zone_apex_of(resolver, domain).await;
+                    let mut host_apex: Vec<Option<String>> = Vec::with_capacity(hosts.len());
+                    let mut host_exists: Vec<Option<bool>> = Vec::with_capacity(hosts.len());
+                    for host in &hosts {
+                        let (apex, exists) = zone_apex_and_existence(resolver, host).await;
+                        host_apex.push(apex);
+                        host_exists.push(exists);
+                    }
+
                     // ── DANE attribution zone (the tlsa_zone measurement) ──
                     // The zone-cut relationship of the PRIMARY MX host to the
                     // scanned domain. First resolvable host wins (the primary
-                    // MX determines the mail architecture).
-                    let domain_apex = zone_apex_of(resolver, domain).await;
+                    // MX determines the mail architecture). A host MEASURED not
+                    // to exist is skipped: its "apex" is only the registry
+                    // suffix that answered the NXDOMAIN, and classifying that
+                    // yields `ForeignZone` — a sealed measurement asserting the
+                    // mail host lives in someone else's zone, when the host has
+                    // no zone at all. `ZoneUnmeasured` is the honest value.
                     let mut tlsa_zone = TlsaZone::ZoneUnmeasured;
-                    for host in &hosts {
-                        if let Some(host_apex) = zone_apex_of(resolver, host).await {
-                            tlsa_zone =
-                                classify_tlsa_zone(domain_apex.as_deref(), Some(&host_apex));
+                    for (i, _host) in hosts.iter().enumerate() {
+                        if host_exists[i] == Some(false) {
+                            continue;
+                        }
+                        if let Some(apex) = host_apex[i].as_deref() {
+                            tlsa_zone = classify_tlsa_zone(domain_apex.as_deref(), Some(apex));
                             break;
                         }
                     }
@@ -1345,11 +1476,24 @@ async fn score_dane(
                     // lives in google.com, which is UNSIGNED. An apex gate would
                     // report Absent (a measured failure attributed to the wrong
                     // party); the host-zone gate reports DnssecRequired.
-                    for host in &hosts {
-                        if let Some(apex) = zone_apex_of(resolver, host).await {
+                    //
+                    // A host MEASURED not to exist is SKIPPED, and this skip is
+                    // load-bearing: without it the gate scores the DNSKEY of
+                    // the closest ENCLOSING zone (the registry suffix that
+                    // answered the NXDOMAIN) as if it were the host's own zone,
+                    // and an unsigned enclosing zone `return`s DnssecRequired
+                    // here — "not applicable — MX host zone is unsigned" for a
+                    // host that has no zone at all — BEFORE the TLSA loop below
+                    // ever runs. A repair confined to `tlsa_err_to_count` is
+                    // bypassed on that whole input subset.
+                    for (i, host) in hosts.iter().enumerate() {
+                        if host_exists[i] == Some(false) {
+                            continue;
+                        }
+                        if let Some(apex) = host_apex[i].as_deref() {
                             // Internal sub-measurement of the MX host's zone —
                             // not the control's primary lookup; no receipt slot.
-                            let d = score_dnssec(resolver, &apex, &mut None, &mut Vec::new()).await;
+                            let d = score_dnssec(resolver, apex, &mut None, &mut Vec::new()).await;
                             if dane_host_zone_requires_dnssec(d) {
                                 warn!(
                                     domain,
@@ -1360,13 +1504,13 @@ async fn score_dane(
                                 return (DaneDisposition::DnssecRequired, tlsa_zone);
                             }
                         }
-                        // zone_apex_of None = couldn't measure the host zone;
-                        // fall through to the TLSA loop, which will report the
+                        // apex None = couldn't measure the host zone; fall
+                        // through to the TLSA loop, which will report the
                         // host's own lookup outcome honestly.
                     }
 
                     let mut counts = Vec::with_capacity(hosts.len());
-                    for host in &hosts {
+                    for (i, host) in hosts.iter().enumerate() {
                         let tlsa_name = format!("_25._tcp.{host}");
                         match resolver.lookup(tlsa_name.as_str(), RecordType::TLSA).await {
                             Ok(resp) => {
@@ -1385,12 +1529,13 @@ async fn score_dane(
                                 counts.push(Some(resp.answers().len()))
                             }
                             Err(e) => {
-                                // Route through record_absence_verdict so NODATA
-                                // (the host exists, no TLSA) is a MEASURED
-                                // absence — Some(0) — not "couldn't measure".
-                                // Only transient/zone-missing errors are None.
+                                // NODATA (the host exists, no TLSA) is a
+                                // MEASURED absence — Some(0) — not "couldn't
+                                // measure". An NXDOMAIN is decided by the
+                                // per-host existence MEASUREMENT taken above,
+                                // never by a string property of the SOA name.
                                 warn!(domain, host = %host, error = %e, "SMTP DANE TLSA lookup error");
-                                counts.push(tlsa_err_to_count(&e, host));
+                                counts.push(tlsa_err_to_count(&e, host, host_exists[i]));
                             }
                         }
                     }
@@ -1754,11 +1899,26 @@ async fn score_tls_rpt(
                 TlsRptDisposition::PolicyInvalid // no parseable rua endpoint
             }
         }
-        Err(e) => tls_rpt_err_to_disposition(&e, domain),
+        Err(e) => {
+            // The SOA in this packet names the closest enclosing zone THAT
+            // EXISTS; when it is not the scanned domain itself the packet
+            // cannot say whether the domain exists. Spend ONE query on the
+            // domain's own name rather than guessing from the SOA's shape.
+            let exists = if nxdomain_soa_is_not(&e, domain) {
+                name_exists(resolver, domain).await
+            } else {
+                None
+            };
+            tls_rpt_err_to_disposition(&e, domain, exists)
+        }
     }
 }
 
-fn tls_rpt_err_to_disposition(e: &NetError, domain: &str) -> TlsRptDisposition {
+fn tls_rpt_err_to_disposition(
+    e: &NetError,
+    domain: &str,
+    domain_exists: Option<bool>,
+) -> TlsRptDisposition {
     if e.is_nx_domain() {
         // NXDOMAIN on `_smtp._tls.<domain>` says the queried NAME is absent.
         // It never says the domain is. The refuting evidence rides in the same
@@ -1769,39 +1929,42 @@ fn tls_rpt_err_to_disposition(e: &NetError, domain: &str) -> TlsRptDisposition {
         // bankofamerica.com, nih.gov all return NXDOMAIN carrying their OWN
         // SOA), contradicting the MTA-STS row of the same sealed report.
         //
-        // EXACT ZONE EQUALITY, deliberately narrow. `RecordAbsent` is claimed
-        // ONLY when the SOA names the scanned domain itself: the zone answered
-        // for itself, so the zone demonstrably exists and only the leaf name is
-        // missing. That inference needs nothing outside the packet.
+        // EXACT ZONE EQUALITY still decides the free case: `RecordAbsent` is
+        // claimed with no probe when the SOA names the scanned domain itself,
+        // because the zone answered for itself and its existence is already in
+        // the packet.
         //
-        // Every other shape keeps `NoZone`, unchanged from before this fix. A
-        // PROPER-ANCESTOR SOA is deliberately NOT read as RecordAbsent: the
-        // packet cannot separate an ordinary parent zone from a registry
-        // suffix. `support.google.com` with SOA `google.com` (zone exists, name
-        // absent) and `nonexistent.co.uk` with SOA `co.uk` (domain genuinely
-        // does not exist) are the SAME shape — scanned name one label below the
-        // answering zone — with OPPOSITE correct answers. Separating them needs
-        // the Public Suffix List or a second measurement (the scanned domain's
-        // own SOA); neither is available here. Note what that leaves: `NoZone`
-        // is NOT an abstention — it renders "no zone — domain does not exist"
-        // (truth_chain.rs:790), which for `support.google.com` is a FALSE
-        // claim. This fix does not repair that; it inherits main's behaviour
-        // for the ancestor case unchanged, and the honest repair is a second
-        // measurement, carried as its own board item. A bare-TLD SOA, or no
-        // SOA at all, is likewise `NoZone` — and there the claim is true.
+        // THE PROPER-ANCESTOR CASE IS NOW MEASURED, not guessed. PR #42 left it
+        // at `NoZone` and said so plainly: `support.google.com` with SOA
+        // `google.com` (zone exists, name absent) and `nonexistent.co.uk` with
+        // SOA `co.uk` (domain genuinely does not exist) are the SAME shape with
+        // OPPOSITE correct answers, so `NoZone` was printing "no zone — domain
+        // does not exist" (truth_chain.rs) over a live name. Its comment named
+        // the repair — "a second measurement, carried as its own board item".
+        // This is that board item: `domain_exists` carries one SOA query at the
+        // scanned domain itself, made by `score_tls_rpt`, which owns the
+        // resolver.
         //
-        // This still fixes the headline: an apex scan's `_smtp._tls` NXDOMAIN
-        // carries the apex's own SOA, and apex scans are the common case.
-        //
-        // NOTE: `zone_contains_host` is intentionally NOT called here. Its
-        // `z.contains('.')` guard admits `co.uk`, which is the registry-suffix
-        // defect above; it is carried as its own board item on the DANE path
-        // and is not widened by this change.
+        //   Some(true)  -> the domain exists, only `_smtp._tls.<domain>` is
+        //                  absent -> RecordAbsent (a measured Low finding, back
+        //                  in both score sums)
+        //   Some(false) -> the domain does not exist -> NoZone, and the claim
+        //                  the renderer prints is true
+        //   None        -> not probed (transient error) or the probe itself
+        //                  failed -> NoZone, unchanged from before. Note this
+        //                  is NOT an abstention: NoZone still renders "domain
+        //                  does not exist". It is the inherited verdict for a
+        //                  case no measurement reached, and a bare-TLD SOA or
+        //                  no SOA at all lands here too — for those the claim
+        //                  is true.
         match err_soa_zone(e) {
             Some(z) if z.eq_ignore_ascii_case(domain.trim_end_matches('.')) => {
                 TlsRptDisposition::RecordAbsent
             }
-            _ => TlsRptDisposition::NoZone,
+            _ => match domain_exists {
+                Some(true) => TlsRptDisposition::RecordAbsent,
+                Some(false) | None => TlsRptDisposition::NoZone,
+            },
         }
     } else if e.is_no_records_found() {
         TlsRptDisposition::RecordAbsent // definitive NODATA: zone exists, no record
@@ -2995,66 +3158,209 @@ mod tests {
     // conflation of the original bug.
 
     #[test]
-    fn tlsa_err_nodata_is_measured_absence() {
-        // NODATA on _25._tcp.<host>: the host's zone exists, no TLSA → a
-        // measured absence (Some(0)), NOT couldn't-measure.
+    fn tlsa_err_nodata_ignores_the_probe() {
+        // NODATA on _25._tcp.<host>: the name itself answered NOERROR, so the
+        // host demonstrably exists and no TLSA is a measured absence (Some(0)),
+        // NOT couldn't-measure. All three probe values must agree — the probe
+        // is not consulted on this arm, and if it ever were, a `Some(false)`
+        // from a racing probe would destroy a measurement already in hand.
+        for probe in [Some(true), Some(false), None] {
+            assert_eq!(
+                tlsa_err_to_count(
+                    &no_records_err(hickory_proto::op::ResponseCode::NoError),
+                    "mail.example.com",
+                    probe
+                ),
+                Some(0),
+                "probe {probe:?} must not reach the NODATA arm"
+            );
+        }
+    }
+
+    #[test]
+    fn tlsa_err_servfail_is_unmeasured_even_when_the_probe_says_exists() {
+        // SERVFAIL: nothing was measured about the TLSA → None. A probe saying
+        // the host exists must NOT rescue it: existence is not a TLSA answer.
         assert_eq!(
-            tlsa_err_to_count(
-                &no_records_err(hickory_proto::op::ResponseCode::NoError),
-                "mail.example.com"
-            ),
+            tlsa_err_to_count(&servfail_err(), "mail.example.com", None),
+            None
+        );
+        assert_eq!(
+            tlsa_err_to_count(&servfail_err(), "mail.example.com", Some(true)),
+            None
+        );
+    }
+
+    #[test]
+    fn tlsa_err_nxdomain_own_zone_is_measured_absence_without_a_probe() {
+        // NXDOMAIN with the HOST's own zone in the SOA: the zone answered for
+        // itself, so it exists and only _25._tcp.<host> is absent → measured
+        // absence with NO probe spent (`None` here means "never probed"). The
+        // host is passed in its PRODUCTION shape — WITH the trailing dot, as
+        // Name::to_ascii() emits it — so this exercises the host-side
+        // trim_end_matches that the sanitised form would leave untested.
+        let e = nxdomain_err_with_soa("mail.example.com.");
+        assert_eq!(tlsa_err_to_count(&e, "mail.example.com.", None), Some(0));
+    }
+
+    /// THE DEFECT, AND ITS TWO CONTROLS. One error fixture — NXDOMAIN carrying
+    /// the registry suffix `co.uk` — driven through the mapper with the ONLY
+    /// variable being the existence measurement. The packet is held constant;
+    /// the probe is the sole difference. Measured live 2026-09-04 from one
+    /// vantage: `_25._tcp.mail.nosuchdomain-zz9q.co.uk` NXDOMAIN SOA `co.uk`
+    /// graded Some(0) "measured absence" for a domain that does not exist,
+    /// because the deleted `zone_contains_host` used `z.contains('.')` as a
+    /// proxy for "a real zone rather than a TLD" and `co.uk` contains a dot.
+    #[test]
+    fn tlsa_err_nxdomain_ancestor_soa_is_decided_by_the_probe() {
+        let e = nxdomain_err_with_soa("co.uk.");
+        // NEGATIVE. The name does not exist → nothing about TLSA was measured.
+        assert_eq!(
+            tlsa_err_to_count(&e, "mail.nosuchdomain-zz9q.co.uk", Some(false)),
+            None,
+            "a domain that does not exist cannot have a measured TLSA absence"
+        );
+        // POSITIVE. Same packet, name measured to exist → measured absence.
+        assert_eq!(
+            tlsa_err_to_count(&e, "mail.nosuchdomain-zz9q.co.uk", Some(true)),
+            Some(0),
+            "an existing host with no TLSA is a measured absence"
+        );
+        // UNPROBED. Never claim from a measurement that was not taken.
+        assert_eq!(
+            tlsa_err_to_count(&e, "mail.nosuchdomain-zz9q.co.uk", None),
+            None,
+            "an unprobed host licenses no claim"
+        );
+    }
+
+    #[test]
+    fn tlsa_err_nxdomain_containing_zone_needs_the_probe_now() {
+        // The Arm-1 shape (mail.example.com → SOA example.com). Before this
+        // change suffix containment graded it Some(0) from the SOA name alone.
+        // That inference is gone: the SAME shape is `nonexistent.co.uk` under
+        // SOA `co.uk`, with the opposite correct answer. The measurement, not
+        // the string, decides — and the ordinary parent case is still graded
+        // Some(0), just for a reason the packet plus one query supports.
+        let e = nxdomain_err_with_soa("example.com.");
+        assert_eq!(
+            tlsa_err_to_count(&e, "mail.example.com.", Some(true)),
+            Some(0)
+        );
+        assert_eq!(
+            tlsa_err_to_count(&e, "mail.example.com.", Some(false)),
+            None
+        );
+        assert_eq!(tlsa_err_to_count(&e, "mail.example.com.", None), None);
+    }
+
+    #[test]
+    fn tlsa_err_nxdomain_row_four_regression_pin() {
+        // ROW 4 of the live repro, the one that was CORRECT and must stay:
+        // `_25._tcp.aspmx.l.google.com` NXDOMAIN SOA `l.google.com` — a third-
+        // party MX host that really does exist inside a real zone. It grades
+        // Some(0) as before; the difference is that the grade now rests on the
+        // host's own SOA answering, not on `l.google.com` happening to contain
+        // a dot.
+        let e = nxdomain_err_with_soa("l.google.com.");
+        assert_eq!(
+            tlsa_err_to_count(&e, "aspmx.l.google.com", Some(true)),
             Some(0)
         );
     }
 
     #[test]
-    fn tlsa_err_servfail_is_unmeasured() {
-        // SERVFAIL: nothing was measured → None (couldn't measure).
-        assert_eq!(tlsa_err_to_count(&servfail_err(), "mail.example.com"), None);
-    }
-
-    #[test]
-    fn tlsa_err_nxdomain_own_zone_is_measured_absence() {
-        // NXDOMAIN with the HOST's own zone in the SOA: the host exists, only
-        // _25._tcp.<host> is absent → measured absence. The host is passed in
-        // its PRODUCTION shape — WITH the trailing dot, as Name::to_ascii()
-        // emits it — so this test exercises the host-side trim_end_matches
-        // that the sanitised form would leave untested (and that cargo-mutants
-        // cannot flag, since the trim is a method call, not a mutable operator).
-        let e = nxdomain_err_with_soa("mail.example.com.");
-        assert_eq!(tlsa_err_to_count(&e, "mail.example.com."), Some(0));
-    }
-
-    #[test]
-    fn tlsa_err_nxdomain_containing_zone_is_measured_absence() {
-        // NXDOMAIN whose SOA is the zone CONTAINING the host (mail3.cia.gov →
-        // SOA cia.gov): the host is a leaf name inside an existing zone, no TLSA
-        // → measured absence. This is the Arm-1 cia.gov/google.com bug — the old
-        // exact-equality match read a containing-zone SOA as "host missing".
-        let e = nxdomain_err_with_soa("example.com.");
-        assert_eq!(tlsa_err_to_count(&e, "mail.example.com."), Some(0));
-    }
-
-    #[test]
     fn tlsa_err_nxdomain_tld_zone_is_unmeasured() {
-        // NXDOMAIN whose SOA is a bare TLD (the host's whole domain is missing):
-        // couldn't measure, NOT measured absence. The >=2-label requirement in
-        // zone_contains_host excludes a bare TLD from "containing" the host.
+        // ROW 3 of the live repro — correct BY ACCIDENT before this change
+        // (`com` carries no dot, so the deleted `contains('.')` proxy refused
+        // it). It is still None, now for a measured reason.
         let e = nxdomain_err_with_soa("com.");
-        assert_eq!(tlsa_err_to_count(&e, "mail.example.com."), None);
+        assert_eq!(
+            tlsa_err_to_count(&e, "mail.example.com.", Some(false)),
+            None
+        );
+        assert_eq!(tlsa_err_to_count(&e, "mail.example.com.", None), None);
+    }
+
+    // --- the existence probe's two pure halves ------------------------------
+
+    #[test]
+    fn name_exists_from_lookup_table() {
+        // Ok: the name answered with records → it exists.
+        assert_eq!(name_exists_from_lookup(true, None), Some(true));
+        // NODATA: the name exists, it just carries no SOA of its own. This is
+        // the arm that makes a leaf MX host readable — a leaf is NOT a zone
+        // apex, so its SOA query returns NODATA, not an answer.
+        assert_eq!(
+            name_exists_from_lookup(
+                false,
+                Some(&no_records_err(hickory_proto::op::ResponseCode::NoError))
+            ),
+            Some(true)
+        );
+        // NXDOMAIN: the name does not exist, and neither does its domain.
+        assert_eq!(
+            name_exists_from_lookup(
+                false,
+                Some(&no_records_err(hickory_proto::op::ResponseCode::NXDomain))
+            ),
+            Some(false)
+        );
+        // Transient shapes measure nothing. NEVER Some(anything).
+        assert_eq!(
+            name_exists_from_lookup(
+                false,
+                Some(&no_records_err(hickory_proto::op::ResponseCode::ServFail))
+            ),
+            None
+        );
+        assert_eq!(name_exists_from_lookup(false, Some(&servfail_err())), None);
+        assert_eq!(
+            name_exists_from_lookup(
+                false,
+                Some(&no_records_err(hickory_proto::op::ResponseCode::Refused))
+            ),
+            None
+        );
+        assert_eq!(name_exists_from_lookup(false, None), None);
     }
 
     #[test]
-    fn zone_contains_host_suffix_matching() {
-        // The three shapes the fix distinguishes: own zone, containing zone
-        // (subdomain MX host), and third-party MX host — all measured absence;
-        // a bare TLD is never a containing zone.
-        assert!(zone_contains_host("mail.example.com", "example.com"));
-        assert!(zone_contains_host("mail3.cia.gov", "cia.gov"));
-        assert!(zone_contains_host("aspmx.l.google.com", "l.google.com"));
-        assert!(zone_contains_host("example.com", "example.com"));
-        assert!(!zone_contains_host("mail.example.com", "com"));
-        assert!(!zone_contains_host("example.com", "com"));
+    fn nxdomain_soa_is_not_decides_when_to_spend_a_query() {
+        // NXDOMAIN whose SOA IS the name: the packet already proves the zone
+        // exists — no query is owed.
+        assert!(!nxdomain_soa_is_not(
+            &nxdomain_err_with_soa("example.com."),
+            "example.com"
+        ));
+        // Same, normalised: DNS names are case-insensitive and the SOA owner
+        // arrives fully qualified. Without this a bare `==` mutant survives.
+        assert!(!nxdomain_soa_is_not(
+            &nxdomain_err_with_soa("Example.COM."),
+            "eXaMpLe.com."
+        ));
+        // Proper ancestor, and a bare TLD: undecidable from the packet → probe.
+        assert!(nxdomain_soa_is_not(
+            &nxdomain_err_with_soa("google.com."),
+            "support.google.com"
+        ));
+        assert!(nxdomain_soa_is_not(
+            &nxdomain_err_with_soa("co.uk."),
+            "nonexistent.co.uk"
+        ));
+        assert!(nxdomain_soa_is_not(
+            &nxdomain_err_with_soa("com."),
+            "example.com"
+        ));
+        // No SOA carried at all: nothing measured about the zone → probe.
+        assert!(nxdomain_soa_is_not(&nxdomain_err_no_soa(), "example.com"));
+        // NODATA and transient shapes: a probe cannot rescue them and must not
+        // be spent. These are the arms that keep the cost claim honest.
+        assert!(!nxdomain_soa_is_not(
+            &no_records_err(hickory_proto::op::ResponseCode::NoError),
+            "example.com"
+        ));
+        assert!(!nxdomain_soa_is_not(&servfail_err(), "example.com"));
     }
 
     // --- the DANE attribution zone classifier (tlsa_zone) --------------------
@@ -3349,8 +3655,20 @@ mod tests {
     /// edit re-applies it silently.
     ///
     /// Negative control (watched failing 2026-09-04): swap the comparison at
-    /// `record_absence_verdict` for `zone_contains_host(domain, z)` and this
-    /// test fails on the `.co.uk` row while the rest of the suite stays green.
+    /// `record_absence_verdict` for suffix containment and this test fails on
+    /// the `.co.uk` row while the rest of the suite stays green. The
+    /// containment helper it named, `zone_contains_host`, is now DELETED — it
+    /// was the site of the registry-suffix defect and is gone rather than
+    /// left in the file for the next author to reuse. The prohibition it
+    /// pinned is unchanged and this test still enforces it.
+    ///
+    /// STILL TRUE AFTER THE EXISTENCE PROBE, and named so it is not mistaken
+    /// for a repaired path: `record_absence_verdict` is deliberately NOT
+    /// probed in this change. It under-claims on sub-label scans — `_dmarc`
+    /// and `_mta-sts` NXDOMAIN under an ancestor SOA read Indet ("could not
+    /// measure") for a record that is genuinely absent. That loses a
+    /// measurement but never asserts a falsehood, so it stays out of scope;
+    /// the same probe would repair it.
     #[test]
     fn record_absence_soa_test_is_exact_not_containment() {
         // A registry suffix answering for a name below it means the name was
@@ -3394,7 +3712,7 @@ mod tests {
         // absence and re-enters both score sums.
         let e = nxdomain_err_with_soa("example.com.");
         assert_eq!(
-            tls_rpt_err_to_disposition(&e, "example.com"),
+            tls_rpt_err_to_disposition(&e, "example.com", None),
             TlsRptDisposition::RecordAbsent
         );
     }
@@ -3408,29 +3726,51 @@ mod tests {
         // test a bare `z == domain` mutant SURVIVES the whole suite — the
         // other fixtures happen to be lowercase and dotless on both sides.
         assert_eq!(
-            tls_rpt_err_to_disposition(&nxdomain_err_with_soa("Example.COM."), "eXaMpLe.com."),
+            tls_rpt_err_to_disposition(
+                &nxdomain_err_with_soa("Example.COM."),
+                "eXaMpLe.com.",
+                None
+            ),
             TlsRptDisposition::RecordAbsent
         );
     }
 
+    /// THE ASSERTION THIS CHANGE REPAIRS. PR #42 pinned BOTH ancestor rows to
+    /// `NoZone` and said why: `support.google.com` with SOA `google.com` (zone
+    /// exists, name absent) and `nonexistent.co.uk` with SOA `co.uk` (domain
+    /// genuinely does not exist) are the SAME shape with OPPOSITE correct
+    /// answers, and no string rule separates them. `NoZone` is not an
+    /// abstention — it renders "no zone — domain does not exist" — so the
+    /// google.com row was a sealed FALSE claim about a live name.
+    ///
+    /// The second measurement its comment asked for now exists. Same packet,
+    /// opposite probe, opposite verdict — and that this assertion MOVED is the
+    /// visible proof the behaviour did.
     #[test]
-    fn tls_rpt_err_nxdomain_ancestor_zone_is_no_zone() {
-        // NEGATIVE, and the reason this fix is exact-equality only. A scanned
-        // name one label below the answering zone is UNDECIDABLE from the
-        // packet: `support.google.com` with SOA `google.com` (zone exists,
-        // name absent) and `nonexistent.co.uk` with SOA `co.uk` (domain
-        // genuinely does not exist) are the SAME shape with OPPOSITE correct
-        // answers. Both keep `NoZone` — unchanged from before this fix —
-        // because no claim is inferable without the Public Suffix List or a
-        // second measurement. This test fails if the SOA test is widened to
-        // suffix containment (`zone_contains_host`), which is exactly the
-        // change that was reverted.
+    fn tls_rpt_err_nxdomain_ancestor_zone_is_decided_by_the_probe() {
+        let ancestor = nxdomain_err_with_soa("google.com.");
+        // POSITIVE, and the repair: the domain resolves, so only the leaf name
+        // is absent. A measured Low finding, back in both score sums.
         assert_eq!(
-            tls_rpt_err_to_disposition(&nxdomain_err_with_soa("google.com."), "support.google.com"),
+            tls_rpt_err_to_disposition(&ancestor, "support.google.com", Some(true)),
+            TlsRptDisposition::RecordAbsent
+        );
+        // NEGATIVE, structurally identical packet: the registry suffix answered
+        // for a name that was never delegated. NoZone, and the claim is true.
+        assert_eq!(
+            tls_rpt_err_to_disposition(
+                &nxdomain_err_with_soa("co.uk."),
+                "nonexistent.co.uk",
+                Some(false)
+            ),
             TlsRptDisposition::NoZone
         );
+        // UNPROBED (transient probe, or no probe spent): the inherited verdict
+        // stands. Recorded plainly rather than dressed as restraint — NoZone
+        // still prints "domain does not exist", so this path can still print a
+        // claim the packet cannot support. It is narrowed, not eliminated.
         assert_eq!(
-            tls_rpt_err_to_disposition(&nxdomain_err_with_soa("co.uk."), "nonexistent.co.uk"),
+            tls_rpt_err_to_disposition(&ancestor, "support.google.com", None),
             TlsRptDisposition::NoZone
         );
     }
@@ -3444,7 +3784,7 @@ mod tests {
         // `example.com`, so exact equality refuses it.
         let e = nxdomain_err_with_soa("com.");
         assert_eq!(
-            tls_rpt_err_to_disposition(&e, "example.com"),
+            tls_rpt_err_to_disposition(&e, "example.com", Some(false)),
             TlsRptDisposition::NoZone
         );
     }
@@ -3461,7 +3801,7 @@ mod tests {
         // `_smtp._tls.example.com` is not equal to `example.com`, so the
         // verdict is NoZone either way. Recorded rather than hidden.)
         assert_eq!(
-            tls_rpt_err_to_disposition(&nxdomain_err_no_soa(), "example.com"),
+            tls_rpt_err_to_disposition(&nxdomain_err_no_soa(), "example.com", Some(false)),
             TlsRptDisposition::NoZone
         );
     }
@@ -3475,7 +3815,8 @@ mod tests {
         // "record absent — zone exists, no MTA-STS" while the TLS-RPT row of
         // the same sealed report read "no zone — domain does not exist".
         let e = nxdomain_err_with_soa("example.com.");
-        let tls = crate::truth_chain::tls_rpt_report(tls_rpt_err_to_disposition(&e, "example.com"));
+        let tls =
+            crate::truth_chain::tls_rpt_report(tls_rpt_err_to_disposition(&e, "example.com", None));
         let mta = crate::truth_chain::mta_sts_report(mta_sts_err_to_disposition(&e, "example.com"));
 
         assert_eq!(mta.measured, "record absent — zone exists, no MTA-STS");
@@ -3661,8 +4002,10 @@ mod tests {
         nr.soa = Some(Box::new(rec));
         let e = NetError::Dns(DnsError::NoRecordsFound(nr));
         // ServFail with a containing SOA is a transient failure, NOT a measured
-        // "no TLSA" — the NXDomain guard is what enforces this.
-        assert_eq!(tlsa_err_to_count(&e, "mail3.example.com"), None);
+        // "no TLSA" — the NXDomain guard is what enforces this. A probe saying
+        // the host exists must not promote it either.
+        assert_eq!(tlsa_err_to_count(&e, "mail3.example.com", None), None);
+        assert_eq!(tlsa_err_to_count(&e, "mail3.example.com", Some(true)), None);
     }
 
     #[test]
