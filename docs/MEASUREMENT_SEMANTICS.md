@@ -317,7 +317,14 @@ Moves:    DANE — a domain whose MX names a host in a NONEXISTENT domain (a
           `tlsa_err_to_count`'s exact-equality arm, which never reads the probe
           (pinned by `an_exact_soa_tlsa_nxdomain_is_immune_to_an_unanswerable_probe`).
           DANE (attribution, sealed) — the same host's `tlsa_zone` moves
-          `ForeignZone` -> `ZoneUnmeasured`. `ForeignZone` was derived from the
+          `ForeignZone`, `SameZone` or `DescendantZone` -> `ZoneUnmeasured`.
+          ALL THREE move, not only the first: `classify_tlsa_zone` emits
+          SameZone, DescendantZone or ForeignZone depending on where the
+          enclosing zone that answered sits relative to the scanned apex,
+          so a dangling host previously took whichever of the three its
+          ANSWERING zone implied. An earlier wording named only
+          `ForeignZone`, which understated a sealed field's movement.
+          The old value was derived from the
           registry suffix that answered the NXDOMAIN and asserted the mail host
           lives in someone else's zone, when the host has no zone at all.
           DANE (latent, now closed) — for a dangling MX host whose closest
@@ -375,14 +382,25 @@ COST:     One extra wire query per NXDOMAIN leg that the packet cannot decide,
           questions COUNTED ON THE WIRE by engine/tests/dane_probe_cost.rs
           against a loopback stub, one scan per cell; the pre-probe column was
           counted the same way, with the same world and the same counter, on a
-          worktree at 3935807^.
+          worktree at 3935807^ — with an ADAPTED copy of the test, not the
+          shipped file, which does not compile at that tree. Anyone
+          re-deriving the pre-probe row must make the same adaptation;
+          that is why those numbers are testimony here rather than a
+          gated assertion.
 
             MX hosts                        1    2    3    5
             DnssecRequired gate ARMED (MX host zone unsigned — the Google
             Workspace / Microsoft 365 shape this gate's own comment cites):
               pre-probe (3935807^)          2    2    2    2
               eager probe (PR #45)          1    2    3    5
-              lazy + memoised (this change) 1    1    1    1
+              lazy + memoised (this change) 1    1    1    1  [1]
+            [1] one probe holds when the FIRST MX host in the answer
+                exists: the attribution loop `break`s at the first
+                RESOLVABLE host and the gate reads it as a cache hit.
+                A dangling first host is probed, yields no apex, does
+                not break, and the loop pays for the next one — so the
+                count is the number of hosts tried before the first
+                that resolves, not a constant.
             gate NOT ARMED (the gate must read EVERY host's zone, so no
             short-circuit can help and the count is the host count):
               pre-probe (3935807^)          2    3    4    6

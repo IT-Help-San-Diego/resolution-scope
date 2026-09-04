@@ -130,6 +130,10 @@ async fn measure(hosts: usize, gate_armed: bool) -> (usize, DaneDisposition) {
 /// host count (1, 2, 3, 5) and overtakes the pre-probe cost of 2 at three
 /// hosts.
 #[tokio::test]
+/// SCOPE: "regardless of MX count" holds when the FIRST host resolves.
+/// The attribution loop breaks at the first RESOLVABLE host; a dangling
+/// first host is probed, yields no apex, and the loop pays for the next.
+
 async fn dnssec_gate_armed_costs_one_host_probe_regardless_of_mx_count() {
     for hosts in [1usize, 2, 3, 5] {
         let (count, disposition) = measure(hosts, true).await;
