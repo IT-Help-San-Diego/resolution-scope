@@ -143,6 +143,111 @@ Controls: engine/tests/egress_ledger.rs E5 (the accept at the policy host
           variable: the seam is reqwest's builder, and E7 is the observed
           direct connect.
 
+## TLS-RPT — NXDOMAIN reads the SOA instead of asserting the domain is gone
+
+Release:  unreleased — first tag after 2026-09-03 (PR #PRNUM)   Since: 2026-09-03
+Where:    engine/src/analysis.rs `tls_rpt_err_to_disposition` (the NXDOMAIN
+          arm, which was `let _ = domain;` — the scanned domain was received
+          and discarded); engine/src/analysis.rs `err_soa_zone`,
+          `zone_contains_host`
+Before:   ANY NXDOMAIN for `_smtp._tls.<domain>` returned **NoZone**, which
+          renders (engine/src/truth_chain.rs:790) as
+          "no zone — domain does not exist" at `Severity::Ok`, with the line
+          "No zone, so no TLS-RPT question applies." The disposition collapses
+          to `TriState::Indet` (types/src/dispositions.rs:851), so the control
+          left `Tally::denominator()` (present + absent) and contributed no
+          weight to `risk_weighted_score` (both engine/src/truth_chain.rs).
+After:    The SOA in the NXDOMAIN's authority section — the same packet, the
+          same measurement `record_absence_verdict` and `tlsa_err_to_count`
+          already make — decides it. SOA's zone contains the scanned name →
+          **RecordAbsent** ("record absent — zone exists, no TLS-RPT",
+          `Severity::Low`, `TriState::Absent`). Bare-TLD SOA, or no SOA at
+          all → **NoZone** stands, and is still reachable for a domain that
+          genuinely does not exist.
+Moves:    Every domain whose zone exists and which publishes no TLS-RPT
+          record: NoZone → RecordAbsent, Ok → Low, Indet → Absent. That is
+          the majority of live domains. Measured 2026-09-03 against
+          1.1.1.1, `_smtp._tls.<domain>` TXT: cia.gov, irs.gov, apple.com,
+          amazon.com, akamai.com, wellsfargo.com, bankofamerica.com and
+          nih.gov all return NXDOMAIN carrying their OWN SOA — eight of ten
+          sampled; the other two (google.com, microsoft.com) answer NOERROR
+          and were already `Published`. Because the control re-enters both
+          score sums, the coverage percentage and the risk-weighted score
+          move for every one of those domains too — a real Low-severity gap
+          that used to leave the denominator now counts against it.
+Why:      NXDOMAIN at `_smtp._tls.<domain>` says the queried NAME does not
+          exist. It does not say the domain does not exist, and the refuting
+          evidence rides in the same response: the SOA names the zone that
+          answered. Reading it is measurement; assuming absence from the
+          response code alone is derivation. The old verdict also made a
+          sealed report contradict itself — the MTA-STS row, which DOES read
+          the SOA, printed "record absent — zone exists, no MTA-STS" a few
+          lines above a TLS-RPT row printing "domain does not exist" for the
+          same domain in the same measurement.
+Controls: engine/src/analysis.rs
+          `tls_rpt_err_nxdomain_own_zone_is_record_absent` and
+          `tls_rpt_err_nxdomain_containing_zone_is_record_absent`
+          (positive — both fail if the NXDOMAIN arm is reverted to
+          `let _ = domain; NoZone`);
+          `tls_rpt_err_nxdomain_tld_zone_is_no_zone` (negative — fails, and
+          alone, if the SOA read is made unconditional);
+          `tls_rpt_err_nxdomain_without_soa_is_no_zone` (negative — fails,
+          and alone, if a missing SOA is read as RecordAbsent);
+          `tls_rpt_and_mta_sts_rows_agree_the_zone_exists` (one error shape
+          through both controls' Err mappings and both renderers: the two
+          rows agree the zone exists, and both are `TriState::Absent`).
+
+## Every control — the NXDOMAIN SOA test is zone containment, not zone equality
+
+Release:  unreleased — first tag after 2026-09-03 (PR #PRNUM)   Since: 2026-09-03
+Where:    engine/src/analysis.rs `record_absence_verdict` (the NXDOMAIN arm's
+          SOA test: `z.eq_ignore_ascii_case(domain)` → `zone_contains_host`)
+Before:   NXDOMAIN counted as measured absence only when the SOA named the
+          scanned domain EXACTLY. A scanned name that is not its own zone
+          apex is answered by its parent zone's SOA, so the test was false
+          and the verdict was `TriState::Indet` — which
+          `spf_err_to_disposition`, `dmarc_err_to_disposition`,
+          `mta_sts_err_to_disposition` and `caa_err_to_disposition` each
+          collapse to their `TransientError` variant, rendered as
+          "transient lookup error" (engine/src/truth_chain.rs:390, :436,
+          :572, :687) — an invitation to re-run a measurement that cannot
+          come out differently.
+After:    The same suffix test DANE already uses (`zone_contains_host`, with
+          its >=2-label guard so a bare TLD is never a containing zone): the
+          SOA's zone containing the scanned name means the zone exists and
+          the name does not → **Absent**. A bare-TLD SOA, or none, is still
+          the domain itself missing → **Indet**.
+Moves:    Scanned names below their own zone apex, for each control whose
+          query returns NXDOMAIN: TransientError → the control's measured
+          absence (SPF `NotConfigured`, DMARC `NotConfigured`, MTA-STS
+          `RecordAbsent`, CAA `NotConfigured`, DANE `NoMx`), Indet → Absent,
+          so those controls also re-enter both score sums. Measured
+          2026-09-03 against 1.1.1.1: for `support.google.com` (a name that
+          exists under the `google.com` zone) `_dmarc` and `_mta-sts` are
+          NXDOMAIN with `google.com`'s SOA and move, while TXT and CAA at the
+          name itself answer NOERROR and were already measured — they do not
+          move. For a name that does NOT itself exist under the zone
+          (`nosuchhost.google.com`) every one of TXT, CAA, MX and the
+          underscore names is NXDOMAIN with `google.com`'s SOA, and all of
+          those controls move at once. Apex scans are unaffected: the apex's
+          own SOA satisfies containment exactly as it satisfied equality.
+Why:      An NXDOMAIN's SOA names the closest enclosing zone, which for any
+          name below the apex is the parent — never the queried name. Equality
+          therefore tested something the packet does not carry. Containment
+          tests what it does. Same bug class, same cure, as the DANE fix
+          documented at engine/src/analysis.rs `tlsa_err_to_count`.
+Controls: engine/src/analysis.rs
+          `record_absence_nxdomain_containing_zone_is_absent` (positive, the
+          middle case the two existing tests straddled: `support.google.com`
+          with `google.com`'s SOA → Absent, and the four control mappings
+          follow it out of TransientError — fails, and alone, if the test is
+          reverted to exact equality);
+          `record_absence_nxdomain_parent_zone_is_indet` (negative, existing:
+          a bare-TLD SOA is still Indet — fails if the >=2-label guard inside
+          `zone_contains_host` is dropped);
+          `record_absence_nxdomain_own_zone_is_absent` and
+          `record_absence_nodata_is_absent` (existing, still passing).
+
 ---
 
 Not a semantics change, recorded for the reader comparing wire blocks

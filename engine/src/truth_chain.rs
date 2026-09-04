@@ -599,7 +599,7 @@ fn dane_report(d: DaneDisposition, z: TlsaZone) -> ControlReport {
     }
 }
 
-fn mta_sts_report(d: MtaStsDisposition) -> ControlReport {
+pub(crate) fn mta_sts_report(d: MtaStsDisposition) -> ControlReport {
     let (measured, severity, blue, red) = match d {
         MtaStsDisposition::Enforced => (
             "enforced (mode: enforce)",
@@ -766,7 +766,7 @@ fn cds_report(d: CdsDisposition) -> ControlReport {
     }
 }
 
-fn tls_rpt_report(d: TlsRptDisposition) -> ControlReport {
+pub(crate) fn tls_rpt_report(d: TlsRptDisposition) -> ControlReport {
     let (measured, severity, blue, red) = match d {
         TlsRptDisposition::Published => (
             "published (v=TLSRPTv1, rua present)",
