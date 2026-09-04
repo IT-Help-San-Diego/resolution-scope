@@ -143,6 +143,99 @@ Controls: engine/tests/egress_ledger.rs E5 (the accept at the policy host
           variable: the seam is reqwest's builder, and E7 is the observed
           direct connect.
 
+## TLS-RPT — NXDOMAIN carrying the domain's OWN SOA is record-absent, not "no zone"
+
+Release:  unreleased — first tag after 2026-09-03 (PR #42)   Since: 2026-09-03
+Where:    engine/src/analysis.rs `tls_rpt_err_to_disposition` (the NXDOMAIN
+          arm, which was `let _ = domain;` — the scanned domain was received
+          and discarded); engine/src/analysis.rs `err_soa_zone`
+Before:   ANY NXDOMAIN for `_smtp._tls.<domain>` returned **NoZone**, which
+          renders (engine/src/truth_chain.rs:790) as
+          "no zone — domain does not exist" at `Severity::Ok`, with the line
+          "No zone, so no TLS-RPT question applies." The disposition collapses
+          to `TriState::Indet` (types/src/dispositions.rs:851), so the control
+          left `Tally::denominator()` (present + absent) and contributed no
+          weight to `risk_weighted_score` (both engine/src/truth_chain.rs).
+After:    ONE shape changes, and only one. When the SOA in the NXDOMAIN's
+          authority section names the scanned domain EXACTLY (ASCII-case
+          insensitive, trailing dot trimmed) the verdict becomes
+          **RecordAbsent** ("record absent — zone exists, no TLS-RPT",
+          `Severity::Low`, `TriState::Absent`). The zone answered for itself,
+          so the zone exists and only the leaf name is missing — an inference
+          that needs nothing outside the packet. EVERY OTHER SHAPE IS
+          UNCHANGED FROM BEFORE: a proper-ancestor SOA, a bare-TLD SOA, and
+          an NXDOMAIN carrying no SOA all still return **NoZone**.
+Moves:    Domains scanned AT THEIR APEX whose zone exists and which publish no
+          TLS-RPT record: NoZone → RecordAbsent, Ok → Low, Indet → Absent.
+          Measured 2026-09-03 against 1.1.1.1, `_smtp._tls.<domain>` TXT:
+          cia.gov, irs.gov, apple.com, amazon.com, akamai.com, wellsfargo.com,
+          bankofamerica.com and nih.gov all return NXDOMAIN carrying their OWN
+          SOA — eight of ten sampled; the other two (google.com,
+          microsoft.com) answer NOERROR and were already `Published`. Because
+          the control re-enters both score sums, the coverage percentage and
+          the risk-weighted score move for those domains too — a real
+          Low-severity gap that used to leave the denominator now counts
+          against it. NOT MOVED, deliberately: a scan of a name BELOW its own
+          apex (`support.google.com`, whose `_smtp._tls` NXDOMAIN carries
+          `google.com`'s SOA) keeps NoZone. That case is not decidable from
+          this packet — see Why.
+Why:      NXDOMAIN at `_smtp._tls.<domain>` says the queried NAME does not
+          exist. It does not say the domain does not exist, and the refuting
+          evidence rides in the same response: the SOA names the zone that
+          answered. Reading it is measurement; assuming absence from the
+          response code alone is derivation. The old verdict also made a
+          sealed report contradict itself — the MTA-STS row, which DOES read
+          the SOA, printed "record absent — zone exists, no MTA-STS" a few
+          lines above a TLS-RPT row printing "domain does not exist" for the
+          same domain in the same measurement.
+
+          The exact-equality boundary is the whole point of the entry. A
+          PROPER-ANCESTOR SOA is undecidable from one packet:
+          `support.google.com` answered by `google.com` (zone exists, name
+          absent) and `nonexistent.co.uk` answered by the `co.uk` REGISTRY
+          servers (domain genuinely does not exist) are STRUCTURALLY
+          IDENTICAL — the scanned name is one label below the zone that
+          answered — with OPPOSITE correct answers. Separating a registry
+          suffix from an ordinary parent zone requires the Public Suffix List
+          or a second measurement (a lookup of the scanned domain's own SOA).
+          Neither is available here, so the ancestor case is left exactly
+          where it was. Say plainly what that means rather than dressing it
+          as restraint: `NoZone` is NOT an abstention. It renders "no zone —
+          domain does not exist", so for `support.google.com` the instrument
+          still prints a FALSE claim after this change, exactly as it did
+          before. This entry fixes the apex case and inherits the sub-label
+          case unrepaired; the honest repair is one extra lookup of the
+          scanned domain's own SOA, carried as its own board item. What this
+          change does guarantee is that it adds no NEW unsupported claim.
+Controls: engine/src/analysis.rs — every kill set below OBSERVED by mutating
+          the source and running the suite, not predicted:
+          `tls_rpt_err_nxdomain_own_zone_is_record_absent` (POSITIVE — with the
+          NXDOMAIN arm reverted to `let _ = domain; NoZone`, kills TWO tests:
+          this one and `tls_rpt_and_mta_sts_rows_agree_the_zone_exists`);
+          `tls_rpt_err_nxdomain_ancestor_zone_is_no_zone` (NEGATIVE — widening
+          the exact test to suffix containment kills this one ALONE; covers
+          both `support.google.com`/`google.com` and `nonexistent.co.uk`/
+          `co.uk`, the registry-suffix case that blocked the first attempt);
+          `tls_rpt_err_nxdomain_tld_zone_is_no_zone` (NEGATIVE — making the SOA
+          read unconditional kills THREE: this one, the ancestor test and the
+          without-SOA test);
+          `tls_rpt_err_nxdomain_without_soa_is_no_zone` (NEGATIVE — reading a
+          missing SOA as RecordAbsent kills this one ALONE);
+          `tls_rpt_err_nxdomain_own_zone_match_is_case_and_dot_insensitive`
+          (NEGATIVE — added this round BECAUSE a mutant survived: replacing the
+          normalised comparison with bare `z == domain` left the whole suite
+          green, since every fixture was already lowercase and dotless);
+          `record_absence_soa_test_is_exact_not_containment` (NEGATIVE — pins
+          the revert: applying suffix containment to `record_absence_verdict`
+          kills this one ALONE, on its `.co.uk` row. Without it the central
+          deliverable of this round — reverting that function to main's exact
+          equality — was unguarded and a later edit could re-apply containment
+          silently);
+          `tls_rpt_and_mta_sts_rows_agree_the_zone_exists` (one apex error
+          shape through both controls' Err mappings and both renderers: the
+          two rows agree the zone exists, and both are `TriState::Absent`).
+
+
 ---
 
 Not a semantics change, recorded for the reader comparing wire blocks
