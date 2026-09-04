@@ -217,6 +217,36 @@ impl Transport {
     }
 }
 
+// ── corpus binding (the (h) finding from PR #41's review) ──────────────────
+//
+// The corpus Transport is the sealed, closed vocabulary a measurement is
+// FILED under (M3, the protocol-transparency differential); this enum is the
+// instrument-side choice. The mapping is total by construction — a match
+// with no wildcard — so the binding cannot silently drop a transport the
+// way the seal-scheme wildcard could guess.
+//
+// HONESTY NOTE (Plain → Udp53): engine `Plain` means "UDP 53 with TCP 53 on
+// truncation" (RFC 7766). The corpus axis is day-granularity and closed;
+// the truncation fallback is below its granularity, so a Plain measurement
+// files as Udp53. This folds a wire detail into a coarser label BY DESIGN
+// (D4's coarseness rule), not by oversight — same class as day-granularity
+// hiding the hour. If the corpus ever gains a `plain53-tcp-fallback` axis,
+// this impl changes and the totality test below says what breaks.
+
+impl From<Transport> for resolution_scope_types::Transport {
+    fn from(t: Transport) -> Self {
+        use resolution_scope_types::Transport as CorpusTransport;
+        match t {
+            Transport::Plain => CorpusTransport::Udp53,
+            Transport::Tcp => CorpusTransport::Tcp53,
+            Transport::Tls => CorpusTransport::Dot,
+            Transport::Https => CorpusTransport::Doh,
+            Transport::Quic => CorpusTransport::Doq,
+            Transport::H3 => CorpusTransport::Doh3,
+        }
+    }
+}
+
 // =============================================================================
 // Target and choice
 // =============================================================================
@@ -1077,6 +1107,81 @@ impl reqwest::dns::Resolve for VantageResolve {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// T12 — transport binding totality (the (h) finding from PR #41's
+    /// review, closed): every engine transport files under exactly one
+    /// corpus transport, the mapping is injective over `Transport::ALL`,
+    /// and the corpus labels round-trip their `as_str` spellings. A new
+    /// engine variant without a binding arm fails to COMPILE (the match
+    /// has no wildcard); a new corpus variant fails to SERIALIZE through
+    /// this test (the pair list goes stale, not silently wrong).
+    #[test]
+    fn transport_binding_total_over_all() {
+        use resolution_scope_types::Transport as CorpusTransport;
+        let pairs: [(Transport, CorpusTransport); 6] = [
+            (Transport::Plain, CorpusTransport::Udp53),
+            (Transport::Tcp, CorpusTransport::Tcp53),
+            (Transport::Tls, CorpusTransport::Dot),
+            (Transport::Https, CorpusTransport::Doh),
+            (Transport::Quic, CorpusTransport::Doq),
+            (Transport::H3, CorpusTransport::Doh3),
+        ];
+        for (engine_t, corpus_t) in pairs {
+            assert_eq!(CorpusTransport::from(engine_t), corpus_t);
+        }
+        // Total: every member of Transport::ALL files somewhere (the
+        // pair list names a corpus label for every engine variant).
+        for t in Transport::ALL {
+            let filed: CorpusTransport = t.into();
+            assert!(
+                pairs.iter().any(|(_, c)| *c == filed),
+                "engine transport {t:?} files nowhere in the corpus vocabulary"
+            );
+        }
+        // Injective: two engine transports never file under one corpus
+        // label (a fold would hide a protocol-transparency difference).
+        let filed: Vec<CorpusTransport> = Transport::ALL.iter().map(|t| (*t).into()).collect();
+        for i in 0..filed.len() {
+            for j in (i + 1)..filed.len() {
+                assert_ne!(
+                    filed[i],
+                    filed[j],
+                    "engine transports {:?} and {:?} fold into one corpus label",
+                    Transport::ALL[i],
+                    Transport::ALL[j]
+                );
+            }
+        }
+        // TWO VOCABULARIES, BY DESIGN: the engine suffix words (tcp, tls,
+        // https…) are the CLI GRAMMAR — what a user types after `://`; the
+        // corpus spellings (tcp53, dot, doh…) are the WIRE-PROTOCOL names a
+        // measurement is filed under. They differ ON PURPOSE (grammar vs
+        // sealed row label) and the From impl above is the single bridge.
+        // Pin BOTH sides separately so spelling drift on either vocabulary
+        // surfaces HERE, at the bridge, not silently in a seal.
+        let expected: [(Transport, &str, &str); 5] = [
+            // (engine variant, CLI grammar word, corpus wire name)
+            (Transport::Tcp, "tcp", "tcp53"),
+            (Transport::Tls, "tls", "dot"),
+            (Transport::Https, "https", "doh"),
+            (Transport::Quic, "quic", "doq"),
+            (Transport::H3, "h3", "doh3"),
+        ];
+        for (t, cli_word, wire_word) in expected {
+            assert_eq!(
+                t.suffix(),
+                Some(cli_word),
+                "CLI-grammar suffix for {t:?} drifted — users type this"
+            );
+            let filed: CorpusTransport = t.into();
+            assert_eq!(
+                filed.as_str(),
+                wire_word,
+                "corpus wire name for {t:?} drifted — rows are sealed with this"
+            );
+        }
+    }
+
     use hickory_resolver::config::ProtocolConfig;
 
     fn parse(s: &str) -> ResolverChoice {

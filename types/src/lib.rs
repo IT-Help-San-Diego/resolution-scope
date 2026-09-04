@@ -31,8 +31,8 @@ mod seal_spelling;
 mod tristate;
 
 pub use corpus::{
-    CorpusDay, CorpusEntry, DenialGrade, DispositionTuple, RcodeGrade, ResolverAlias, VantageClass,
-    VantageEpoch, WireGrades, UC_ANON,
+    CorpusDay, CorpusEntry, DenialGrade, DispositionTuple, RcodeGrade, ResolverAlias, Transport,
+    VantageClass, VantageEpoch, WireGrades, UC_ANON,
 };
 pub use dispositions::{
     CaaDisposition, CdsDisposition, CsyncDisposition, DaneDisposition, DkimDisposition,
