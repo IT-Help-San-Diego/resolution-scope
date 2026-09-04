@@ -1782,8 +1782,13 @@ fn tls_rpt_err_to_disposition(e: &NetError, domain: &str) -> TlsRptDisposition {
         // does not exist) are the SAME shape — scanned name one label below the
         // answering zone — with OPPOSITE correct answers. Separating them needs
         // the Public Suffix List or a second measurement (the scanned domain's
-        // own SOA); neither is available here, so no claim is made. A bare-TLD
-        // SOA, or no SOA at all, is likewise `NoZone`.
+        // own SOA); neither is available here. Note what that leaves: `NoZone`
+        // is NOT an abstention — it renders "no zone — domain does not exist"
+        // (truth_chain.rs:790), which for `support.google.com` is a FALSE
+        // claim. This fix does not repair that; it inherits main's behaviour
+        // for the ancestor case unchanged, and the honest repair is a second
+        // measurement, carried as its own board item. A bare-TLD SOA, or no
+        // SOA at all, is likewise `NoZone` — and there the claim is true.
         //
         // This still fixes the headline: an apex scan's `_smtp._tls` NXDOMAIN
         // carries the apex's own SOA, and apex scans are the common case.
@@ -3334,6 +3339,41 @@ mod tests {
         // NXDOMAIN with the TLD's SOA -> the domain itself is missing -> Indet.
         let e = nxdomain_err_with_soa("com.");
         assert_eq!(record_absence_verdict(&e, "example.com"), TriState::Indet);
+    }
+
+    /// PINS THE REVERT. `record_absence_verdict` compares the SOA zone to the
+    /// scanned domain by EXACT equality, and must keep doing so: suffix
+    /// containment would grade a genuinely absent domain under a multi-label
+    /// registry suffix as "zone exists". PR #42 tried containment here and
+    /// reverted it; without this test the revert is unguarded and a future
+    /// edit re-applies it silently.
+    ///
+    /// Negative control (watched failing 2026-09-04): swap the comparison at
+    /// `record_absence_verdict` for `zone_contains_host(domain, z)` and this
+    /// test fails on the `.co.uk` row while the rest of the suite stays green.
+    #[test]
+    fn record_absence_soa_test_is_exact_not_containment() {
+        // A registry suffix answering for a name below it means the name was
+        // never delegated — the domain does not exist, and Indet is the honest
+        // verdict. Containment would call this "zone exists".
+        assert_eq!(
+            record_absence_verdict(&nxdomain_err_with_soa("co.uk."), "nonexistent.co.uk"),
+            TriState::Indet,
+            "a registry-suffix SOA is not the domain's own zone"
+        );
+        // Structurally identical shape, ordinary parent zone: still Indet,
+        // because this packet cannot tell the two apart. The sub-label case is
+        // carried as a follow-up that needs a measurement, not an inference.
+        assert_eq!(
+            record_absence_verdict(&nxdomain_err_with_soa("google.com."), "support.google.com"),
+            TriState::Indet,
+            "a parent-zone SOA is not the domain's own zone either"
+        );
+        // The sound case, unchanged: the zone answered for itself.
+        assert_eq!(
+            record_absence_verdict(&nxdomain_err_with_soa("example.com."), "example.com"),
+            TriState::Absent
+        );
     }
 
     // --- TLS-RPT NXDOMAIN: the SOA is in the packet, so READ it --------------

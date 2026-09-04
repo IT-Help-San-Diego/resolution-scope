@@ -199,19 +199,38 @@ Why:      NXDOMAIN at `_smtp._tls.<domain>` says the queried NAME does not
           suffix from an ordinary parent zone requires the Public Suffix List
           or a second measurement (a lookup of the scanned domain's own SOA).
           Neither is available here, so the ancestor case is left exactly
-          where it was rather than being guessed in either direction.
-Controls: engine/src/analysis.rs
-          `tls_rpt_err_nxdomain_own_zone_is_record_absent` (POSITIVE — fails,
-          and alone, if the NXDOMAIN arm is reverted to
-          `let _ = domain; NoZone`);
-          `tls_rpt_err_nxdomain_ancestor_zone_is_no_zone` (NEGATIVE — fails,
-          and alone, if the exact-equality test is widened to suffix
-          containment; covers both `support.google.com`/`google.com` and
-          `nonexistent.co.uk`/`co.uk`);
-          `tls_rpt_err_nxdomain_tld_zone_is_no_zone` (NEGATIVE — fails if the
-          SOA read is made unconditional);
-          `tls_rpt_err_nxdomain_without_soa_is_no_zone` (NEGATIVE — fails, and
-          alone, if a missing SOA is read as RecordAbsent);
+          where it was. Say plainly what that means rather than dressing it
+          as restraint: `NoZone` is NOT an abstention. It renders "no zone —
+          domain does not exist", so for `support.google.com` the instrument
+          still prints a FALSE claim after this change, exactly as it did
+          before. This entry fixes the apex case and inherits the sub-label
+          case unrepaired; the honest repair is one extra lookup of the
+          scanned domain's own SOA, carried as its own board item. What this
+          change does guarantee is that it adds no NEW unsupported claim.
+Controls: engine/src/analysis.rs — every kill set below OBSERVED by mutating
+          the source and running the suite, not predicted:
+          `tls_rpt_err_nxdomain_own_zone_is_record_absent` (POSITIVE — with the
+          NXDOMAIN arm reverted to `let _ = domain; NoZone`, kills TWO tests:
+          this one and `tls_rpt_and_mta_sts_rows_agree_the_zone_exists`);
+          `tls_rpt_err_nxdomain_ancestor_zone_is_no_zone` (NEGATIVE — widening
+          the exact test to suffix containment kills this one ALONE; covers
+          both `support.google.com`/`google.com` and `nonexistent.co.uk`/
+          `co.uk`, the registry-suffix case that blocked the first attempt);
+          `tls_rpt_err_nxdomain_tld_zone_is_no_zone` (NEGATIVE — making the SOA
+          read unconditional kills THREE: this one, the ancestor test and the
+          without-SOA test);
+          `tls_rpt_err_nxdomain_without_soa_is_no_zone` (NEGATIVE — reading a
+          missing SOA as RecordAbsent kills this one ALONE);
+          `tls_rpt_err_nxdomain_own_zone_match_is_case_and_dot_insensitive`
+          (NEGATIVE — added this round BECAUSE a mutant survived: replacing the
+          normalised comparison with bare `z == domain` left the whole suite
+          green, since every fixture was already lowercase and dotless);
+          `record_absence_soa_test_is_exact_not_containment` (NEGATIVE — pins
+          the revert: applying suffix containment to `record_absence_verdict`
+          kills this one ALONE, on its `.co.uk` row. Without it the central
+          deliverable of this round — reverting that function to main's exact
+          equality — was unguarded and a later edit could re-apply containment
+          silently);
           `tls_rpt_and_mta_sts_rows_agree_the_zone_exists` (one apex error
           shape through both controls' Err mappings and both renderers: the
           two rows agree the zone exists, and both are `TriState::Absent`).
