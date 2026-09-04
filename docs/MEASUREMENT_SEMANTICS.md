@@ -238,6 +238,183 @@ Controls: engine/src/analysis.rs — every kill set below OBSERVED by mutating
 
 ---
 
+## DANE + TLS-RPT — existence is MEASURED with a second query, never inferred from the SOA's name
+
+Release:  unreleased — first tag after 2026-09-03 (PR #TBD)   Since: 2026-09-04
+Where:    engine/src/analysis.rs `tlsa_err_to_count`,
+          `tls_rpt_err_to_disposition`, `score_dane` (the tlsa_zone loop, the
+          DnssecRequired gate loop and the TLSA loop), `score_tls_rpt`;
+          new `name_exists_from_lookup` / `nxdomain_soa_is_not` /
+          `zone_apex_and_existence` / `name_exists`;
+          DELETED `zone_contains_host` and its unit test
+Before:   An NXDOMAIN's verdict was decided by a STRING PROPERTY of the SOA
+          name in the same packet. `zone_contains_host` graded a TLSA
+          NXDOMAIN as a measured absence when the SOA zone was a label-
+          boundary suffix of the host AND contained a dot — `contains('.')`
+          standing in for "a real zone rather than a bare TLD". That proxy
+          only holds for single-label TLDs. Measured live 2026-09-04, four
+          rows, one moment, one vantage:
+
+            _25._tcp.mail.nosuchdomain-zz9q.co.uk   NXDOMAIN SOA co.uk
+              -> Some(0) "measured absence"   DEFECT: the domain does not exist
+            _25._tcp.mail.nosuchdomain-zz9q.com.au  NXDOMAIN SOA com.au
+              -> Some(0)                      DEFECT
+            _25._tcp.mail.nosuchdomain-zz9q.com     NXDOMAIN SOA com
+              -> None                         correct BY ACCIDENT ("com" has no dot)
+            _25._tcp.aspmx.l.google.com             NXDOMAIN SOA l.google.com
+              -> Some(0)                      CORRECT, and still correct
+
+          TLS-RPT had the mirror of the same problem from the other side: PR
+          #42 read the SOA by exact equality only, so a proper-ancestor SOA
+          kept `NoZone` — which renders "no zone — domain does not exist"
+          (engine/src/truth_chain.rs) over a live sub-label name. Its own
+          comment named the repair and deferred it: "the honest repair is a
+          second measurement, carried as its own board item."
+After:    An NXDOMAIN's SOA names the CLOSEST ENCLOSING ZONE THAT EXISTS and
+          is now read for exactly one thing it can support: if the SOA owner
+          EQUALS the queried name, that zone answered for itself and
+          demonstrably exists (no query spent). In every other shape the
+          verdict comes from a MEASUREMENT — one SOA query at the name
+          itself:
+            resolves (NOERROR, incl. NODATA on a name that exists)
+              -> the name exists  -> the record's absence is MEASURED
+            NXDOMAIN
+              -> the name's domain does not exist -> COULD NOT MEASURE
+            SERVFAIL / Refused / timeout / not probed
+              -> Option<bool>::None -> never claim
+          The Public Suffix List was rejected deliberately. It is a mutable
+          third-party list, so a verdict derived from it depends on which
+          snapshot produced it; keeping verdicts re-derivable would then need
+          a vendored pinned copy plus its identity in the receipt and in this
+          log. A query has no vintage and anyone can repeat it.
+Moves:    DANE — a domain whose MX names a host in a NONEXISTENT domain (a
+          dangling or typo MX target) moves `NotConfigured` -> `TransientError`.
+          That is `Absent` -> `Indet`, `Severity::Low` -> `Severity::Unmeasured`,
+          and the control LEAVES the denominator
+          (types/src/dispositions.rs), so the domain's tally and
+          risk-weighted score both change. A scored regression for any such
+          domain, and the intended repair.
+          DANE (attribution, sealed) — the same host's `tlsa_zone` moves
+          `ForeignZone` -> `ZoneUnmeasured`. `ForeignZone` was derived from the
+          registry suffix that answered the NXDOMAIN and asserted the mail host
+          lives in someone else's zone, when the host has no zone at all.
+          DANE (latent, now closed) — for a dangling MX host whose closest
+          enclosing zone is UNSIGNED, the DnssecRequired gate scored that
+          enclosing zone's DNSKEY as if it were the host's own and returned
+          "not applicable — MX host zone is unsigned" BEFORE the TLSA loop ran.
+          Those domains move `DnssecRequired` -> `TransientError`. This path
+          did not appear in the four-row repro (co.uk and com are both signed);
+          a repair confined to `tlsa_err_to_count` would have left it lying.
+          TLS-RPT — a NON-APEX scan whose `_smtp._tls.<name>` NXDOMAIN carries a
+          proper-ancestor SOA, where the scanned name RESOLVES, moves
+          `NoZone` -> `RecordAbsent`. That retires a false claim about a live
+          name and moves the control from Indet into a measured Low finding, so
+          it re-enters both score sums. Any prior sealed report of a subdomain
+          scan will not reproduce.
+          DOES NOT MOVE: apex scans whose NXDOMAIN carries their own SOA (the
+          exact-equality shortcut, unchanged and unprobed); every NODATA
+          outcome on any control; every SERVFAIL/timeout; DNSSEC, CSYNC, CDS
+          and CDNSKEY, whose NXDOMAIN is measured at the scanned name itself
+          and was already right; SPF, DKIM, DMARC, MTA-STS and CAA, which stay
+          on `record_absence_verdict`'s exact equality, untouched.
+          STILL WRONG, NOT AN ABSTENTION — say it plainly rather than claim a
+          complete repair. When the probe itself fails (SERVFAIL, timeout,
+          Refused) TLS-RPT keeps `NoZone`, and `NoZone` still renders "no zone
+          — domain does not exist". For a live sub-label name whose probe did
+          not answer, the instrument still prints a claim the packets cannot
+          support. The class is narrowed to unmeasurable probes, not
+          eliminated. Separately and knowingly unrepaired:
+          `record_absence_verdict` under-claims on sub-label scans — `_dmarc`
+          and `_mta-sts` NXDOMAIN under an ancestor SOA read `Indet` ("could
+          not measure") for a record that is genuinely absent. That direction
+          loses a measurement but never asserts a falsehood, so it is out of
+          scope; the same probe would repair it, and this change makes the
+          asymmetry conspicuous.
+Why:      RFC 1035 §4.3.4 / RFC 2308 §2.1: the SOA in a negative answer's
+          authority section is the SOA of the zone that answered — the closest
+          enclosing zone that exists. Nothing in the protocol makes it a
+          statement about the queried name's own domain, and no label count,
+          dot count or suffix rule recovers one: `support.google.com` under SOA
+          `google.com` (zone exists, name absent) and `nonexistent.co.uk` under
+          SOA `co.uk` (domain does not exist) are structurally identical
+          packets with opposite correct answers. Only a measurement separates
+          them. RFC 7672 §3 is why the DANE direction matters: a TLSA absence
+          is only a finding about a mail host that exists.
+COST:     One extra wire query per NXDOMAIN leg that the packet cannot decide,
+          measured as a ceiling with no resolver cache (hickory does cache,
+          including negatives, so the real cost is lower; the hit rate inside
+          one scan is UNVERIFIED). TLS-RPT: at most one per scan, and ZERO on
+          an apex scan (pinned by `apex_scan_spends_no_probe_on_tls_rpt`).
+          DANE: ZERO extra — `score_dane` already issued `lookup(host, SOA)`
+          TWICE per MX host (attribution, then the DnssecRequired gate) and
+          `apex_from_soa_result` threw away the response code that is the whole
+          existence signal. `zone_apex_and_existence` reads both facts from one
+          answer, so the two passes collapse to one and the DANE scan issues
+          FEWER queries than before.
+KNOWN COST, RE-DERIVABILITY: a DANE or TLS-RPT verdict now depends on a SECOND
+          packet taken at a different instant, and that packet is NOT in the
+          receipt — the probe deliberately bypasses `observed_lookup` to
+          preserve the one-receipt-per-control census
+          (engine/tests/control_enumeration_invariants.rs). A reader holding a
+          sealed report can no longer re-derive these two verdicts from the
+          receipt alone. That is real epistemic debt and wants a receipt-schema
+          card. It also makes the verdict non-atomic: a name created or deleted
+          between the two queries yields an inconsistent pair (the failure mode
+          is a conservative `None`, never a fabricated absence). And a wildcard
+          zone (`*.example.com`) makes any name under it answer, so the probe
+          reports exists=true for a name never explicitly provisioned — the
+          name does resolve and mail would route there, so the verdict is
+          defensible, but it is a decision, written down here rather than
+          discovered later.
+Controls: every kill set below was OBSERVED by mutating the source, running
+          `cargo test --locked --no-fail-fast` in engine/, and restoring —
+          none is predicted. Pure mapper controls hold the PACKET constant and
+          vary only the probe, so the probe is the sole variable.
+          engine/src/analysis.rs:
+          `tlsa_err_nxdomain_ancestor_soa_is_decided_by_the_probe` (the
+          co.uk row, all three probe values);
+          `tlsa_err_nxdomain_row_four_regression_pin` (aspmx.l.google.com must
+          stay Some(0));
+          `tlsa_err_nxdomain_own_zone_is_measured_absence_without_a_probe`;
+          `tlsa_err_nodata_ignores_the_probe`;
+          `tlsa_err_servfail_is_unmeasured_even_when_the_probe_says_exists`;
+          `name_exists_from_lookup_table`;
+          `nxdomain_soa_is_not_decides_when_to_spend_a_query`;
+          `tls_rpt_err_nxdomain_ancestor_zone_is_decided_by_the_probe` (this
+          assertion MOVED — it asserted NoZone before this change, and that it
+          moved is the visible proof the behaviour did).
+          engine/tests/nxdomain_existence_probe.rs — the WIRING controls, two
+          scans per guard differing in ONE canned answer, every packet on
+          127.0.0.1 (the loopback stub gained an AUTHORITY section, without
+          which it could not emit NXDOMAIN-with-SOA at all):
+          `dangling_mx_host_is_not_a_measured_dane_absence`;
+          `tls_rpt_ancestor_soa_is_decided_by_a_second_query`;
+          `apex_scan_spends_no_probe_on_tls_rpt`.
+          OBSERVED KILL SETS (mutant -> tests that failed):
+            M1  `Some(false) => Some(0)` in tlsa_err_to_count            -> 4
+            M2  delete the exact-equality arm in tlsa_err_to_count       -> 1
+            M3  TLSA call site hardcodes the probe to None               -> 1
+            M4  TLSA call site hardcodes the probe to Some(true)         -> 1
+            M5  invert NXDomain/NoError in name_exists_from_lookup       -> 3
+            M6  remove the DnssecRequired gate's existence skip          -> 1
+            M7  `Some(true) => NoZone` in tls_rpt_err_to_disposition     -> 2
+            M8  remove the tlsa_zone attribution's existence skip        -> 1
+            M9  nxdomain_soa_is_not always true (always spend a query)   -> 2
+            M10 TLS-RPT call site stops probing                          -> 1
+            M11 transient probe promoted to Some(true)                   -> 1
+            M12 `if ok { return None }` in name_exists_from_lookup       -> 2
+          No survivors. Suite green on restore after every one.
+          DELIBERATE COVERAGE LOSS, stated so it does not read as an accident:
+          `zone_contains_host` and its passing test
+          `zone_contains_host_suffix_matching` are DELETED. The helper was the
+          site of this defect and has no production caller after the change;
+          leaving a suffix-existence heuristic in the file invites the defect
+          back. The suite's test count drops by that one test and gains the
+          controls above.
+
+
+---
+
 Not a semantics change, recorded for the reader comparing wire blocks
 across the release: the fetch-failure classifier (engine/src/egress.rs
 `FetchOutcome::classify`) now reads the typed source chain instead of

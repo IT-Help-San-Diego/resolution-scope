@@ -17,10 +17,19 @@ use hickory_proto::rr::{Name, Record, RecordType};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, UdpSocket};
 
-/// A canned answer: records + response code for one (owner name, type).
+/// A canned answer: answer records + AUTHORITY records + response code for
+/// one (owner name, type).
+///
+/// The authority section is what carries the SOA on a negative answer, and it
+/// is the whole subject of the NXDOMAIN-existence work: an NXDOMAIN's SOA
+/// names the closest enclosing zone THAT EXISTS, which says nothing about
+/// whether the queried name's own domain exists. Without an authority section
+/// the stub could only emit a bare NXDOMAIN and could not reproduce that shape
+/// end to end.
 #[derive(Clone)]
 pub struct Canned {
     pub records: Vec<Record>,
+    pub authority: Vec<Record>,
     pub code: ResponseCode,
 }
 
@@ -28,7 +37,44 @@ impl Canned {
     pub fn ok(records: Vec<Record>) -> Self {
         Self {
             records,
+            authority: Vec::new(),
             code: ResponseCode::NoError,
+        }
+    }
+
+    /// A response code with no answers and no authority — e.g. a bare
+    /// NXDOMAIN, or the NODATA shape (`NoError` + nothing).
+    pub fn code(code: ResponseCode) -> Self {
+        Self {
+            records: Vec::new(),
+            authority: Vec::new(),
+            code,
+        }
+    }
+
+    /// A negative answer carrying an SOA in the AUTHORITY section — the shape
+    /// a real resolver returns for NXDOMAIN and NODATA.
+    pub fn with_soa(code: ResponseCode, zone: &str) -> Self {
+        use hickory_proto::rr::{rdata::SOA, Name, RData};
+        let owner = Name::from_ascii(if zone.ends_with('.') {
+            zone.to_string()
+        } else {
+            format!("{zone}.")
+        })
+        .unwrap();
+        let soa = SOA::new(
+            Name::from_ascii("ns1.invalid.").unwrap(),
+            Name::from_ascii("hostmaster.invalid.").unwrap(),
+            1,
+            3600,
+            600,
+            86400,
+            3600,
+        );
+        Self {
+            records: Vec::new(),
+            authority: vec![Record::from_rdata(owner, 3600, RData::SOA(soa))],
+            code,
         }
     }
 }
@@ -60,6 +106,7 @@ fn answer(req: &[u8], answers: &Answers, seen: &Seen, via: &'static str) -> Opti
         Some(c) => {
             resp.metadata.response_code = c.code;
             resp.add_answers(c.records);
+            resp.add_authorities(c.authority);
         }
         None => resp.metadata.response_code = ResponseCode::Refused,
     }
