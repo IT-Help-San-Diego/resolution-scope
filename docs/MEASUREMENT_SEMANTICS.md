@@ -145,7 +145,7 @@ Controls: engine/tests/egress_ledger.rs E5 (the accept at the policy host
 
 ## TLS-RPT — NXDOMAIN reads the SOA instead of asserting the domain is gone
 
-Release:  unreleased — first tag after 2026-09-03 (PR #PRNUM)   Since: 2026-09-03
+Release:  unreleased — first tag after 2026-09-03 (PR #42)   Since: 2026-09-03
 Where:    engine/src/analysis.rs `tls_rpt_err_to_disposition` (the NXDOMAIN
           arm, which was `let _ = domain;` — the scanned domain was received
           and discarded); engine/src/analysis.rs `err_soa_zone`,
@@ -199,7 +199,7 @@ Controls: engine/src/analysis.rs
 
 ## Every control — the NXDOMAIN SOA test is zone containment, not zone equality
 
-Release:  unreleased — first tag after 2026-09-03 (PR #PRNUM)   Since: 2026-09-03
+Release:  unreleased — first tag after 2026-09-03 (PR #42)   Since: 2026-09-03
 Where:    engine/src/analysis.rs `record_absence_verdict` (the NXDOMAIN arm's
           SOA test: `z.eq_ignore_ascii_case(domain)` → `zone_contains_host`)
 Before:   NXDOMAIN counted as measured absence only when the SOA named the
