@@ -1,14 +1,37 @@
 #!/usr/bin/env bash
-# check-corpus-identity-absence.sh — the exporter/checker that binds the
-# CorpusEntry type to its Lean Tier-4 specification.
+# check-corpus-identity-absence.sh — the checker that binds the CorpusEntry
+# type to CAREY'S RECORDED RULING.
 #
-# THE DIVISION OF LABOR (Science's 2026-09-03 correction, adopted):
+# WHAT THIS BINDS TO, corrected 2026-09-05. An earlier version of this header
+# said it binds the type "to its Lean Tier-4 specification". IT DOES NOT, and
+# it cannot: `engine/lean/Scoring.lean` is the repository's only Lean file and
+# contains zero occurrences of corpus, identity, anon or ResolverAlias. This
+# script never opens a .lean file; the only file it reads is
+# types/src/corpus.rs.
+#
+# That was not an oversight in the proof. The Tier-4 theorem is DELIBERATELY
+# UNWRITTEN and HELD by two-lane consensus until the measurement/identity
+# split is ruled — recorded in policy/LANES.md at 2026-09-03T04:00Z, which
+# also caught the same claim being made in the present tense to the person
+# about to rule on it. A privacy property presented as machine-checked
+# forecloses exactly the scrutiny an unproven one invites, so the header
+# claiming a proof that is on purpose not yet written was the failure it
+# named, reappearing inside the artifact built afterwards.
+#
+# THE DIVISION OF LABOR, as it actually stands:
 #   - The TYPE is the guarantee: a field that doesn't exist can't be added
 #     silently, and adding one breaks corpus.rs's exact-construction test.
-#   - The Lean theorem is the SPECIFICATION: it states the property publicly.
-#   - THIS CHECKER is the BINDING: it fails loudly if the type's shape drifts
-#     from the specified shape — because neither the compiler nor Lean can
-#     see each other.
+#   - CAREY'S NINE-DECISION RULING of 2026-09-03 is the SPECIFICATION. It is
+#     prose in the ledger, and it is transcribed into the `required` set
+#     below — which is a real specification with a real author, not a
+#     substitute for one.
+#   - THIS CHECKER is the BINDING between them: it fails loudly if the type's
+#     shape drifts from the ruled shape, because the compiler cannot read a
+#     ledger entry.
+#
+# WHEN THE TIER-4 THEOREM IS WRITTEN, this header should be revisited and the
+# binding extended to read it — at which point the claim becomes true rather
+# than aspirational. Until then the honest statement is the one above.
 #
 # WHAT IT CHECKS (mechanical, fail-closed):
 #   1. CorpusEntry's public fields are EXACTLY the ruled set — no identity
