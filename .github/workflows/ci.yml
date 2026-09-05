@@ -169,9 +169,21 @@ jobs:
           workspaces: native
       # --lib only, per docs/BUILD-STATE.md: the [[bin]] is bare-metal Phase-2
       # code with recorded pre-existing debt; the lib is the host contract.
-      - run: cargo build --lib
+      # --locked, matching the crates matrix (6ce446a). WITHOUT it this leg
+      # SILENTLY REGENERATES a stale native/Cargo.lock and stays green, which
+      # is not hypothetical: on 2026-09-05 the alpha.4 release prep bumped the
+      # five release crates and their five lockfiles, but native/ depends on
+      # resolution-scope-types by path and so carries a SIXTH lockfile pinning
+      # it. That lockfile went stale, every check on the PR passed, and the
+      # drift was caught by a reviewer reading the tree rather than by CI.
+      # Measured both directions before adding this: the stale lockfile under
+      # --locked exits 101, "cannot update the lock file ... because --locked
+      # was passed"; the corrected tree exits 0. build runs first, so a stale
+      # lock stops the job before clippy — which is why those two lines need
+      # no flag.
+      - run: cargo build --lib --locked
         working-directory: native
-      - run: cargo test --lib
+      - run: cargo test --lib --locked
         working-directory: native
       # Strict clippy on the lib, both targets — the crate holding the no_std
       # seal contract was the only one exempt from -D warnings (audit
