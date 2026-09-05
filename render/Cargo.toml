@@ -20,7 +20,7 @@
 
 [package]
 name        = "resolution-scope-render"
-version     = "26.0.0-alpha.3"
+version     = "26.0.0-alpha.4"
 edition     = "2021"
 description = "Resolution Scope render — report/summary/text/json/html surfaces over the shared model"
 license     = "AGPL-3.0"

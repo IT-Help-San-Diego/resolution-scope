@@ -1,6 +1,6 @@
 [package]
 name        = "resolution-scope-store"
-version     = "26.0.0-alpha.3"
+version     = "26.0.0-alpha.4"
 edition     = "2021"
 description = "Resolution Scope store — sealed measurement history in PostgreSQL"
 license     = "AGPL-3.0"
