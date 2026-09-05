@@ -335,6 +335,34 @@ jobs:
       - name: Pin every tag shape across both case statements
         run: bash scripts/check-release-class.sh
 
+  lean-pin-coverage:
+    name: Lean pins — every theorem's axioms audited
+    # The axiom pins in Scoring.lean are real and strong: each is a
+    # `#guard_msgs` + `#print axioms` pair, so a proof that starts depending on
+    # a new axiom fails at `lean`. What was NOT enforced is COVERAGE — that a
+    # theorem HAS a pin. Measured 2026-09-05: appending a twentieth theorem
+    # with no pin and running this repo's exact lean-proofs command exits 0,
+    # because `lean` cannot know a project convention and nothing else in CI
+    # mentioned the pins. The property held at 19 of 19 by discipline, which
+    # is the same fortunate-not-guaranteed shape this project named when it
+    # argued for branch protection.
+    #
+    # The rule is transitive on purpose. This gate's first draft demanded a pin
+    # on EVERY theorem and immediately failed a clean main over four private
+    # helpers — wrongly, because `#print axioms` is transitive: making
+    # `filter_eq_nil_of_all_false` a `sorry` moves the PINNED theorem
+    # `empty_surface_is_none` from [propext] to [propext, sorryAx] and fails
+    # its own guard. So private helpers are audited through their users, and
+    # only an UNREACHABLE private theorem is audited by nothing.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5 tag @ 2026-08-29
+        with:
+          persist-credentials: false
+      - name: Every theorem pinned or reachable from a pin
+        run: bash scripts/check-lean-pins.sh
+
   ci-ok:
     name: ci-ok
     if: always()
@@ -345,6 +373,7 @@ jobs:
         seal-scheme-consistency,
         semantics-numbers,
         release-class,
+        lean-pin-coverage,
         crates,
         native-lib,
         licenses,
