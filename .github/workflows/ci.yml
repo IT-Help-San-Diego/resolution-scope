@@ -300,6 +300,29 @@ jobs:
   # this job waits on everything and fails on any failure, cancellation, OR
   # skip (a skipped gate that reads as neutral-green is a check that cannot
   # fail — the required context must go red, not silent).
+  release-class:
+    name: Release class (tag shape decides what ships)
+    # release.yml turns a TAG NAME into two outward-facing decisions: the
+    # pre-release flag on the published GitHub release, and what the
+    # post-publish read-back asserts. Both are `case` statements, and on
+    # 2026-09-05 both were measured wrong in the same direction: the version
+    # arm `v[0-9]*.[0-9]*.[0-9]*` subsumes every pre-release tag, so a tag
+    # with a suffix neither arm recognised (-dev, -pre, -snapshot, -preview)
+    # published as a STABLE RELEASE — and the read-back agreed, because the
+    # two controls shared one class list and so could not disagree about a
+    # class neither knew. The guard's own error text said "refusing to guess".
+    # This gate reads the real workflow file and exercises its real case
+    # statements, because editing a published release is not something this
+    # project permits itself to do casually.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5 tag @ 2026-08-29
+        with:
+          persist-credentials: false
+      - name: Pin every tag shape across both case statements
+        run: bash scripts/check-release-class.sh
+
   ci-ok:
     name: ci-ok
     if: always()
@@ -309,6 +332,7 @@ jobs:
         corpus-identity-absence,
         seal-scheme-consistency,
         semantics-numbers,
+        release-class,
         crates,
         native-lib,
         licenses,
