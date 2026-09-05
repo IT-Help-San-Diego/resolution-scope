@@ -2130,7 +2130,7 @@ async fn score_csync(
         resolver,
         ControlId::Csync,
         domain,
-        RecordType::Unknown(62),
+        RecordType::CSYNC,
         receipt,
     )
     .await
