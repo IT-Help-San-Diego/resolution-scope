@@ -38,6 +38,18 @@ jobs:
           # an unanticipated tag shipping quietly as stable.
           case "$GITHUB_REF_NAME" in
             *-alpha*|*-beta*|*-rc*) PRE="--prerelease" ;;
+            # ORDER IS LOAD-BEARING and this arm is why. `v[0-9]*.[0-9]*.[0-9]*`
+            # SUBSUMES every pre-release tag — `[0-9]*` is one digit then
+            # anything, so it matches `v26.0.0-alpha.4` too. Without this arm,
+            # a tag carrying an UNRECOGNISED suffix (-dev, -pre, -snapshot,
+            # -preview) fell through to the stable arm and PUBLISHED AS A FULL
+            # RELEASE, while the read-back at the end of this file agreed with
+            # it — both controls sharing one class list cannot disagree about a
+            # suffix neither knows. The old error text promised "refusing to
+            # guess"; measured, it only refused tags that did not look like
+            # versions at all, and guessed STABLE for every other one.
+            # Any hyphenated suffix we do not recognise now fails closed.
+            *-*) echo "::error::tag '$GITHUB_REF_NAME' carries an unrecognised pre-release suffix — known classes are -alpha*, -beta*, -rc*. Refusing to publish it as a stable release; add the class to BOTH case statements in this file if it is intended"; exit 1 ;;
             v[0-9]*.[0-9]*.[0-9]*)  PRE="" ;;
             *) echo "::error::tag '$GITHUB_REF_NAME' matches no known release class (expected vX.Y.Z or vX.Y.Z-alpha/beta/rc*) — refusing to guess"; exit 1 ;;
           esac
@@ -170,6 +182,11 @@ jobs:
           # metadata claim nobody re-reads is a claim nobody checked.
           case "$GITHUB_REF_NAME" in
             *-alpha*|*-beta*|*-rc*) WANT=true ;;
+            # Mirrors the create step's refusal so the two cannot silently
+            # diverge. Unreachable while the create step refuses first, which
+            # is the point: a control that agrees only because it shares the
+            # other's blind spot is not a second control.
+            *-*) echo "::error::tag '$GITHUB_REF_NAME' carries an unrecognised pre-release suffix — refusing to assert a flag for a class this workflow does not know"; exit 1 ;;
             *) WANT=false ;;
           esac
           GOT=$(gh release view "$GITHUB_REF_NAME" --json isPrerelease --jq .isPrerelease)

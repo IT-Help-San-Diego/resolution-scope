@@ -169,9 +169,21 @@ jobs:
           workspaces: native
       # --lib only, per docs/BUILD-STATE.md: the [[bin]] is bare-metal Phase-2
       # code with recorded pre-existing debt; the lib is the host contract.
-      - run: cargo build --lib
+      # --locked, matching the crates matrix (6ce446a). WITHOUT it this leg
+      # SILENTLY REGENERATES a stale native/Cargo.lock and stays green, which
+      # is not hypothetical: on 2026-09-05 the alpha.4 release prep bumped the
+      # five release crates and their five lockfiles, but native/ depends on
+      # resolution-scope-types by path and so carries a SIXTH lockfile pinning
+      # it. That lockfile went stale, every check on the PR passed, and the
+      # drift was caught by a reviewer reading the tree rather than by CI.
+      # Measured both directions before adding this: the stale lockfile under
+      # --locked exits 101, "cannot update the lock file ... because --locked
+      # was passed"; the corrected tree exits 0. build runs first, so a stale
+      # lock stops the job before clippy — which is why those two lines need
+      # no flag.
+      - run: cargo build --lib --locked
         working-directory: native
-      - run: cargo test --lib
+      - run: cargo test --lib --locked
         working-directory: native
       # Strict clippy on the lib, both targets — the crate holding the no_std
       # seal contract was the only one exempt from -D warnings (audit
@@ -300,6 +312,29 @@ jobs:
   # this job waits on everything and fails on any failure, cancellation, OR
   # skip (a skipped gate that reads as neutral-green is a check that cannot
   # fail — the required context must go red, not silent).
+  release-class:
+    name: Release class (tag shape decides what ships)
+    # release.yml turns a TAG NAME into two outward-facing decisions: the
+    # pre-release flag on the published GitHub release, and what the
+    # post-publish read-back asserts. Both are `case` statements, and on
+    # 2026-09-05 both were measured wrong in the same direction: the version
+    # arm `v[0-9]*.[0-9]*.[0-9]*` subsumes every pre-release tag, so a tag
+    # with a suffix neither arm recognised (-dev, -pre, -snapshot, -preview)
+    # published as a STABLE RELEASE — and the read-back agreed, because the
+    # two controls shared one class list and so could not disagree about a
+    # class neither knew. The guard's own error text said "refusing to guess".
+    # This gate reads the real workflow file and exercises its real case
+    # statements, because editing a published release is not something this
+    # project permits itself to do casually.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5 tag @ 2026-08-29
+        with:
+          persist-credentials: false
+      - name: Pin every tag shape across both case statements
+        run: bash scripts/check-release-class.sh
+
   ci-ok:
     name: ci-ok
     if: always()
@@ -309,6 +344,7 @@ jobs:
         corpus-identity-absence,
         seal-scheme-consistency,
         semantics-numbers,
+        release-class,
         crates,
         native-lib,
         licenses,
