@@ -304,3 +304,132 @@ async fn a_real_cds_reads_published_not_deletion() {
         "a CDS with a real algorithm is a rollover hint; calling it a deletion request would invert a destructive signal"
     );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DANE — the last control from the blind-spot list that a single-record world
+// cannot reach, and the only one left needing a CHAIN.
+//
+// `DaneDisposition::TlsaPublished` was asserted only by a pure unit test over
+// `dane_from_tlsa_counts`, never over the wire. The wire path is longer than
+// any other control's: MX lookup, then a per-host DNSSEC gate on the host's
+// own apex, then a TLSA lookup at `_25._tcp.<host>`. The pure test cannot see
+// any of that, and the CSYNC defect lived precisely in a wire path a pure test
+// could not see.
+
+fn dane_world() -> HashMap<(String, RecordType), Canned> {
+    use hickory_proto::rr::rdata::tlsa::{CertUsage, Matching, Selector};
+    use hickory_proto::rr::rdata::{MX, TLSA};
+    let mut c = HashMap::new();
+    c.insert(
+        key("apex.test", RecordType::MX),
+        Canned::ok(vec![Record::from_rdata(
+            n("apex.test"),
+            3600,
+            RData::MX(MX::new(10, n("mail.apex.test"))),
+        )]),
+    );
+    // A textbook "3 1 1" pin: DANE-EE, SPKI, SHA-256.
+    c.insert(
+        key("_25._tcp.mail.apex.test", RecordType::TLSA),
+        Canned::ok(vec![Record::from_rdata(
+            n("_25._tcp.mail.apex.test"),
+            3600,
+            RData::TLSA(TLSA::new(
+                CertUsage::DaneEe,
+                Selector::Spki,
+                Matching::Sha256,
+                vec![0xab; 32],
+            )),
+        )]),
+    );
+    c
+}
+
+/// An MX host publishing a TLSA record reads `TlsaPublished`.
+///
+/// The chain this walks, none of which a pure test touches: the MX lookup
+/// resolves the host, the per-host DNSSEC gate finds no measurable apex here
+/// and correctly falls through rather than returning DnssecRequired, and the
+/// TLSA lookup at `_25._tcp.<host>` returns one record which the counter reads
+/// as published.
+#[tokio::test]
+async fn an_mx_host_with_a_tlsa_record_reads_tlsa_published() {
+    let stub = Stub::start_with(dane_world()).await;
+    let v = vantage_at(&stub);
+    let a = analyse_domain(&v, "apex.test").await.unwrap();
+    assert_eq!(
+        a.dane_disposition,
+        resolution_scope_engine::DaneDisposition::TlsaPublished,
+        "one TLSA record on the MX host is a published DANE pin"
+    );
+    assert!(
+        stub.saw("_25._tcp.mail.apex.test", RecordType::TLSA),
+        "the TLSA query must actually reach the wire at the RFC 7672 name"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DKIM — the last entry on the blind-spot list.
+//
+// `DkimDisposition::Verified` was asserted only by a pure unit test over
+// `dkim_disposition_from_counts`, never over the wire. The wire path builds a
+// selector list, probes each `<selector>._domainkey.<domain>` for TXT, and
+// classifies the `p=` value. `analyse_domain_with_selectors` lets a caller
+// supply a selector, so this needs no guess about which of the 81 defaults a
+// fixture would match.
+//
+// Verified and Revoked differ ONLY by whether `p=` carries a value. That one
+// difference is the difference between "this domain signs its mail" and "this
+// domain has withdrawn its key", which are opposite operational facts, and
+// neither had ever been produced by a scan in a test.
+
+fn dkim_world(p_value: &str) -> HashMap<(String, RecordType), Canned> {
+    use hickory_proto::rr::rdata::TXT;
+    let mut c = HashMap::new();
+    c.insert(
+        key("cc1._domainkey.apex.test", RecordType::TXT),
+        Canned::ok(vec![Record::from_rdata(
+            n("cc1._domainkey.apex.test"),
+            3600,
+            RData::TXT(TXT::new(vec![format!("v=DKIM1; k=rsa; p={p_value}")])),
+        )]),
+    );
+    c
+}
+
+async fn dkim_for(p_value: &str) -> resolution_scope_engine::DkimDisposition {
+    let stub = Stub::start_with(dkim_world(p_value)).await;
+    let v = vantage_at(&stub);
+    resolution_scope_engine::analysis::analyse_domain_with_selectors(
+        &v,
+        "apex.test",
+        &["cc1".to_string()],
+    )
+    .await
+    .unwrap()
+    .dkim_disposition
+}
+
+/// A selector publishing a key reads `Verified`.
+#[tokio::test]
+async fn a_dkim_selector_with_a_key_reads_verified() {
+    assert_eq!(
+        dkim_for("MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtestkeymaterial").await,
+        resolution_scope_engine::DkimDisposition::Verified,
+        "a selector carrying a non-empty p= is a published, usable key"
+    );
+}
+
+/// The same selector with an EMPTY `p=` is a revocation, not a key.
+///
+/// One character of difference decides between "this domain signs its mail"
+/// and "this domain has withdrawn its key". Grading a revocation as Verified
+/// would tell an operator their signing is healthy at the moment it is not.
+#[tokio::test]
+async fn a_dkim_selector_with_an_empty_p_reads_revoked() {
+    assert_eq!(
+        dkim_for("").await,
+        resolution_scope_engine::DkimDisposition::Revoked,
+        "an empty p= is RFC 6376 key revocation, the opposite operational fact from Verified"
+    );
+}
