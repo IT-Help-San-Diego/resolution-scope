@@ -112,6 +112,27 @@ Examples:
   resolution-scope tui example.com --red     dashboard in red-team mode
   resolution-scope history example.com --store-url postgres://…";
 
+/// `-V` keeps printing ONLY the CLI version, which the release smoke gate
+/// compares field-wise against the tag. `--version` additionally names the
+/// ENGINE build, because that string — not the CLI's manifest number — is
+/// hashed into every seal as preimage line 3, and nothing could observe it.
+///
+/// Measured 2026-09-05: at the v26.0.0-alpha.4 tag with the pre-#61 engine,
+/// the CLI assertion passes while the engine stamp reads
+/// `26.0.0-alpha.4-v26.0.0-alpha.4`. That is exactly how a doubled provenance
+/// string shipped through a green release gate.
+fn long_version() -> &'static str {
+    static V: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    V.get_or_init(|| {
+        format!(
+            "{}\nengine {}",
+            env!("CARGO_PKG_VERSION"),
+            resolution_scope_engine::seal::engine_version()
+        )
+    })
+    .as_str()
+}
+
 #[derive(Parser)]
 #[command(
     name = "resolution-scope",
@@ -119,6 +140,7 @@ Examples:
     long_about = LONG_ABOUT,
     after_help = AFTER_HELP,
     version,
+    long_version = long_version(),
     args_conflicts_with_subcommands = true
 )]
 struct Cli {
@@ -516,6 +538,63 @@ fn redact_dsn(url: &str) -> String {
             }
         }
         None => url.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod version_provenance_tests {
+    use super::long_version;
+
+    /// The release smoke gate splits `--version` on whitespace and asserts
+    /// `$2` (the CLI version) and `$4` (the engine stamp). clap prefixes the
+    /// program name, so the token positions are:
+    ///
+    ///   $1 resolution-scope   $2 <cli version>   $3 engine   $4 <engine stamp>
+    ///
+    /// If `long_version` ever stops emitting that second line, the gate would
+    /// compare `$4` of something else — most likely an empty string — and a
+    /// mismatched provenance stamp would ship again. Pin the shape here,
+    /// where it costs nothing, rather than discovering it from a release.
+    #[test]
+    fn long_version_names_the_engine_build_in_the_position_the_gate_reads() {
+        let v = long_version();
+        let mut lines = v.lines();
+        assert_eq!(
+            lines.next().expect("a first line"),
+            env!("CARGO_PKG_VERSION"),
+            "the first line must stay the bare CLI version — the gate compares it field-wise against the tag"
+        );
+        let engine_line = lines.next().expect("a second line naming the engine build");
+        assert!(
+            engine_line.starts_with("engine "),
+            "the second line must begin with the literal `engine ` so the stamp lands in $4; got {engine_line:?}"
+        );
+        assert_eq!(
+            &engine_line["engine ".len()..],
+            resolution_scope_engine::seal::engine_version(),
+            "the stamp must be the engine's own version, which is what gets hashed into every seal"
+        );
+        assert!(
+            lines.next().is_none(),
+            "exactly two lines, or the token positions shift"
+        );
+    }
+
+    /// The gate's own parse, replicated: split the way `set -- $OUT` does and
+    /// check the two fields it reads. This is the assertion that actually
+    /// mirrors CI, rather than testing the string in isolation.
+    #[test]
+    fn the_gates_token_positions_hold() {
+        let out = format!("resolution-scope {}", long_version());
+        let toks: Vec<&str> = out.split_whitespace().collect();
+        assert_eq!(toks[0], "resolution-scope");
+        assert_eq!(toks[1], env!("CARGO_PKG_VERSION"), "$2 is the CLI version");
+        assert_eq!(toks[2], "engine", "$3 is the literal label");
+        assert_eq!(
+            toks[3],
+            resolution_scope_engine::seal::engine_version(),
+            "$4 is the engine stamp the gate asserts against the tag"
+        );
     }
 }
 
