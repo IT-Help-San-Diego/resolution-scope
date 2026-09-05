@@ -38,7 +38,7 @@ Why:      <the standard or measurement reason>
 
 ## MTA-STS — a 3xx from the policy host is never followed
 
-Release:  unreleased — first tag after 2026-09-03 (PR #40)   Since: 2026-09-03
+Release:  v26.0.0-alpha.4 (PR #40)   Since: 2026-09-03
 Where:    engine/src/resolver.rs `Vantage::http_client`
           (`.redirect(reqwest::redirect::Policy::none())`);
           engine/src/analysis.rs `mta_sts_fetch_outcome`
@@ -67,7 +67,7 @@ Controls: engine/tests/egress_ledger.rs E5 (the fetch attempt is a
 
 ## MTA-STS — the policy host is resolved through the validating vantage
 
-Release:  unreleased — first tag after 2026-09-03 (PR #40)   Since: 2026-09-03
+Release:  v26.0.0-alpha.4 (PR #40)   Since: 2026-09-03
 Where:    engine/src/resolver.rs `Vantage::http_client`
           (`.dns_resolver(Arc::new(VantageResolve { .. }))`) over the
           vantage's hickory resolver with `validate = true`
@@ -111,7 +111,7 @@ Controls: engine/tests/egress_ledger.rs E7 (the client itself asks the
 
 ## MTA-STS — the policy fetch ignores the environment's proxy
 
-Release:  unreleased — first tag after 2026-09-03 (PR #40)   Since: 2026-09-03
+Release:  v26.0.0-alpha.4 (PR #40)   Since: 2026-09-03
 Where:    engine/src/resolver.rs `Vantage::http_client` (`.no_proxy()`)
 Before:   reqwest's default client honoured `HTTPS_PROXY` / `https_proxy`
           / `ALL_PROXY` from the environment (this build's reqwest has
@@ -145,7 +145,7 @@ Controls: engine/tests/egress_ledger.rs E5 (the accept at the policy host
 
 ## TLS-RPT — NXDOMAIN carrying the domain's OWN SOA is record-absent, not "no zone"
 
-Release:  unreleased — first tag after 2026-09-03 (PR #42)   Since: 2026-09-03
+Release:  v26.0.0-alpha.4 (PR #42)   Since: 2026-09-03
 Where:    engine/src/analysis.rs `tls_rpt_err_to_disposition` (the NXDOMAIN
           arm, which was `let _ = domain;` — the scanned domain was received
           and discarded); engine/src/analysis.rs `err_soa_zone`
@@ -240,8 +240,8 @@ Controls: engine/src/analysis.rs — every kill set below OBSERVED by mutating
 
 ## DANE + TLS-RPT — existence is MEASURED with a second query, never inferred from the SOA's name
 
-Release:  unreleased — first tag after 2026-09-03 (PR #45, corrected in the
-          same unreleased window by PR #47)   Since: 2026-09-04
+Release:  v26.0.0-alpha.4 (PR #45, corrected in the
+          same pre-tag window by PR #47, both in v26.0.0-alpha.4)   Since: 2026-09-04
 Where:    engine/src/analysis.rs `tlsa_err_to_count`,
           `tls_rpt_err_to_disposition`, `score_dane` (the tlsa_zone loop, the
           DnssecRequired gate loop and the TLSA loop), `score_tls_rpt`;
@@ -655,7 +655,7 @@ disposition.
 
 ## DMARC + MTA-STS — the sub-label under-claim is repaired with the same one-query probe
 
-Release:  unreleased — first tag after 2026-09-04 (the sub-label half of the
+Release:  v26.0.0-alpha.4 (the sub-label half of the
           repair MEASUREMENT_SEMANTICS 2026-09-04 named as "knowingly out of
           scope" of #47)   Since: 2026-09-04
 Where:    engine/src/analysis.rs `dmarc_err_to_disposition`,
