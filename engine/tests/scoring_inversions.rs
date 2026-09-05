@@ -200,3 +200,107 @@ async fn a_short_but_real_rua_address_is_accepted() {
         "an 18-character mailto: is a working endpoint; grading it invalid would accuse a correct domain"
     );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CAA — the third control to get its first positive wire-path observation.
+//
+// `CaaDisposition::FullyRestricted` was asserted by no integration test. The
+// detector wants tag == "issue" and the raw value bytes == b";", which is how
+// hickory encodes an absent issuer name. Whether a record built with
+// `CAA::new_issue(false, None, vec![])` actually ROUND-TRIPS to those bytes is
+// the thing this test settles rather than assumes — the CSYNC defect was
+// exactly a round-trip assumption nobody had checked.
+
+/// A domain publishing `issue ";"` forbids all certificate issuance.
+#[tokio::test]
+async fn a_caa_issue_semicolon_reads_fully_restricted() {
+    use hickory_proto::rr::rdata::CAA;
+    let mut c = HashMap::new();
+    c.insert(
+        key("apex.test", RecordType::CAA),
+        Canned::ok(vec![Record::from_rdata(
+            n("apex.test"),
+            3600,
+            RData::CAA(CAA::new_issue(false, None, vec![])),
+        )]),
+    );
+    let stub = Stub::start_with(c).await;
+    let v = vantage_at(&stub);
+    let a = analyse_domain(&v, "apex.test").await.unwrap();
+    assert_eq!(
+        a.caa_disposition,
+        resolution_scope_engine::CaaDisposition::FullyRestricted,
+        "issue \";\" is the no-CA-may-issue sentinel (RFC 8659 §4.2)"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CDS — both positive states, neither previously observed over the wire.
+//
+// RFC 8078 §4: a CDS whose algorithm field is ZERO is the DELETE sentinel,
+// asking the parent to remove the DS RRset. hickory models that as
+// `algorithm: Option<Algorithm>` = None, and the engine detects it with
+// `cds.algorithm().is_none()`. A CDS carrying a real algorithm is an ordinary
+// rollover hint and reads Published.
+//
+// The two states differ by ONE field, and the difference decides whether the
+// tool reports "this domain wants its DNSSEC delegation removed" — which is a
+// destructive request — or "this domain is rolling a key". Getting them
+// backwards would be a serious mislabel, and nothing observed either.
+
+fn cds_world(
+    rd: hickory_proto::dnssec::rdata::DNSSECRData,
+) -> HashMap<(String, RecordType), Canned> {
+    let mut c = HashMap::new();
+    c.insert(
+        key("apex.test", RecordType::CDS),
+        Canned::ok(vec![Record::from_rdata(
+            n("apex.test"),
+            3600,
+            RData::DNSSEC(rd),
+        )]),
+    );
+    c
+}
+
+async fn cds_for(
+    rd: hickory_proto::dnssec::rdata::DNSSECRData,
+) -> resolution_scope_engine::CdsDisposition {
+    let stub = Stub::start_with(cds_world(rd)).await;
+    let v = vantage_at(&stub);
+    analyse_domain(&v, "apex.test")
+        .await
+        .unwrap()
+        .cds_disposition
+}
+
+/// A null CDS (algorithm 0) is a DELETION request, not a publication.
+#[tokio::test]
+async fn a_null_cds_reads_deletion_requested() {
+    use hickory_proto::dnssec::rdata::{DNSSECRData, CDS};
+    use hickory_proto::dnssec::DigestType;
+    let cds = CDS::new(0, None, DigestType::SHA256, vec![0]);
+    assert_eq!(
+        cds_for(DNSSECRData::CDS(cds)).await,
+        resolution_scope_engine::CdsDisposition::DeletionRequested,
+        "algorithm 0 is the RFC 8078 delete sentinel — the domain is asking the parent to remove its DS"
+    );
+}
+
+/// A CDS carrying a real algorithm is an ordinary rollover hint.
+#[tokio::test]
+async fn a_real_cds_reads_published_not_deletion() {
+    use hickory_proto::dnssec::rdata::{DNSSECRData, CDS};
+    use hickory_proto::dnssec::{Algorithm, DigestType};
+    let cds = CDS::new(
+        12345,
+        Some(Algorithm::ECDSAP256SHA256),
+        DigestType::SHA256,
+        vec![0u8; 32],
+    );
+    assert_eq!(
+        cds_for(DNSSECRData::CDS(cds)).await,
+        resolution_scope_engine::CdsDisposition::Published,
+        "a CDS with a real algorithm is a rollover hint; calling it a deletion request would invert a destructive signal"
+    );
+}
