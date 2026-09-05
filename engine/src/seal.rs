@@ -310,7 +310,14 @@ fn compose_engine_version(pkg: &str, git: Option<&str>) -> String {
                 format!("{pkg}-{stamp}")
             }
         }
-        _ => pkg.to_string(),
+        // POSITIVELY distinct, not distinct-by-absence. build.rs computes
+        // the literal "untracked" precisely so a tarball or vendored build
+        // announces itself, and this arm used to throw that away and return
+        // the bare version. That was harmless only while every git build
+        // carried a suffix; once tag stamps collapse to the bare semver, a
+        // tagged RELEASE build and a no-git build stamp the same string and
+        // therefore seal identically. Measured on main before this change.
+        _ => format!("{pkg}-untracked"),
     }
 }
 
@@ -392,9 +399,10 @@ mod tests {
 
     /// Pins the version-string fallback rules mutation testing found
     /// entirely unguarded: a build where the git stamp is empty or
-    /// "untracked" must fall back to the BARE crate version ("visibly
-    /// distinct, never a silent default" — the fn's own doc, previously
-    /// asserted by nothing).
+    /// "untracked" must fall back to a POSITIVELY distinct marker,
+    /// `<version>-untracked` — "visibly distinct, never a silent default",
+    /// the fn's own doc, which the bare version stopped satisfying once tag
+    /// stamps began collapsing to that same bare version.
     #[test]
     fn engine_version_fallback_rules_are_pinned() {
         assert_eq!(
@@ -419,12 +427,15 @@ mod tests {
             compose_engine_version("26.0.0-alpha.4", Some("v26.0.0-alpha.3-5-gabc1234")),
             "26.0.0-alpha.4-26.0.0-alpha.3-5-gabc1234"
         );
-        assert_eq!(compose_engine_version("26.0.0", Some("")), "26.0.0");
+        assert_eq!(
+            compose_engine_version("26.0.0", Some("")),
+            "26.0.0-untracked"
+        );
         assert_eq!(
             compose_engine_version("26.0.0", Some("untracked")),
-            "26.0.0"
+            "26.0.0-untracked"
         );
-        assert_eq!(compose_engine_version("26.0.0", None), "26.0.0");
+        assert_eq!(compose_engine_version("26.0.0", None), "26.0.0-untracked");
         // And the public fn actually routes through the combinator with the
         // real crate version — a body replaced by String::new() fails here.
         assert!(engine_version().starts_with(env!("CARGO_PKG_VERSION")));
@@ -623,5 +634,39 @@ mod tests {
             canonical_input_under_scheme(&f, "0.1.0", SEAL_SCHEME),
         )
         .expect("write probe file");
+    }
+
+    /// PROVENANCE DISTINCTNESS. build.rs opens by promising the no-git case
+    /// falls back to "a VISIBLY-distinct marker (never a silent default)", and
+    /// its first line states the property that matters: "two builds emitting
+    /// different verdicts must stamp different versions". This string is
+    /// hashed into every seal — `seal()` passes `engine_version()` to
+    /// `seal_versioned`, which puts it on line 3 of the preimage — so two
+    /// build contexts sharing a version string share a seal.
+    ///
+    /// Before the tag-collapse fix that promise held only by accident: every
+    /// git build carried a suffix, so a bare version meant no-git and nothing
+    /// else. Collapsing the tag stamp gave the tagged RELEASE build a bare
+    /// version too, and an engine built from a modified tarball — where there
+    /// is no git to detect dirtiness — became indistinguishable from the
+    /// official release.
+    #[test]
+    fn tag_build_and_no_git_build_stamp_different_versions() {
+        let tag = compose_engine_version("26.0.0-alpha.4", Some("v26.0.0-alpha.4"));
+        let untracked = compose_engine_version("26.0.0-alpha.4", Some("untracked"));
+        let absent = compose_engine_version("26.0.0-alpha.4", None);
+        let empty = compose_engine_version("26.0.0-alpha.4", Some(""));
+        assert_eq!(tag, "26.0.0-alpha.4", "a tag build stamps the bare semver");
+        for (label, got) in [
+            ("untracked", &untracked),
+            ("absent", &absent),
+            ("empty", &empty),
+        ] {
+            assert_ne!(
+                &tag, got,
+                "a {label} build stamps the same version as a TAGGED RELEASE build, \
+                 so both produce the same seal — build.rs promises a visibly-distinct marker"
+            );
+        }
     }
 }
