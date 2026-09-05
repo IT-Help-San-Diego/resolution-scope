@@ -363,6 +363,27 @@ jobs:
       - name: Every theorem pinned or reachable from a pin
         run: bash scripts/check-lean-pins.sh
 
+  ci-coverage:
+    name: ci-ok gates every job
+    # ci-ok is the SINGLE required context branch protection asks for. A job
+    # defined but missing from its `needs` still runs and still shows a green
+    # tick on the PR, while gating nothing: it can go red while ci-ok goes
+    # green and the merge proceeds. This repository recorded that exact defect
+    # once, on seal-scheme-consistency, and caught it by hand.
+    #
+    # Since protection now requires ci-ok and nothing else, the cost of the
+    # mistake changed: it is no longer a check nobody noticed, it is a merge
+    # that protection believes it verified. This job asserts the set equality
+    # in both directions and fails closed on an unparseable or empty file.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5 tag @ 2026-08-29
+        with:
+          persist-credentials: false
+      - name: Every job is gated, and every gate exists
+        run: bash scripts/check-ci-coverage.sh
+
   ci-ok:
     name: ci-ok
     if: always()
@@ -374,6 +395,7 @@ jobs:
         semantics-numbers,
         release-class,
         lean-pin-coverage,
+        ci-coverage,
         crates,
         native-lib,
         licenses,
