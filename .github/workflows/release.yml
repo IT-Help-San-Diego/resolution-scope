@@ -134,6 +134,22 @@ jobs:
             echo "::error::--version field is '$2', expected exactly '$EXPECT' (tag ${GITHUB_REF_NAME}) — manifest/tag drift; refuse to ship"
             exit 1
           fi
+            # AND THE ENGINE STAMP, which the check above structurally
+            # cannot see. `$2` is clap's version: the CLI crate's
+            # CARGO_PKG_VERSION. The ENGINE's git-describe stamp is a
+            # different string, and it is the one hashed into every seal as
+            # preimage line 3. Nothing in the release path observed it, which
+            # is precisely how `26.0.0-alpha.4-v26.0.0-alpha.4` shipped past a
+            # green gate. Measured at that tag with the pre-fix engine: `$2`
+            # passes and `$4` fails, so this assertion would have stopped that
+            # publish. A clean tag checkout composes the bare version; a dirty
+            # tree, a lost git dir or a doubled stamp all differ and are
+            # refused — a release is built from a clean tag or it is not built.
+            if [ "$4" != "$EXPECT" ]; then
+              echo "::error::engine stamp is '$4', expected exactly '$EXPECT' — the seal-bearing provenance string disagrees with the tag; refuse to ship"
+              exit 1
+            fi
+            echo "cli version and engine stamp both name ${GITHUB_REF_NAME}"
       - name: Package with sha256 receipt
         run: |
           set -euo pipefail
