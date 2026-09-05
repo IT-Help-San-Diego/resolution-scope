@@ -289,9 +289,27 @@ pub fn engine_version() -> String {
 /// are testable: `option_env!` is compile-time, so the three git-stamp cases
 /// (absent / empty / "untracked") could never be exercised through the public
 /// fn — mutation testing found every mutant here surviving (2026-08-29).
+///
+/// TAG CASE (2026-09-05, alpha.4 release): `git describe --always --dirty
+/// --tags` run at an exact tag checkout returns the TAG NAME itself (e.g.
+/// "v26.0.0-alpha.4"), not the usual "tag-N-g<hash>" shape. Concatenating
+/// that onto the manifest version produced "26.0.0-alpha.4-v26.0.0-alpha.4"
+/// on every release build — measured live on the published alpha.4 binary.
+/// The stamp is NORMALIZED: leading "v" stripped, and when the result equals
+/// the pkg version the stamp ADDS NOTHING (the manifest already carries the
+/// tag's semver — Cargo.toml and the tag are bumped in the same release PR),
+/// so the version is the bare pkg. Anything else (dirty suffix, hash, older
+/// tag) still concatenates — those carry information the manifest lacks.
 fn compose_engine_version(pkg: &str, git: Option<&str>) -> String {
     match git {
-        Some(git) if !git.is_empty() && git != "untracked" => format!("{pkg}-{git}"),
+        Some(git) if !git.is_empty() && git != "untracked" => {
+            let stamp = git.strip_prefix('v').unwrap_or(git);
+            if stamp == pkg {
+                pkg.to_string()
+            } else {
+                format!("{pkg}-{stamp}")
+            }
+        }
         _ => pkg.to_string(),
     }
 }
@@ -382,6 +400,24 @@ mod tests {
         assert_eq!(
             compose_engine_version("26.0.0", Some("g1234abc")),
             "26.0.0-g1234abc"
+        );
+        // TAG-SHAPE stamps (release builds at an exact tag): the tag name
+        // equals the manifest semver, so concatenating duplicated it —
+        // "26.0.0-alpha.4-v26.0.0-alpha.4" measured live on the published
+        // alpha.4 binary. The tag stamp must collapse to the bare version.
+        assert_eq!(
+            compose_engine_version("26.0.0-alpha.4", Some("v26.0.0-alpha.4")),
+            "26.0.0-alpha.4"
+        );
+        // ...but stamps that carry MORE than the tag (dirty builds, off-tag
+        // hashes) still concatenate — provenance is additive there.
+        assert_eq!(
+            compose_engine_version("26.0.0-alpha.4", Some("v26.0.0-alpha.4-dirty")),
+            "26.0.0-alpha.4-26.0.0-alpha.4-dirty"
+        );
+        assert_eq!(
+            compose_engine_version("26.0.0-alpha.4", Some("v26.0.0-alpha.3-5-gabc1234")),
+            "26.0.0-alpha.4-26.0.0-alpha.3-5-gabc1234"
         );
         assert_eq!(compose_engine_version("26.0.0", Some("")), "26.0.0");
         assert_eq!(
