@@ -157,6 +157,48 @@ jobs:
         run: |
           NAME="resolution-scope-${GITHUB_REF_NAME}-${{ matrix.target }}"
           gh release upload "$GITHUB_REF_NAME" "$NAME" "$NAME.sha256" --clobber
+      # THE RECEIPT IS THE ONE CLAIM THIS RELEASE ASKS STRANGERS TO TRUST —
+      # the notes say "Verify each artifact against its .sha256 receipt" — and
+      # until now it was the only outward-facing claim here with NO read-back.
+      # The prerelease flag is read back, under a comment saying a metadata
+      # claim nobody re-reads is a claim nobody checked. The receipt was that
+      # claim. Nothing checked that what GitHub STORED is what we HASHED: the
+      # receipt is computed locally, then artifact and receipt are uploaded as
+      # two independent objects, and `--clobber` means a re-run can replace
+      # one. GitHub computes a digest per asset, so this costs one API call
+      # and no download.
+      - name: Read the receipt BACK from what GitHub stored
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          NAME="resolution-scope-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          WANT="sha256:$(cut -d' ' -f1 < "$NAME.sha256")"
+          # The digest may be computed asynchronously after upload, so poll a
+          # bounded number of times rather than reading once and guessing.
+          GOT=""
+          for _ in 1 2 3 4 5 6; do
+            GOT=$(gh release view "$GITHUB_REF_NAME" --json assets \
+                    --jq ".assets[] | select(.name==\"$NAME\") | .digest // empty")
+            [ -n "$GOT" ] && break
+            sleep 5
+          done
+          if [ -z "$GOT" ]; then
+            echo "::error::no digest for $NAME after upload — cannot confirm the stored artifact matches its receipt, so refusing to treat the receipt as checked"
+            exit 1
+          fi
+          if [ "$GOT" != "$WANT" ]; then
+            echo "::error::stored $NAME has digest $GOT but its published .sha256 receipt says $WANT — the artifact and the receipt users are told to verify against do not agree"
+            exit 1
+          fi
+          # And the receipt itself must actually be on the release; a verified
+          # binary whose receipt failed to upload is unverifiable to a user.
+          if ! gh release view "$GITHUB_REF_NAME" --json assets \
+                 --jq '[.assets[].name]|join(" ")' | grep -q "$NAME.sha256"; then
+            echo "::error::$NAME.sha256 is not present on the release — the binary shipped without the receipt it is meant to be checked against"
+            exit 1
+          fi
+          echo "receipt read back and matches stored artifact: $NAME $GOT"
 
   publish:
     needs: build
