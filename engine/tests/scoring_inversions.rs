@@ -121,3 +121,82 @@ async fn two_csync_records_are_policy_invalid() {
         "multiple CSYNC records are a policy error the parent must ignore (RFC 7477)"
     );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TLS-RPT — the same disposition shape as CSYNC, reached over TXT.
+//
+// TLS-RPT and CSYNC have IDENTICAL enums (Published / RecordAbsent / NoZone /
+// TransientError / PolicyInvalid) and near-identical branch structure. CSYNC
+// was broken because the engine asked with an untyped RecordType; TLS-RPT asks
+// with TXT, so a positive test here isolates that bug to the record type
+// rather than to the shape both controls share. `TlsRptDisposition::Published`
+// was, like CSYNC's, asserted by no integration test before this file.
+//
+// The two boundary tests also kill the remaining scoring survivors from the
+// 2026-09-05 re-baseline:
+//   analysis.rs:2001  `uri.len() > "mailto:".len() + 3`  ->  + replaced by - or *
+
+fn tls_rpt_world(txt: &str) -> HashMap<(String, RecordType), Canned> {
+    let mut c = HashMap::new();
+    c.insert(
+        key("_smtp._tls.apex.test", RecordType::TXT),
+        Canned::ok(vec![Record::from_rdata(
+            n("_smtp._tls.apex.test"),
+            3600,
+            RData::TXT(hickory_proto::rr::rdata::TXT::new(vec![txt.to_string()])),
+        )]),
+    );
+    c
+}
+
+async fn tls_rpt_for(txt: &str) -> resolution_scope_engine::TlsRptDisposition {
+    let stub = Stub::start_with(tls_rpt_world(txt)).await;
+    let v = vantage_at(&stub);
+    analyse_domain(&v, "apex.test")
+        .await
+        .unwrap()
+        .tls_rpt_disposition
+}
+
+/// A published TLS-RPT record with a real reporting address reads `Published`.
+///
+/// The positive observation this control had never had. If it failed the way
+/// CSYNC did, the shape would be the suspect; it passes, so the CSYNC defect
+/// is isolated to that control's untyped RecordType.
+#[tokio::test]
+async fn a_published_tls_rpt_record_is_published() {
+    assert_eq!(
+        tls_rpt_for("v=TLSRPTv1; rua=mailto:reports@apex.test").await,
+        resolution_scope_engine::TlsRptDisposition::Published,
+        "a valid record with a parseable rua endpoint is PUBLISHED"
+    );
+}
+
+/// A rua URI too short to be an address is NOT a parseable endpoint.
+///
+/// `"mailto:".len() + 3` is 10, so `mailto:a@b` (exactly 10) must FAIL the
+/// length test and the record is PolicyInvalid. Kills `replace + with -`
+/// (threshold 4), under which this would read Published.
+#[tokio::test]
+async fn a_rua_uri_at_the_length_floor_is_not_parseable() {
+    assert_eq!(
+        tls_rpt_for("v=TLSRPTv1; rua=mailto:a@b").await,
+        resolution_scope_engine::TlsRptDisposition::PolicyInvalid,
+        "a 10-character mailto: is at the floor, not above it — a record with no usable endpoint is PolicyInvalid"
+    );
+}
+
+/// A short but genuine reporting address is parseable.
+///
+/// `mailto:r@apex.test` is 18 characters: above the real threshold of 10, and
+/// below the 21 that `replace + with *` would impose. Kills that mutant, under
+/// which a legitimate record would be graded PolicyInvalid — a fabricated
+/// policy error against a domain that published a working endpoint.
+#[tokio::test]
+async fn a_short_but_real_rua_address_is_accepted() {
+    assert_eq!(
+        tls_rpt_for("v=TLSRPTv1; rua=mailto:r@apex.test").await,
+        resolution_scope_engine::TlsRptDisposition::Published,
+        "an 18-character mailto: is a working endpoint; grading it invalid would accuse a correct domain"
+    );
+}
