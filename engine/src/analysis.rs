@@ -307,6 +307,38 @@ fn receipt_from_err(control: ControlId, e: &NetError, elapsed_ms: u64) -> Option
                 }
             }
         }
+        // A bare rcode with no records. MEASURED against a loopback stub
+        // (2026-09-05): hickory delivers SERVFAIL as
+        // `Dns(ResponseCode(ServFail))` and REFUSED as
+        // `Dns(ResponseCode(Refused))` — a DIFFERENT variant from the
+        // `NoRecordsFound` arm above, whose `response_code` is only ever
+        // NoError or NXDomain. Without this arm both fell to `_ => None`, so
+        // `ReceiptRcode::ServFail` and `ReceiptRcode::Refused` were written,
+        // mapped by `receipt_rcode_token`, and STRUCTURALLY UNREACHABLE: a
+        // scan whose every lookup was REFUSED produced ZERO receipts out of
+        // the ten `ControlId::ALL` expects. On an instrument whose receipts
+        // ARE the provenance, two entire failure classes left no evidence.
+        //
+        // `DenialProof::None` is correct here rather than lazy: this shape
+        // carries no authority section to extract a denial from, which is
+        // exactly what distinguishes it from the NoRecordsFound arm.
+        NetError::Dns(DnsError::ResponseCode(rc)) => match receipt_rcode_token(*rc) {
+            Some(rcode) => Some(LookupReceipt {
+                control,
+                rcode,
+                answer_count: 0,
+                denial_proof: DenialProof::None,
+                elapsed_ms,
+            }),
+            None => {
+                warn!(
+                    control = ?control,
+                    rcode = ?rc,
+                    "rcode outside receipt vocabulary — no receipt row"
+                );
+                None
+            }
+        },
         NetError::Timeout => Some(LookupReceipt {
             control,
             rcode: ReceiptRcode::Timeout,
