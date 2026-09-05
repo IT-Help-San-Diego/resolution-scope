@@ -134,6 +134,22 @@ jobs:
             echo "::error::--version field is '$2', expected exactly '$EXPECT' (tag ${GITHUB_REF_NAME}) — manifest/tag drift; refuse to ship"
             exit 1
           fi
+            # AND THE ENGINE STAMP, which the check above structurally
+            # cannot see. `$2` is clap's version: the CLI crate's
+            # CARGO_PKG_VERSION. The ENGINE's git-describe stamp is a
+            # different string, and it is the one hashed into every seal as
+            # preimage line 3. Nothing in the release path observed it, which
+            # is precisely how `26.0.0-alpha.4-v26.0.0-alpha.4` shipped past a
+            # green gate. Measured at that tag with the pre-fix engine: `$2`
+            # passes and `$4` fails, so this assertion would have stopped that
+            # publish. A clean tag checkout composes the bare version; a dirty
+            # tree, a lost git dir or a doubled stamp all differ and are
+            # refused — a release is built from a clean tag or it is not built.
+            if [ "$4" != "$EXPECT" ]; then
+              echo "::error::engine stamp is '$4', expected exactly '$EXPECT' — the seal-bearing provenance string disagrees with the tag; refuse to ship"
+              exit 1
+            fi
+            echo "cli version and engine stamp both name ${GITHUB_REF_NAME}"
       - name: Package with sha256 receipt
         run: |
           set -euo pipefail
@@ -194,3 +210,49 @@ jobs:
             echo "::error::published prerelease flag is '$GOT', expected '$WANT' for tag $GITHUB_REF_NAME"; exit 1
           fi
           echo "published $GITHUB_REF_NAME with prerelease=$GOT"
+      # THE RECEIPT IS THE ONE CLAIM THIS RELEASE ASKS STRANGERS TO TRUST —
+      # the notes say "Verify each artifact against its .sha256 receipt" — and
+      # until now it was the only outward-facing claim here with NO read-back.
+      # The prerelease flag above IS read back, under a comment saying a
+      # metadata claim nobody re-reads is a claim nobody checked. The receipt
+      # was exactly that claim: it is computed on the build runner, then the
+      # binary and the receipt are uploaded as two INDEPENDENT objects, and
+      # --clobber means a re-run can replace one of them. The gate above checks
+      # only that asset NAMES mention each target, which is presence, not
+      # integrity.
+      #
+      # This lives in `publish`, not in `build`, deliberately. GitHub computes
+      # the asset digest server-side and may do it asynchronously, so a check
+      # firing immediately after upload could race it and fail a good release —
+      # a false red on the release path, which this repository has already paid
+      # for once. `publish` runs after all four builds. Measured on
+      # v26.0.0-alpha.4: last upload 07:29:41Z, release published 07:29:53Z,
+      # all eight digests populated. Only the receipts are fetched here, about
+      # 120 bytes each; the binaries are never downloaded.
+      - name: Read every receipt BACK against the digest GitHub stored
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p _receipts && cd _receipts
+          gh release download "$GITHUB_REF_NAME" --pattern '*.sha256' --clobber
+          n=0
+          for r in *.sha256; do
+            BIN="${r%.sha256}"
+            WANT="sha256:$(cut -d' ' -f1 < "$r")"
+            GOT=$(gh release view "$GITHUB_REF_NAME" --json assets \
+                    --jq ".assets[] | select(.name==\"$BIN\") | .digest // empty")
+            if [ -z "$GOT" ]; then
+              echo "::error::no stored digest for $BIN — cannot confirm it matches the receipt users are told to check it against"; exit 1
+            fi
+            if [ "$GOT" != "$WANT" ]; then
+              echo "::error::$BIN has stored digest $GOT but its published receipt says $WANT — the artifact and its receipt disagree"; exit 1
+            fi
+            echo "  verified $BIN $GOT"
+            n=$((n + 1))
+          done
+          # Fail closed: zero receipts verified is not a pass.
+          if [ "$n" -ne 4 ]; then
+            echo "::error::verified $n receipts, expected 4 — a target shipped without one, and a binary whose receipt is missing is unverifiable to a user"; exit 1
+          fi
+          echo "all $n receipts match the artifacts GitHub stored"
