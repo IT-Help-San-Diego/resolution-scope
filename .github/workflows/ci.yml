@@ -335,6 +335,55 @@ jobs:
       - name: Pin every tag shape across both case statements
         run: bash scripts/check-release-class.sh
 
+  lean-pin-coverage:
+    name: Lean pins — every theorem's axioms audited
+    # The axiom pins in Scoring.lean are real and strong: each is a
+    # `#guard_msgs` + `#print axioms` pair, so a proof that starts depending on
+    # a new axiom fails at `lean`. What was NOT enforced is COVERAGE — that a
+    # theorem HAS a pin. Measured 2026-09-05: appending a twentieth theorem
+    # with no pin and running this repo's exact lean-proofs command exits 0,
+    # because `lean` cannot know a project convention and nothing else in CI
+    # mentioned the pins. The property held at 19 of 19 by discipline, which
+    # is the same fortunate-not-guaranteed shape this project named when it
+    # argued for branch protection.
+    #
+    # The rule is transitive on purpose. This gate's first draft demanded a pin
+    # on EVERY theorem and immediately failed a clean main over four private
+    # helpers — wrongly, because `#print axioms` is transitive: making
+    # `filter_eq_nil_of_all_false` a `sorry` moves the PINNED theorem
+    # `empty_surface_is_none` from [propext] to [propext, sorryAx] and fails
+    # its own guard. So private helpers are audited through their users, and
+    # only an UNREACHABLE private theorem is audited by nothing.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5 tag @ 2026-08-29
+        with:
+          persist-credentials: false
+      - name: Every theorem pinned or reachable from a pin
+        run: bash scripts/check-lean-pins.sh
+
+  ci-coverage:
+    name: ci-ok gates every job
+    # ci-ok is the SINGLE required context branch protection asks for. A job
+    # defined but missing from its `needs` still runs and still shows a green
+    # tick on the PR, while gating nothing: it can go red while ci-ok goes
+    # green and the merge proceeds. This repository recorded that exact defect
+    # once, on seal-scheme-consistency, and caught it by hand.
+    #
+    # Since protection now requires ci-ok and nothing else, the cost of the
+    # mistake changed: it is no longer a check nobody noticed, it is a merge
+    # that protection believes it verified. This job asserts the set equality
+    # in both directions and fails closed on an unparseable or empty file.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5 tag @ 2026-08-29
+        with:
+          persist-credentials: false
+      - name: Every job is gated, and every gate exists
+        run: bash scripts/check-ci-coverage.sh
+
   ci-ok:
     name: ci-ok
     if: always()
@@ -345,6 +394,8 @@ jobs:
         seal-scheme-consistency,
         semantics-numbers,
         release-class,
+        lean-pin-coverage,
+        ci-coverage,
         crates,
         native-lib,
         licenses,
