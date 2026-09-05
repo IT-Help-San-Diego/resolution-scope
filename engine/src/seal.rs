@@ -551,6 +551,38 @@ mod tests {
         assert_eq!(seal(&baseline()), seal(&rerun));
     }
 
+    /// The seal must be SENSITIVE to the version it stamps, which is the
+    /// property `build.rs` exists to serve — "two builds emitting different
+    /// verdicts must stamp different versions" is only meaningful if a
+    /// different version yields a different seal.
+    ///
+    /// Measured before writing this: dropping `produced_by_version` from the
+    /// preimage entirely kills ONLY the three known-answer tests, whose
+    /// message is "the seal moved" rather than "the version stopped
+    /// mattering". Those KATs are absolute hash pins and their own doc says
+    /// a scheme bump mints new ones — so the version's participation survived
+    /// as a SIDE EFFECT of pins designed to be re-minted, with no named test
+    /// asserting it. Every other preimage field already has one; line 3 was
+    /// the exception. This one is relational, so it survives a re-mint.
+    ///
+    /// The two strings are the real ones from the build-context distinctness
+    /// fix, which ties the properties together: making a tagged build and a
+    /// no-git build stamp differently only protects anything if the seal
+    /// notices the difference.
+    #[test]
+    fn seal_changes_when_engine_version_changes() {
+        assert_ne!(
+            seal_versioned(&baseline(), "26.0.0-alpha.4"),
+            seal_versioned(&baseline(), "26.0.0-alpha.4-untracked"),
+            "a tagged release build and a no-git build must not produce the same seal for the same analysis"
+        );
+        assert_ne!(
+            seal_versioned(&baseline(), "26.0.0-alpha.4"),
+            seal_versioned(&baseline(), "26.0.0-alpha.5"),
+            "two releases must not produce the same seal for the same analysis"
+        );
+    }
+
     #[test]
     fn seal_changes_when_resolver_identity_changes() {
         // The observation-conditions rule: the same verdict measured from a
