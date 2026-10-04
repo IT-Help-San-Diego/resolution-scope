@@ -87,14 +87,54 @@ RE_ROW = re.compile(r"^\s*\[row\s+regime=([A-Za-z0-9_-]+)\s+series=([A-Za-z0-9_-
 RE_DERIVED = re.compile(
     r"^\s*\[derived\s+lhs=(\S+)\s+rhs=(\S+)\s+fewer=(\d+)\s+equal=(\d+)\s+more=(\d+)\]\s*$"
 )
-# A line carrying three or more whitespace-separated BARE integers is a table.
-# Outside the tagged block that is an untagged table: an ungated claim that
-# never enters the marked region at all.
-RE_BARE_INTS = re.compile(r"(?:^|\s)(\d+)(?=\s|$)")
+# A line carrying three or more BARE integers is a table. Outside the tagged
+# block that is an untagged table: an ungated claim that never enters the
+# marked region at all.
+#
+# `|` COUNTS AS A DELIMITER, not just whitespace (measured 2026-09-06,
+# claude-code — the narrowness recorded as still-open on 2026-09-04, now
+# given its shape). `| 1 | 2 | 3 | 5 |` was caught and `|1|2|3|5|` was not:
+# two spellings of one markdown table got opposite verdicts, so the backstop
+# discriminated on SPACING rather than on content. Comma-separated prose
+# (`1, 2, 3, 5`) still passes, deliberately — this block's own error message
+# offers "state its numbers in prose" as the escape hatch, and measurement
+# confirmed it is open.
+RE_BARE_INTS = re.compile(r"(?:^|[\s|])(\d+)(?=[\s|]|$)")
 
 
 def norm(s):
     return re.sub(r"\s+", " ", s)
+
+
+RE_LINE_COMMENT = re.compile(r"^[ \t]*//.*$", re.M)
+
+
+def decomment(body):
+    """Drop whole-line `//` comments BEFORE any substring binding.
+
+    WHY (mutant, 2026-09-06, claude-code). The binding is a substring search
+    over the cited test's text, so commenting the assertion out while leaving
+    its text behind satisfies every check while the shipped assertion says
+    something weaker:
+
+        // TODO(perf): relaxed while the probe budget is retuned; was
+        // assert_eq!(count, 2, "mx={hosts}: exactly two");
+        assert!(count >= 1, ...);
+
+    Measured on this gate before this fix: a document claiming TWO probes
+    against a tree that really spends ONE passed, and the success line
+    printed "8 gated cells re-checked against 2 cited test(s) watched
+    passing" — the gate did not merely miss the drift, it affirmed it. The
+    control run WITHOUT the two comment lines dies naming the exact defect,
+    so the comment is what defeats the binding and nothing else. Neither my
+    control set nor the five mutants hermes planted on #50 covered it.
+
+    Whole-line comments only, and still no Rust is interpreted. A trailing
+    comment after real code keeps its line. A line inside a raw string that
+    begins with `//` would be stripped too — that direction makes the gate
+    FAIL LOUDLY, never pass quietly, which is the side to err on.
+    """
+    return RE_LINE_COMMENT.sub("", body)
 
 
 def parse(text):
@@ -357,7 +397,7 @@ def check_source(m, root):
                 % (r["line"], r["label"], name, name, m["gatefile"])
             )
             continue
-        nb = norm(body)
+        nb = norm(decomment(body))
         if norm(loop) not in nb:
             p.append(
                 "line %d: row %s cites `%s`, but that test does not contain the axis "
@@ -511,6 +551,15 @@ async fn t_const() {
     }
 }
 
+async fn t_commented() {
+    for hosts in [1usize, 2, 3, 5] {
+        let (count, d) = measure(hosts, true).await;
+        // TODO(perf): relaxed while the probe budget is retuned; was
+        // assert_eq!(count, 1, "mx={hosts}: exactly one");
+        assert!(count >= 1, "mx={hosts}: at least one");
+    }
+}
+
 async fn t_axis() {
     for hosts in [1usize, 2, 3, 5] {
         let (count, d) = measure(hosts, false).await;
@@ -589,6 +638,23 @@ FIXTURES = [
     (
         "an untagged table added elsewhere in the document",
         GOOD.replace("prose below", "prose below\n  other axis   7    8    9"),
+        "OUTSIDE the cost-table block",
+    ),
+    (
+        # MEASURED MUTANT, 2026-09-06. Survived this gate before decomment():
+        # the assertion the document cites exists only as a commented-out
+        # line, the shipped assertion is weaker, and the substring binding
+        # could not tell the difference. See decomment()'s own note.
+        "the cited assertion survives only as a COMMENT",
+        GOOD.replace("gated:t_const", "gated:t_commented"),
+        "must assert",
+    ),
+    (
+        # MEASURED MUTANT, 2026-09-06. `| 1 | 2 | 3 | 5 |` was caught and
+        # `|1|2|3|5|` was not — one markdown table, two spellings, opposite
+        # verdicts. The backstop discriminated on spacing.
+        "an untagged PIPE table whose integers are not space-delimited",
+        GOOD.replace("prose below", "prose below\n|7|8|9|"),
         "OUTSIDE the cost-table block",
     ),
 ]
