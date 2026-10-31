@@ -64,16 +64,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-14
+          - runner: macos-15
             target: aarch64-apple-darwin
-          # macos-13 (Intel) was RETIRED by GitHub 2026-09 — a job targeting a
-          # removed runner label queues forever instead of failing, which sat
-          # the v26.0.0-alpha.2 release in a 25h silent queue (ledger
-          # 2026-09-02T05:55Z). Fix: build the Intel target on the arm64
-          # runner — macOS arm64 runs x86_64 binaries natively via Rosetta 2,
-          # so the smoke test stays honest (it EXECUTES the cross-built
-          # binary, not just packages it).
-          - runner: macos-14
+          # macos-13 (Intel) was RETIRED by GitHub 2026-09 and macos-14 by
+          # 2026-11-02 — a job targeting a removed runner label queues
+          # forever instead of failing, which sat the v26.0.0-alpha.2 release
+          # in a 25h silent queue (ledger 2026-09-02T05:55Z). Fix: build the
+          # Intel target on the arm64 runner — macOS arm64 runs x86_64
+          # binaries natively via Rosetta 2, so the smoke test stays honest
+          # (it EXECUTES the cross-built binary, not just packages it).
+          # macos-15 is the pinned arm64 label; macos-latest would roll
+          # forward silently on every GitHub image change.
+          - runner: macos-15
             target: x86_64-apple-darwin
           - runner: ubuntu-latest
             target: x86_64-unknown-linux-gnu
@@ -94,7 +96,7 @@ jobs:
         # triple: cargo needs --target to select the cross toolchain, and the
         # binary then lands under target/<triple>/release/ instead of
         # target/release/. Same-runner builds stay native (no flag, no path
-        # shift) — the two macOS targets both run on macos-14 arm64, where
+        # shift) — the two macOS targets both run on macos-15 arm64, where
         # Rosetta 2 executes the x86_64 binary for the smoke test.
         run: |
           set -euo pipefail
