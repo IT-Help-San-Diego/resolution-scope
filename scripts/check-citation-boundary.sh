@@ -49,6 +49,7 @@ fi
 
 fail=0
 scanned=0
+files_scanned=0
 
 # Every crate root = a directory containing a Cargo.toml at ANY depth from the
 # repo root (engine/Cargo.toml, tui/Cargo.toml, native/Cargo.toml, future
@@ -57,7 +58,13 @@ scanned=0
 while IFS= read -r manifest; do
     crate_dir="$(dirname "$manifest")"
     crate_name="$(basename "$crate_dir")"
-    if [ "$crate_name" = "engine" ] || [ "$crate_name" = "types" ]; then
+    # The carve-out is by EXACT PATH, not basename. Matching on basename
+    # exempted any crate named engine/ or types/ at ANY depth — a future
+    # web/types/ or render/engine/ would have been skipped silently, with no
+    # line printed and no contribution to the count, which is the quietest way
+    # a boundary check can be defeated. Measured 2026-09-05.
+    crate_rel="${crate_dir#./}"
+    if [ "$crate_rel" = "engine" ] || [ "$crate_rel" = "types" ]; then
         # Licensed citation producers. engine/ holds the requirement layer
         # (truth_chain.rs) and the scoring logic; types/ holds the disposition
         # semantics, whose RFC citations live in the enum doc comments and move
@@ -71,10 +78,25 @@ while IFS= read -r manifest; do
         fail=1
         continue
     fi
+    # EVERY compiled path, not just src/. tests/, examples/, benches/ and a
+    # crate-root build.rs are all Rust that cargo compiles, and none of them
+    # was ever read. That was live, not hypothetical: pq-harness/tests/ is
+    # tracked and exercised by the crates matrix, and an RFC literal placed
+    # there left this gate green while the job's own name says "RFC literals
+    # stay in the engine". Measured 2026-09-05, and measured again before
+    # widening: zero existing literals live in these paths, so the extension
+    # names no pre-existing violation.
+    scan_dirs="$src_dir"
+    for extra in tests examples benches; do
+        [ -d "$crate_dir/$extra" ] && scan_dirs="$scan_dirs $crate_dir/$extra"
+    done
     # Scan each .rs file whole: read it, strip newlines, then match. This
     # catches citations split across source lines (arm 6 of the six-arm test).
     hits=""
+    crate_files=0
     while IFS= read -r src_file; do
+        files_scanned=$((files_scanned + 1))
+        crate_files=$((crate_files + 1))
         # Read the file, collapse newlines to nothing, then test the pattern.
         collapsed=$(tr -d '\n\r' < "$src_file")
         if printf '%s' "$collapsed" | grep -qE "$PATTERN" 2>/dev/null; then
@@ -87,7 +109,7 @@ while IFS= read -r manifest; do
                 hits="$hits${src_file}: (citation split across lines)$'\n'"
             fi
         fi
-    done < <(find "$src_dir" -name '*.rs' | sort)
+    done < <( { find $scan_dirs -name '*.rs'; [ -f "$crate_dir/build.rs" ] && echo "$crate_dir/build.rs"; } | sort )
 
     if [ -n "$hits" ]; then
         echo "✗ $crate_name: RFC citation literal(s) outside the engine:"
@@ -95,8 +117,16 @@ while IFS= read -r manifest; do
         echo "    Citations live in engine/src/truth_chain.rs (layer 1 of the"
         echo "    truth chain); render from the model instead."
         fail=1
+    elif [ "$crate_files" -eq 0 ]; then
+        # A crate whose compiled paths hold no .rs files at all reported ✓ and
+        # incremented the crate count. The check counted CRATES, never FILES,
+        # so "8 crates scanned" could mean eight directories and zero reads —
+        # a pass by finding nothing, which is the defect this gate exists to
+        # prevent, in the gate.
+        echo "✗ $crate_name: zero .rs files found across src/, tests/, examples/, benches/, build.rs — cannot scan; failing closed"
+        fail=1
     else
-        echo "✓ $crate_name: no RFC citation literals in src/"
+        echo "✓ $crate_name: no RFC citation literals ($crate_files file(s): src/, tests/, examples/, benches/, build.rs)"
     fi
 done < <(find . -name Cargo.toml -not -path '*/target/*' | sort)
 
@@ -110,4 +140,4 @@ fi
 if [ "$fail" -ne 0 ]; then
     exit 1
 fi
-echo "CITATION BOUNDARY: PASSED ($scanned non-engine/types crate(s) scanned)"
+echo "CITATION BOUNDARY: PASSED ($scanned non-engine/types crate(s), $files_scanned file(s) read)"
