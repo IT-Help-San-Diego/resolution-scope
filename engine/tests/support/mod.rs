@@ -143,8 +143,15 @@ impl Stub {
         let udp_task = tokio::spawn(async move {
             let mut buf = vec![0u8; 4096];
             loop {
+                // A transient recv_from error (e.g. an ICMP port-unreachable
+                // surfacing on this socket after a timed-out client closed its
+                // own socket) must NOT kill the harness mid-test: the `else
+                // break` variant left the stub deaf for the rest of the scan
+                // (the flaky ledger-vs-stub count gap, watched failing
+                // 2026-11-07). Errors are transient while the socket is our
+                // own; teardown drops the task anyway.
                 let Ok((n, from)) = udp.recv_from(&mut buf).await else {
-                    break;
+                    continue;
                 };
                 if let Some(bytes) = answer(&buf[..n], &a1, &s1, "udp") {
                     let _ = udp.send_to(&bytes, from).await;
