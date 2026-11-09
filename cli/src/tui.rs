@@ -2705,8 +2705,24 @@ mod tests {
             assert!(Instant::now() < deadline, "the sink never accepted A");
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
-        // And the ledger recorded it at connect_tcp, before the switch.
-        let before = vantage.ledger().peek();
+        // And the ledger recorded it at connect_tcp — sync on the LEDGER
+        // itself, not the accept counter: the accept fires at the kernel
+        // handshake while the ledger records when the client's connect future
+        // resolves, a scheduling hair later; asserting immediately after the
+        // accept races the record and flaps on fast machines (measured 6/6).
+        // The mutant (absorb/drained drops tcp_connects) still fails red: the
+        // wait times out with the snapshot.
+        let before = loop {
+            let b = vantage.ledger().peek();
+            if b.tcp_connects >= 1 {
+                break b;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the ledger never recorded A's connect: {b:?}"
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        };
         assert!(before.tcp_connects >= 1, "{before:?}");
         assert_eq!(before.datagrams_sent, 0, "a DoT vantage sends no datagram");
         assert_eq!(
